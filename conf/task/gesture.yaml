@@ -1,0 +1,8 @@
+name: gesture
+data_dir: data/gesture
+seq_len: 32
+input_size: 32
+output_size: 5
+task_type: classification
+per_timestep_labels: true
+batch_size: 16

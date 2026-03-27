@@ -1,0 +1,8 @@
+name: cheetah
+data_dir: data/cheetah
+seq_len: null  # variable
+input_size: 17
+output_size: 17
+task_type: regression
+per_timestep_labels: true
+batch_size: 16

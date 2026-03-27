@@ -1,0 +1,8 @@
+name: power
+data_dir: data/power
+seq_len: 32
+input_size: 6
+output_size: 1
+task_type: regression
+per_timestep_labels: true
+batch_size: 128

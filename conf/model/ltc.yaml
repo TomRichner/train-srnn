@@ -1,0 +1,10 @@
+name: ltc
+type: ltc
+num_units: ${size}
+solver: semi_implicit
+ode_unfolds: 6
+erev_init_factor: 1.0
+gleak_init_min: 0.001
+gleak_init_max: 1.0
+cm_init_min: 0.4
+cm_init_max: 0.6

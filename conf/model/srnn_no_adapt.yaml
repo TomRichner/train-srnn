@@ -1,0 +1,8 @@
+defaults:
+  - srnn
+
+name: srnn_no_adapt
+n_a_E: 0
+n_a_I: 0
+n_b_E: 0
+n_b_I: 0

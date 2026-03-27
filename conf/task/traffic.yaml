@@ -1,0 +1,8 @@
+name: traffic
+data_dir: data/traffic
+seq_len: 32
+input_size: 7
+output_size: 1
+task_type: regression
+per_timestep_labels: true
+batch_size: 128

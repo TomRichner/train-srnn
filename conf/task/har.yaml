@@ -1,0 +1,8 @@
+name: har
+data_dir: data/har
+seq_len: 16
+input_size: 561
+output_size: 6
+task_type: classification
+per_timestep_labels: true
+batch_size: 128

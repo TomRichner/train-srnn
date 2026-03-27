@@ -1,0 +1,29 @@
+defaults:
+  - model: srnn
+  - task: har
+  - _self_
+
+seed: 1
+epochs: 200
+batch_size: 128
+lr: 5e-4
+size: 32  # model hidden size
+
+# Sequence augmentation
+stretch_lo: 0.8
+stretch_hi: 1.2
+min_loops: 5
+min_loop_len: 500
+burn_in: 30.0
+
+# Training
+log_interval: 1  # log every N epochs
+checkpoint_interval: 10
+device: auto  # auto, cpu, cuda, mps
+compile: true  # use torch.compile
+
+# Ablation batching
+batched_ablations: null  # list of model variant names to run in parallel via bmm
+
+# Cloud/output
+output_dir: results/${task.name}/${model.name}_${size}

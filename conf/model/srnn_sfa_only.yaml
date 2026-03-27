@@ -1,0 +1,6 @@
+defaults:
+  - srnn
+
+name: srnn_sfa_only
+n_b_E: 0
+n_b_I: 0

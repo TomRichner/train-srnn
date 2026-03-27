@@ -1,0 +1,8 @@
+name: occupancy
+data_dir: data/occupancy
+seq_len: 16
+input_size: 5
+output_size: 2
+task_type: classification
+per_timestep_labels: false
+batch_size: 128

@@ -1,0 +1,6 @@
+defaults:
+  - srnn
+
+name: srnn_std_only
+n_a_E: 0
+n_a_I: 0

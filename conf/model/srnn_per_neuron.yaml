@@ -1,0 +1,5 @@
+defaults:
+  - srnn
+
+name: srnn_per_neuron
+per_neuron: true

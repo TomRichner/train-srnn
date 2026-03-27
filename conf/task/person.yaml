@@ -1,0 +1,8 @@
+name: person
+data_dir: data/person
+seq_len: 32
+input_size: 7
+output_size: 7
+task_type: classification
+per_timestep_labels: true
+batch_size: 128

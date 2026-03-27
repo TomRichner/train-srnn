@@ -1,0 +1,6 @@
+name: node
+type: node
+num_units: ${size}
+global_feedback: true
+unfolds: 6
+h: 0.1

@@ -1,0 +1,6 @@
+name: ctrnn
+type: ctrnn
+num_units: ${size}
+global_feedback: true
+unfolds: 6
+delta_t: 0.1

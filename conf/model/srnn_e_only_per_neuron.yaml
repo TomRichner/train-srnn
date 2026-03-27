@@ -1,0 +1,7 @@
+defaults:
+  - srnn
+
+name: srnn_e_only_per_neuron
+n_a_I: 0
+n_b_I: 0
+per_neuron: true

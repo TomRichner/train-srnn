@@ -1,0 +1,8 @@
+name: ozone
+data_dir: data/ozone
+seq_len: 32
+input_size: 72
+output_size: 2
+task_type: classification
+per_timestep_labels: false
+batch_size: 16

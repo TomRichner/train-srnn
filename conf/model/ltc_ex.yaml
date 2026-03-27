@@ -1,0 +1,5 @@
+defaults:
+  - ltc
+
+name: ltc_ex
+solver: explicit
