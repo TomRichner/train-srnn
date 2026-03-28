@@ -87,6 +87,9 @@ fi
 echo "=== Training start $(date -Iseconds) ==="
 mkdir -p results/$EXPERIMENT
 
+# Add parent dir to PYTHONPATH so `pytorch_refactor` package is importable
+export PYTHONPATH="/tmp/workdir:${PYTHONPATH:-}"
+
 python3 train.py \
     model=$MODEL \
     task=$EXPERIMENT \
