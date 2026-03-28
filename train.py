@@ -67,6 +67,9 @@ def run_epoch(
                 cfg.min_loop_len,
                 cfg.task.per_timestep_labels,
             )
+            # Extract label at readout timestep for per-timestep tasks
+            if cfg.task.per_timestep_labels:
+                batch_y = batch_y[:, readout_idx]
         else:
             batch_x, batch_y, readout_idx = wrap_eval_batch(
                 batch_x,
@@ -75,6 +78,7 @@ def run_epoch(
                 cfg.min_loop_len,
                 cfg.task.per_timestep_labels,
             )
+            # wrap_eval_batch already extracts labels_at_readout
             bptt_start = None
 
         # To device -----------------------------------------------------------
