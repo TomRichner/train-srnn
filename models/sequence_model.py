@@ -26,6 +26,7 @@ class LSTMCellWrapper(nn.Module):
     def __init__(self, input_size: int, num_units: int):
         super().__init__()
         self.cell = nn.LSTMCell(input_size, num_units)
+        self.num_units = num_units
         self.state_size = num_units * 2  # h + c
 
     def forward(self, input: torch.Tensor, state: torch.Tensor):

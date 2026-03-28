@@ -49,10 +49,10 @@ def compute_burn_in(cell, input_size, burn_in_seconds=30.0, device="cpu"):
 
     with torch.no_grad():
         # Initialise state -- try cell's own method first, fall back to zeros.
-        if hasattr(cell, "initial_state"):
-            state = cell.initial_state(1, device=device)
+        if hasattr(cell, "init_state"):
+            state = cell.init_state(1, device=device)
         else:
-            state = torch.zeros(1, cell.num_units, device=device)
+            state = torch.zeros(1, cell.state_size, device=device)
 
         zero_input = torch.zeros(1, input_size, device=device)
         for _ in range(n_steps):
