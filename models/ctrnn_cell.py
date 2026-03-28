@@ -54,6 +54,7 @@ class CTGRUConfig:
     num_units: int = 32
     M: int = 8          # number of parallel timescales
     tau_base: float = 1.0
+    cell_clip: float = -1.0  # clip hidden state values (negative = disabled)
 
 
 # ======================================================================
@@ -260,6 +261,9 @@ class CTGRUCell(nn.Module):
     shape ``(batch, num_units * M)``; the output is the collapsed sum
     over timescales ``(batch, num_units)``.
 
+    Uses **learned Dense layers** for tau_r and tau_s with data-dependent
+    softmax weighting over timescales, matching the TF 1.x implementation.
+
     Reference: https://arxiv.org/abs/1710.04110
 
     Parameters
@@ -282,22 +286,20 @@ class CTGRUCell(nn.Module):
         cfg = config or CTGRUConfig()
         self.num_units = cfg.num_units
         self.M = cfg.M
+        self.cell_clip = getattr(cfg, "cell_clip", -1)
 
         N = cfg.num_units
         M = cfg.M
         fan_in = input_size + N
 
-        # Gate weights
-        self.W_z = nn.Parameter(torch.empty(fan_in, N * M))
-        self.b_z = nn.Parameter(torch.zeros(N * M))
-        self.W_r = nn.Parameter(torch.empty(fan_in, N * M))
-        self.b_r = nn.Parameter(torch.zeros(N * M))
-        self.W_h = nn.Parameter(torch.empty(fan_in, N * M))
-        self.b_h = nn.Parameter(torch.zeros(N * M))
+        # Learned Dense for tau_r (reset gate timescale selection)
+        self.tau_r_dense = nn.Linear(fan_in, N * M)
 
-        nn.init.xavier_uniform_(self.W_z)
-        nn.init.xavier_uniform_(self.W_r)
-        nn.init.xavier_uniform_(self.W_h)
+        # Learned Dense for tau_s (state update timescale selection)
+        self.tau_s_dense = nn.Linear(fan_in, N * M)
+
+        # Candidate signal detector: Dense(fan_in -> N) with tanh
+        self.signal_dense = nn.Linear(fan_in, N)
 
         # Pre-compute log-timescale table as a buffer (not trainable).
         # ln_tau[i] = log(tau_base * (10^0.5)^i)
@@ -308,9 +310,8 @@ class CTGRUCell(nn.Module):
             tau *= 10.0 ** 0.5
         self.register_buffer("ln_tau_table", ln_tau)  # (M,)
 
-        # Softmax weight: faster timescales (smaller tau) get more weight.
-        # alpha = softmax(-ln_tau)   — computed once and cached.
-        self.register_buffer("alpha", F.softmax(-ln_tau, dim=0))  # (M,)
+        # Exponential decay factor per timescale (fixed)
+        self.register_buffer("exp_decay", torch.exp(-1.0 / ln_tau))  # (M,)
 
         # Optional mask
         if W_in_mask is not None:
@@ -340,36 +341,41 @@ class CTGRUCell(nn.Module):
         N = self.num_units
         M = self.M
 
-        h_state = state.view(B, N, M)        # (B, N, M)
-        h_sum = h_state.sum(dim=2)            # (B, N) — collapsed state
+        # State is a matrix (B, N, M), not a vector
+        h_hat = state.view(B, N, M)            # (B, N, M)
+        h = h_hat.sum(dim=2)                   # (B, N) — collapsed state
 
-        fused = torch.cat([inputs, h_sum], dim=-1)  # (B, fan_in)
+        fused_input = torch.cat([inputs, h], dim=-1)  # (B, fan_in)
 
-        # Update gate z
-        z = torch.sigmoid(fused @ self.W_z + self.b_z).view(B, N, M)
-
-        # Reset gate r
-        r = torch.sigmoid(fused @ self.W_r + self.b_r).view(B, N, M)
+        # tau_r: data-dependent reset gate timescale selection
+        ln_tau_r = self.tau_r_dense(fused_input).view(B, N, M)   # (B, N, M)
+        sf_input_r = -(ln_tau_r - self.ln_tau_table).square()    # (B, N, M)
+        rki = F.softmax(sf_input_r, dim=2)                       # (B, N, M)
 
         # Reset-gated state collapse
-        r_h = (r * h_state).sum(dim=2)  # (B, N)
+        q_input = (rki * h_hat).sum(dim=2)     # (B, N)
+        reset_value = torch.cat([inputs, q_input], dim=-1)  # (B, fan_in)
 
-        # Candidate
-        fused_r = torch.cat([inputs, r_h], dim=-1)  # (B, fan_in)
-        h_hat = torch.tanh(fused_r @ self.W_h + self.b_h)  # (B, N*M)
+        # Candidate signal
+        qk = torch.tanh(self.signal_dense(reset_value))  # (B, N)
         if self.W_in_mask is not None:
-            # Mask is (1, N); tile across M timescales: (1, N) -> (1, N*M)
-            mask_expanded = self.W_in_mask.repeat(1, M)  # (1, N*M)
-            h_hat = h_hat * mask_expanded
-        h_hat = h_hat.view(B, N, M)
+            qk = qk * self.W_in_mask
+        qk = qk.unsqueeze(2)                  # (B, N, 1) for broadcast
 
-        # Timescale-weighted update
-        # alpha: (M,) broadcast to (1, 1, M)
-        h_new = (1.0 - z) * h_state + z * self.alpha * h_hat  # (B, N, M)
+        # tau_s: data-dependent state update timescale selection
+        ln_tau_s = self.tau_s_dense(fused_input).view(B, N, M)   # (B, N, M)
+        sf_input_s = -(ln_tau_s - self.ln_tau_table).square()    # (B, N, M)
+        ski = F.softmax(sf_input_s, dim=2)                       # (B, N, M)
 
-        output = h_new.sum(dim=2)                 # (B, N)
-        new_state = h_new.view(B, N * M)          # (B, N*M)
-        return output, new_state
+        # State update with exponential decay per timescale
+        h_hat_next = ((1.0 - ski) * h_hat + ski * qk) * self.exp_decay  # (B, N, M)
+
+        if self.cell_clip > 0:
+            h_hat_next = h_hat_next.clamp(-self.cell_clip, self.cell_clip)
+
+        h_next = h_hat_next.sum(dim=2)                    # (B, N)
+        new_state = h_hat_next.view(B, N * M)              # (B, N*M)
+        return h_next, new_state
 
     def init_state(self, batch_size: int, device: torch.device | None = None) -> Tensor:
         return torch.zeros(batch_size, self.num_units * self.M, device=device)

@@ -54,7 +54,7 @@ trap cleanup EXIT
 
 # Step 1: Clone repo
 GCP_ZONE=$(curl -sf -H "$META_HEADER" "http://metadata.google.internal/computeMetadata/v1/instance/zone" | rev | cut -d/ -f1 | rev)
-REPO_URL="https://github.com/YOUR_USERNAME/liquid_time_constant_networks.git"
+REPO_URL="https://github.com/TomRichner/liquid_time_constant_networks.git"
 WORKDIR="/tmp/workdir"
 
 for attempt in 1 2 3; do

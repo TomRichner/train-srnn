@@ -31,34 +31,38 @@ def inv_softplus(x: float) -> float:
 def piecewise_sigmoid(x: torch.Tensor, S_a: float = 0.9, S_c: float = 0.0) -> torch.Tensor:
     """Bounded [0, 1] activation with linear center and quadratic edges.
 
+    S_a controls the fraction of the output range that is linear (default 0.9
+    means 90% linear, 10% quadratic rounding at edges).  Matches the TF 1.x
+    ``piecewise_sigmoid`` from ``srnn_model.py``.
+
     Parameters
     ----------
     x : Tensor
         Input values.
     S_a : float
-        Controls the width of the linear region (max output ~ S_a).
+        Width of the linear region as a fraction of [0, 1] output range.
     S_c : float
         Center of the linear region.
     """
-    S_b = 1.0 - S_a
-    x1 = S_c - S_a / 2.0
-    x2 = S_c - S_b / 2.0
-    x3 = S_c + S_b / 2.0
-    x4 = S_c + S_a / 2.0
+    a = S_a / 2.0
+    c = S_c
+    k = 0.5 / (1.0 - 2.0 * a) if abs(1.0 - 2.0 * a) > 1e-8 else 0.0
 
-    # Quadratic coefficients for the rounding regions
-    inv_2sb = 1.0 / (2.0 * S_b) if S_b > 0 else 0.0
+    x1 = c + a - 1.0   # left saturation boundary
+    x2 = c - a          # left quadratic → linear transition
+    x3 = c + a          # linear → right quadratic transition
+    x4 = c + 1.0 - a   # right saturation boundary
 
     # Piecewise: 0 | quadratic rise | linear | quadratic cap | 1
-    # We compute all branches and blend via masks to stay compile-friendly.
-    quad_rise = inv_2sb * (x - x1) * (x - x1)
-    linear = x - S_c + 0.5
-    quad_cap = 1.0 - inv_2sb * (x4 - x) * (x4 - x)
+    # All branches computed and blended via masks for torch.compile.
+    quad_rise = k * (x - x1) * (x - x1)
+    linear = (x - c) + 0.5
+    quad_cap = 1.0 - k * (x - x4) * (x - x4)
 
     out = torch.where(x < x1, torch.zeros_like(x), quad_rise)
     out = torch.where(x >= x2, linear, out)
-    out = torch.where(x >= x3, quad_cap, out)
-    out = torch.where(x >= x4, torch.ones_like(x), out)
+    out = torch.where(x > x3, quad_cap, out)
+    out = torch.where(x > x4, torch.ones_like(x), out)
     return out
 
 
@@ -72,8 +76,8 @@ class SRNNConfig:
 
     num_units: int = 32
     dales: bool = True
-    n_a_E: int = 1       # SFA timescales for E (0=off, 1=single, 2=multi)
-    n_a_I: int = 1       # SFA timescales for I
+    n_a_E: int = 3       # SFA timescales for E (0=off, 1=single, >=2=multi)
+    n_a_I: int = 3       # SFA timescales for I
     n_b_E: int = 1       # STD for E (0=off, 1=on)
     n_b_I: int = 1       # STD for I
     per_neuron: bool = False
@@ -138,13 +142,24 @@ class SRNNCell(nn.Module):
         [a_E_flat, a_I_flat, b_E, b_I, x]
     """
 
-    def __init__(self, config: SRNNConfig, input_size: int):
+    def __init__(
+        self,
+        config: SRNNConfig,
+        input_size: int,
+        W_in_mask: Optional[torch.Tensor] = None,
+    ):
         super().__init__()
         self.config = config
         self.input_size = input_size
         N = config.num_units
         n_E = config.n_E
         n_I = config.n_I
+
+        # Optional input mask: (N,) binary, applied to W_in rows
+        if W_in_mask is not None:
+            self.register_buffer("W_in_mask", W_in_mask.view(-1, 1))  # (N, 1)
+        else:
+            self.W_in_mask: Optional[torch.Tensor] = None
 
         # ---- Recurrent weight ----
         W_init = torch.randn(N, N) * math.sqrt(2.0 / N)
@@ -171,37 +186,50 @@ class SRNNCell(nn.Module):
 
         # ---- SFA parameters for E ----
         if config.n_a_E > 0:
-            tau_a_E_shape = (n_E, config.n_a_E) if config.per_neuron else (1, config.n_a_E)
+            base_E = (n_E,) if config.per_neuron else (1,)
             if config.n_a_E == 1:
-                init_vals = torch.full(tau_a_E_shape, inv_softplus(1.0))
+                self.log_tau_a_E = nn.Parameter(
+                    torch.full((*base_E, 1), inv_softplus(1.0)))
+                self.log_tau_a_E_lo = None
+                self.log_tau_a_E_hi = None
             else:
-                lo = torch.full((*tau_a_E_shape[:-1], 1), inv_softplus(0.25))
-                hi = torch.full((*tau_a_E_shape[:-1], 1), inv_softplus(10.0))
-                init_vals = torch.cat([lo, hi], dim=-1)
-            self.log_tau_a_E = nn.Parameter(init_vals)
+                # Store lo/hi endpoints; interpolate n_a_E values at runtime
+                self.log_tau_a_E = None
+                self.log_tau_a_E_lo = nn.Parameter(
+                    torch.full((*base_E, 1), inv_softplus(0.25)))
+                self.log_tau_a_E_hi = nn.Parameter(
+                    torch.full((*base_E, 1), inv_softplus(10.0)))
             c_E_shape = (n_E, config.n_a_E) if config.per_neuron else (1, config.n_a_E)
             self.log_c_E = nn.Parameter(torch.full(c_E_shape, -3.0))
             self.c_0_E = nn.Parameter(torch.zeros(c_E_shape))
         else:
             self.log_tau_a_E = None
+            self.log_tau_a_E_lo = None
+            self.log_tau_a_E_hi = None
             self.log_c_E = None
             self.c_0_E = None
 
         # ---- SFA parameters for I ----
         if config.n_a_I > 0:
-            tau_a_I_shape = (n_I, config.n_a_I) if config.per_neuron else (1, config.n_a_I)
+            base_I = (n_I,) if config.per_neuron else (1,)
             if config.n_a_I == 1:
-                init_vals = torch.full(tau_a_I_shape, inv_softplus(1.0))
+                self.log_tau_a_I = nn.Parameter(
+                    torch.full((*base_I, 1), inv_softplus(1.0)))
+                self.log_tau_a_I_lo = None
+                self.log_tau_a_I_hi = None
             else:
-                lo = torch.full((*tau_a_I_shape[:-1], 1), inv_softplus(0.25))
-                hi = torch.full((*tau_a_I_shape[:-1], 1), inv_softplus(10.0))
-                init_vals = torch.cat([lo, hi], dim=-1)
-            self.log_tau_a_I = nn.Parameter(init_vals)
+                self.log_tau_a_I = None
+                self.log_tau_a_I_lo = nn.Parameter(
+                    torch.full((*base_I, 1), inv_softplus(0.25)))
+                self.log_tau_a_I_hi = nn.Parameter(
+                    torch.full((*base_I, 1), inv_softplus(10.0)))
             c_I_shape = (n_I, config.n_a_I) if config.per_neuron else (1, config.n_a_I)
             self.log_c_I = nn.Parameter(torch.full(c_I_shape, -3.0))
             self.c_0_I = nn.Parameter(torch.zeros(c_I_shape))
         else:
             self.log_tau_a_I = None
+            self.log_tau_a_I_lo = None
+            self.log_tau_a_I_hi = None
             self.log_c_I = None
             self.c_0_I = None
 
@@ -294,6 +322,29 @@ class SRNNCell(nn.Module):
             device = self.W_raw.device
         return torch.zeros(batch_size, self.config.state_size, device=device)
 
+    # ---- Tau interpolation helpers (matches TF _make_tau_range) ----
+
+    def _get_tau_a_E(self) -> torch.Tensor:
+        """Get SFA time constants for E neurons, interpolating if multi-timescale."""
+        if self.log_tau_a_E is not None:
+            return F.softplus(self.log_tau_a_E)
+        # Multi-timescale: interpolate n_a_E values between lo and hi
+        lo = F.softplus(self.log_tau_a_E_lo)  # (dim, 1)
+        hi = F.softplus(self.log_tau_a_E_hi)  # (dim, 1)
+        n = self.config.n_a_E
+        t = torch.linspace(0.0, 1.0, n, device=lo.device)  # (n,)
+        return lo + (hi - lo) * t  # (dim, n)
+
+    def _get_tau_a_I(self) -> torch.Tensor:
+        """Get SFA time constants for I neurons, interpolating if multi-timescale."""
+        if self.log_tau_a_I is not None:
+            return F.softplus(self.log_tau_a_I)
+        lo = F.softplus(self.log_tau_a_I_lo)
+        hi = F.softplus(self.log_tau_a_I_hi)
+        n = self.config.n_a_I
+        t = torch.linspace(0.0, 1.0, n, device=lo.device)
+        return lo + (hi - lo) * t
+
     # ---- ODE right-hand side ----
 
     def _compute_rhs(
@@ -347,12 +398,12 @@ class SRNNCell(nn.Module):
         # 6. SFA derivatives
         da_E = da_I = None
         if a_E is not None:
-            tau_a_E = F.softplus(self.log_tau_a_E)
+            tau_a_E = self._get_tau_a_E()  # (dim, n_a_E), interpolated if multi
             r_E = r[:, :n_E].unsqueeze(-1)  # (batch, n_E, 1)
             da_E = (-a_E + self.c_0_E + r_E) / tau_a_E
 
         if a_I is not None:
-            tau_a_I = F.softplus(self.log_tau_a_I)
+            tau_a_I = self._get_tau_a_I()
             r_I = r[:, n_E:].unsqueeze(-1)
             da_I = (-a_I + self.c_0_I + r_I) / tau_a_I
 
@@ -410,13 +461,13 @@ class SRNNCell(nn.Module):
         # Semi-implicit SFA update
         a_E_new = a_I_new = None
         if a_E is not None:
-            tau_a_E = F.softplus(self.log_tau_a_E)
+            tau_a_E = self._get_tau_a_E()  # (dim, n_a_E), interpolated if multi
             alpha_a_E = dt / tau_a_E
             r_E = r[:, :n_E].unsqueeze(-1)
             a_E_new = (a_E + alpha_a_E * (self.c_0_E + r_E)) / (1.0 + alpha_a_E)
 
         if a_I is not None:
-            tau_a_I = F.softplus(self.log_tau_a_I)
+            tau_a_I = self._get_tau_a_I()
             alpha_a_I = dt / tau_a_I
             r_I = r[:, n_E:].unsqueeze(-1)
             a_I_new = (a_I + alpha_a_I * (self.c_0_I + r_I)) / (1.0 + alpha_a_I)
@@ -528,13 +579,13 @@ class SRNNCell(nn.Module):
         # Exponential update for SFA
         a_E_new = a_I_new = None
         if a_E is not None:
-            tau_a_E = F.softplus(self.log_tau_a_E)
+            tau_a_E = self._get_tau_a_E()
             decay_a_E = torch.exp(-dt / tau_a_E)
             r_E = r[:, :n_E].unsqueeze(-1)
             a_E_new = a_E * decay_a_E + (1.0 - decay_a_E) * (self.c_0_E + r_E)
 
         if a_I is not None:
-            tau_a_I = F.softplus(self.log_tau_a_I)
+            tau_a_I = self._get_tau_a_I()
             decay_a_I = torch.exp(-dt / tau_a_I)
             r_I = r[:, n_E:].unsqueeze(-1)
             a_I_new = a_I * decay_a_I + (1.0 - decay_a_I) * (self.c_0_I + r_I)
@@ -564,7 +615,11 @@ class SRNNCell(nn.Module):
         cfg = self.config
         a_E, a_I, b_E, b_I, x = self.unpack_state(state)
         W_eff = self._effective_W()
-        u = inputs @ self.W_in.T  # (batch, N)
+        # Apply W_in_mask to input weight rows (zero input to non-input neurons)
+        W_in_eff = self.W_in
+        if self.W_in_mask is not None:
+            W_in_eff = self.W_in * self.W_in_mask  # (N, input_size) * (N, 1)
+        u = inputs @ W_in_eff.T  # (batch, N)
         dt = cfg.h / cfg.ode_unfolds
 
         # Select solver -- Python branching on *config strings* is fine
@@ -615,7 +670,12 @@ class BatchedSRNNCell(nn.Module):
     are encoded as multiplicative masks (buffers) rather than Python branches.
     """
 
-    def __init__(self, configs: list[SRNNConfig], input_size: int):
+    def __init__(
+        self,
+        configs: list[SRNNConfig],
+        input_size: int,
+        W_in_mask: Optional[torch.Tensor] = None,
+    ):
         super().__init__()
         assert len(configs) > 0
         N = configs[0].num_units
@@ -665,6 +725,13 @@ class BatchedSRNNCell(nn.Module):
         # Input weights: (K, N, input_size)
         self.W_in = nn.Parameter(torch.randn(self.K, N, input_size) * 0.1)
 
+        # W_in_mask: shared across all K ablations (same neuron partition)
+        if W_in_mask is not None:
+            # (N, 1) for broadcast with W_in (K, N, input_size)
+            self.register_buffer("W_in_mask", W_in_mask.view(1, -1, 1))  # (1, N, 1)
+        else:
+            self.W_in_mask: Optional[torch.Tensor] = None
+
         # Threshold: (K, N)
         self.a_0 = nn.Parameter(torch.full((self.K, N), 0.35))
 
@@ -677,13 +744,16 @@ class BatchedSRNNCell(nn.Module):
             log_c_init = torch.full((self.K, n_E, self.max_n_a_E), -3.0)
             c_0_init = torch.zeros(self.K, n_E, self.max_n_a_E)
             for ki, c in enumerate(configs):
-                for ai in range(self.max_n_a_E):
-                    if ai < c.n_a_E:
-                        if c.n_a_E == 1:
-                            log_tau_init[ki, :, ai] = inv_softplus(1.0)
-                        else:
-                            log_tau_init[ki, :, ai] = inv_softplus(0.25) if ai == 0 else inv_softplus(10.0)
-                    # else leave at 0 (masked out)
+                if c.n_a_E == 1:
+                    log_tau_init[ki, :, 0] = inv_softplus(1.0)
+                elif c.n_a_E >= 2:
+                    # Interpolate n_a_E values between lo and hi (matches TF _make_tau_range)
+                    lo_val = inv_softplus(0.25)
+                    hi_val = inv_softplus(10.0)
+                    for ai in range(c.n_a_E):
+                        t = ai / (c.n_a_E - 1) if c.n_a_E > 1 else 0.5
+                        log_tau_init[ki, :, ai] = lo_val + (hi_val - lo_val) * t
+                # else (n_a_E == 0): leave at 0 (masked out)
             self.log_tau_a_E = nn.Parameter(log_tau_init)
             self.log_c_E = nn.Parameter(log_c_init)
             self.c_0_E = nn.Parameter(c_0_init)
@@ -698,12 +768,14 @@ class BatchedSRNNCell(nn.Module):
             log_c_init = torch.full((self.K, n_I, self.max_n_a_I), -3.0)
             c_0_init = torch.zeros(self.K, n_I, self.max_n_a_I)
             for ki, c in enumerate(configs):
-                for ai in range(self.max_n_a_I):
-                    if ai < c.n_a_I:
-                        if c.n_a_I == 1:
-                            log_tau_init[ki, :, ai] = inv_softplus(1.0)
-                        else:
-                            log_tau_init[ki, :, ai] = inv_softplus(0.25) if ai == 0 else inv_softplus(10.0)
+                if c.n_a_I == 1:
+                    log_tau_init[ki, :, 0] = inv_softplus(1.0)
+                elif c.n_a_I >= 2:
+                    lo_val = inv_softplus(0.25)
+                    hi_val = inv_softplus(10.0)
+                    for ai in range(c.n_a_I):
+                        t = ai / (c.n_a_I - 1) if c.n_a_I > 1 else 0.5
+                        log_tau_init[ki, :, ai] = lo_val + (hi_val - lo_val) * t
             self.log_tau_a_I = nn.Parameter(log_tau_init)
             self.log_c_I = nn.Parameter(log_c_init)
             self.c_0_I = nn.Parameter(c_0_init)
@@ -924,8 +996,12 @@ class BatchedSRNNCell(nn.Module):
             # Broadcast: (B, input_size) -> (K, B, input_size)
             inputs = inputs.unsqueeze(0).expand(self.K, -1, -1)
         K, B, D = inputs.shape
+        # Apply W_in_mask to input weight rows before computing drive
+        W_in = self.W_in  # (K, N, input_size)
+        if self.W_in_mask is not None:
+            W_in = W_in * self.W_in_mask  # (K, N, D) * (1, N, 1)
         # (K*B, 1, D) @ (K*B, D, N) -> (K*B, 1, N) -> (K, B, N)
-        W_in_exp = self.W_in.unsqueeze(1).expand(K, B, self.N, D).reshape(K * B, self.N, D)
+        W_in_exp = W_in.unsqueeze(1).expand(K, B, self.N, D).reshape(K * B, self.N, D)
         inp_exp = inputs.reshape(K * B, D, 1)
         u = torch.bmm(W_in_exp, inp_exp).squeeze(-1).reshape(K, B, self.N)
         return u

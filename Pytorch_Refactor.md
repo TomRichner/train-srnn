@@ -57,53 +57,35 @@
 
 ## Code Review (2026-03-27)
 
-### Critical Bugs (will produce wrong results)
+### Critical Bugs — ✅ ALL FIXED (2026-03-28)
 
-**1. Piecewise sigmoid is mathematically wrong** — `models/srnn_cell.py`
-- TF uses `S_a=0.9` as the **linear** region width (90% of output range is linear, quadratic rounding only at edges).
-- PyTorch treats `S_b = 1 - S_a = 0.1` as the linear width — making the activation almost entirely quadratic.
-- The critical points `x1, x2, x3, x4` are computed with swapped roles of `S_a` and `S_b`.
-- **Impact:** Fundamentally different activation shape. SRNN dynamics will not match TF.
+**1. ~~Piecewise sigmoid was mathematically wrong~~** — `models/srnn_cell.py` — **FIXED**
+- Critical points now use `a = S_a / 2.0`, matching TF exactly. Linear region is 90% of output range.
 
-**2. Multi-timescale SFA has no interpolation** — `models/srnn_cell.py`
-- When `n_a_E >= 2`, TF interpolates N evenly-spaced time constants between `tau_lo` and `tau_hi` via `_make_tau_range()`.
-- PyTorch just concatenates `[lo, hi]` as a 2-element parameter — no intermediate timescales generated.
-- **Impact:** Multi-timescale SFA is broken. Only boundary values are used.
+**2. ~~Multi-timescale SFA had no interpolation~~** — `models/srnn_cell.py` — **FIXED**
+- Added `_get_tau_a_E()` / `_get_tau_a_I()` helpers that interpolate N evenly-spaced timescales between trainable lo/hi endpoints at runtime, matching TF `_make_tau_range()`. BatchedSRNNCell initializes intermediate values via interpolation.
 
-**3. CTGRUCell is a simplified/incorrect implementation** — `models/ctrnn_cell.py`
-- TF CTGRU uses **learned Dense layers** (`tau_r`, `tau_s`) with data-dependent softmax weighting over timescales.
-- PyTorch uses **static pre-computed** `alpha = softmax(-ln_tau)` with no learned adaptation.
-- **Impact:** Completely different model. PyTorch CTGRU has no input-dependent timescale selection.
+**3. ~~CTGRUCell was simplified/incorrect~~** — `models/ctrnn_cell.py` — **FIXED**
+- Complete rewrite with learned `tau_r_dense` and `tau_s_dense` Dense layers, data-dependent softmax weighting over timescales, exponential decay per timescale — matches TF architecture.
 
-**4. LTC initialization values are wrong** — `models/ltc_cell.py`
+**4. ~~LTC initialization values were wrong~~** — `models/ltc_cell.py` — **FIXED**
+- `w_init_min=0.01`, `cm_init=0.5` (constant), `gleak_init=1.0` (constant) — matches TF.
 
-| Parameter | TF (correct) | PyTorch (wrong) |
-|-----------|-------------|----------------|
-| `w_init_min` | 0.01 | 0.001 (10x too small) |
-| `cm_init` | constant 0.5 | U(0.4, 0.6) |
-| `gleak_init` | constant 1.0 | U(0.001, 1.0) |
+**5. ~~LTC method name mismatch~~** — `models/ltc_cell.py` — **FIXED**
+- Renamed `apply_weight_constraints()` → `constrain_parameters()` to match `SequenceModel` call.
 
-**5. LTC `constrain_parameters()` method name mismatch** — `models/ltc_cell.py`, `models/sequence_model.py`
-- `SequenceModel.constrain_parameters()` calls `self.cell.constrain_parameters()`.
-- `LTCCell` names its method `apply_weight_constraints()`.
-- **Impact:** Parameter clamping (cm_t, gleak, W, sensory_W) silently never runs for LTC.
+### High Priority Issues — ✅ ALL FIXED (2026-03-28)
 
-### High Priority Issues
+**6. ~~Default SRNN config had wrong adaptation timescales~~** — **FIXED**
+- `conf/model/srnn.yaml` and `SRNNConfig` default: `n_a_E: 3, n_a_I: 3`.
 
-**6. Default SRNN config has wrong adaptation timescales** — `conf/model/srnn.yaml`
-- Config sets `n_a_E: 1, n_a_I: 1`.
-- TF experiments all use `n_a_E: 3, n_a_I: 3`.
-- Default config produces a simpler model than what was actually trained.
+**7. ~~W_in_mask never passed through factory~~** — **FIXED**
+- `build_model()` now creates W_in_mask from neuron partition and passes to `build_cell()`.
+- All cell types (LTC, SRNN, CTRNN, NODE, CTGRU) and `BatchedSRNNCell` accept and apply W_in_mask.
+- SRNNCell applies mask to `W_in` rows; other cells use existing mask mechanisms.
 
-**7. W_in_mask never passed through factory** — `models/factory.py`, `models/sequence_model.py`
-- All cells accept `W_in_mask` in their constructors, but `factory.py` never creates or passes it.
-- `SequenceModel` generates `input_mask` as a buffer but never feeds it to the cell.
-- **Impact:** Input neuron partitioning is effectively disabled. All neurons receive input.
-
-**8. `wrap_train_batch` RNG state management is fragile** — `data/transforms.py`
-- Applies identical stretch/loop/window across a batch by saving and restoring numpy RNG state.
-- State restoration after `random_window()` consumes RNG calls is error-prone.
-- Could produce misaligned augmentations between samples in a batch.
+**8. `wrap_train_batch` RNG state management was fragile** — `data/transforms.py` — **FIXED** (prior vectorization)
+- Replaced per-sample loops and fragile RNG save/restore with clean vectorized batch operations.
 
 ### What's Correct
 
@@ -131,7 +113,7 @@
 - **Gradient clipping** — not in TF version either, but standard for RNN training stability.
 - **Mixed precision** — `torch.amp` autocast would speed up GPU runs alongside `torch.compile`.
 - **Logging** — just CSV and stdout. Could add wandb/tensorboard.
-- **Vectorized augmentation** — `wrap_train_batch` loops over batch elements in Python for stretch/loop. Could be much faster.
+- ~~**Vectorized augmentation**~~ — Done. `wrap_train_batch` now uses vectorized batch operations.
 - **Checkpoint format** — uses `torch.save`; could use `safetensors` for faster/safer serialization.
 
 ---

@@ -107,6 +107,77 @@ def _resample_labels(y, t_orig, t_new, T):
 
 
 # ---------------------------------------------------------------------------
+# Batch-level time stretch
+# ---------------------------------------------------------------------------
+
+def time_stretch_batch(batch_x, batch_y, factor, per_timestep_labels=True):
+    """Stretch an entire batch by the same factor.  Vectorized over batch.
+
+    Args:
+        batch_x: (B, T, F) numpy array.
+        batch_y: (B, T, ...) or (B,) numpy array.
+        factor: float > 0.
+        per_timestep_labels: Whether y has a time dimension.
+
+    Returns:
+        x_new: (B, T_new, F)
+        y_new: Appropriately resampled labels.
+    """
+    if abs(factor - 1.0) < 1e-6:
+        return batch_x, batch_y
+
+    B, T, F = batch_x.shape
+    T_new = max(2, int(round(T * factor)))
+
+    t_orig = np.linspace(0.0, 1.0, T)
+    t_new = np.linspace(0.0, 1.0, T_new)
+
+    # Reshape (B, T, F) → (T, B*F) so _pchip_resample handles all columns
+    flat = np.ascontiguousarray(batch_x.transpose(1, 0, 2)).reshape(T, B * F)
+    stretched_flat = _pchip_resample(flat, t_orig, t_new)  # (T_new, B*F)
+    x_new = stretched_flat.reshape(T_new, B, F).transpose(1, 0, 2)  # (B, T_new, F)
+
+    if not per_timestep_labels:
+        return x_new, batch_y
+
+    # Resample labels
+    y_new = _resample_labels_batch(batch_y, t_orig, t_new, T)
+    return x_new, y_new
+
+
+def _resample_labels_batch(y, t_orig, t_new, T):
+    """Resample batched labels: nearest-neighbor for ints, PCHIP for floats.
+
+    Args:
+        y: (B, T, ...) numpy array.
+        t_orig: (T,) original sample positions.
+        t_new: (T_new,) new sample positions.
+        T: original sequence length.
+
+    Returns:
+        (B, T_new, ...) resampled labels.
+    """
+    if np.issubdtype(y.dtype, np.integer):
+        indices = np.searchsorted(t_orig, t_new, side="right") - 1
+        indices = np.clip(indices, 0, T - 1)
+        return y[:, indices]  # (B, T_new, ...) via fancy indexing on axis 1
+
+    # Float labels — PCHIP via reshape trick
+    B = y.shape[0]
+    if y.ndim == 2:
+        # (B, T) → (T, B) → _pchip_resample → (T_new, B) → (B, T_new)
+        flat = np.ascontiguousarray(y.T)  # (T, B)
+        resampled = _pchip_resample(flat, t_orig, t_new)  # (T_new, B)
+        return resampled.T  # (B, T_new)
+    else:
+        # (B, T, D) → (T, B*D) → _pchip_resample → (T_new, B*D) → (B, T_new, D)
+        D = y.shape[2:]
+        flat = np.ascontiguousarray(y.transpose(1, 0, *range(2, y.ndim))).reshape(T, -1)
+        resampled = _pchip_resample(flat, t_orig, t_new)
+        return resampled.reshape(len(t_new), B, *D).transpose(1, 0, *range(2, y.ndim))
+
+
+# ---------------------------------------------------------------------------
 # Palindrome looping
 # ---------------------------------------------------------------------------
 
@@ -158,6 +229,35 @@ def palindrome_loop(x, y, n_loops, per_timestep_labels=True):
         y_pieces.append(y_fwd)
         y_pieces.append(y_bwd)
     y_looped = np.concatenate(y_pieces, axis=0)
+
+    return x_looped, y_looped
+
+
+def palindrome_loop_batch(x, y, n_loops, per_timestep_labels=True):
+    """Palindrome-loop an entire batch.  No per-sample loop.
+
+    Args:
+        x: (B, T, F) numpy array.
+        y: (B, T, ...) or (B,) numpy array.
+        n_loops: Number of fwd+bwd pairs.
+        per_timestep_labels: Whether y has a time dimension.
+
+    Returns:
+        x_looped: (B, n_loops * 2 * T, F)
+        y_looped: Mirrored labels (or unchanged scalar array).
+    """
+    x_fwd = x
+    x_bwd = x[:, ::-1, :]
+    x_pieces = [x_fwd, x_bwd] * n_loops
+    x_looped = np.concatenate(x_pieces, axis=1)
+
+    if not per_timestep_labels:
+        return x_looped, y
+
+    y_fwd = y
+    y_bwd = y[:, ::-1] if y.ndim >= 2 else y
+    y_pieces = [y_fwd, y_bwd] * n_loops
+    y_looped = np.concatenate(y_pieces, axis=1)
 
     return x_looped, y_looped
 
@@ -224,9 +324,8 @@ def wrap_train_batch(batch_x, batch_y, rng,
                      per_timestep_labels=True):
     """Full training augmentation: stretch -> loop -> random window.
 
-    Applies the same stretch factor and looping to every sequence in the
-    batch, but each sequence is processed independently so that stretch
-    is applied per-sample before batching for the loop/window stage.
+    All operations are vectorized over the batch dimension — no per-sample
+    Python loops.
 
     Args:
         batch_x: (batch, seq_len, features) numpy array.
@@ -244,116 +343,44 @@ def wrap_train_batch(batch_x, batch_y, rng,
         readout_idx: int -- timestep index for readout.
         bptt_start_idx: int -- where BPTT should begin.
     """
-    B = batch_x.shape[0]
-
-    # 1. Time stretch (same factor for entire batch)
+    # 1. Time stretch (vectorized) — 1 RNG call
     do_stretch = (abs(stretch_lo - stretch_hi) > 1e-6 or
                   abs(stretch_lo - 1.0) > 1e-6)
     if do_stretch:
         factor = random_stretch_factor(stretch_lo, stretch_hi, rng)
-    else:
-        factor = 1.0
+        batch_x, batch_y = time_stretch_batch(
+            batch_x, batch_y, factor, per_timestep_labels)
 
-    stretched_xs = []
-    stretched_ys = []
-    for i in range(B):
-        xi = batch_x[i]  # (seq_len, features)
-        yi = batch_y[i] if per_timestep_labels else batch_y[i]
-        xi_s, yi_s = time_stretch(xi, yi, factor, per_timestep_labels)
-        stretched_xs.append(xi_s)
-        stretched_ys.append(yi_s)
+    # 2. Palindrome loop (vectorized, no per-sample loop)
+    seq_len = batch_x.shape[1]
+    n_loops = compute_n_loops(seq_len, min_loop_len, min_loops)
+    loop_len = 2 * seq_len
+    looped_x, looped_y = palindrome_loop_batch(
+        batch_x, batch_y, n_loops, per_timestep_labels)
 
-    # After stretch all sequences have the same length (same factor)
-    eff_seq_len = stretched_xs[0].shape[0]
-    n_loops = compute_n_loops(eff_seq_len, min_loop_len, min_loops)
-    loop_len = 2 * eff_seq_len
-
-    # 2. Palindrome loop + random window (per sample, but same rng state
-    #    means same window offsets -- we want the same readout_idx for the
-    #    whole batch, so we generate it once)
-    #    To keep batch alignment, loop all, then window all with the same
-    #    random offset.
-
-    # Determine window params from first sample
-    rng_snapshot = rng.get_state()
-
-    # Loop and window the first sample to get dimensions / indices
-    x0_l, y0_l = palindrome_loop(
-        stretched_xs[0], stretched_ys[0], n_loops, per_timestep_labels)
-    x0_w, y0_w, readout_idx, bptt_start_idx = random_window(
-        x0_l, y0_l, loop_len, rng, per_timestep_labels=per_timestep_labels)
-
-    # Now process all samples with the same random offsets
-    # Reset rng for consistent windowing params, but we already consumed it
-    # above.  We'll just re-derive the offset from the first call.
-    # Since random_window only calls rng twice (for i and readout_idx),
-    # we need to replicate the same i and readout_idx for all samples.
-    # The simplest approach: compute the loop+window for all samples
-    # using the same i and readout_idx we already got.
-
-    T_total = x0_l.shape[0]
+    # 3. Random window (vectorized numpy slice) — 2 RNG calls
+    T_total = looped_x.shape[1]
     n_total_loops = T_total // loop_len
-    # Recover i from readout_idx and window length
-    win_len = x0_w.shape[0]
-    # i = T_total - loop_len - win_len + i ... actually just redo cleanly:
 
-    # We already have readout_idx and bptt_start_idx from the first sample.
-    # Now loop+window all other samples with the same slice.
-    # Recover the start offset: win_len = (n_total_loops - 1) * loop_len
-    # i + win_len = end, end = T_total - (loop_len - i)
-    # => i = (T_total - win_len - loop_len) ... solve:
-    # win_len = end - i = T_total - loop_len + i - i ... no.
-    # From random_window: end = T_total - (loop_len - i), win_len = end - i
-    # => win_len = T_total - loop_len
-    # So i doesn't affect win_len! It only shifts the window.
-    # We need to recover i. From end = T_total - (loop_len - i):
-    # We know win_len and T_total, and win_len = end - i.
-    # end = win_len + i, also end = T_total - loop_len + i
-    # So win_len = T_total - loop_len.  i doesn't appear in win_len.
-    # The slice is x_looped[i : i + win_len].
-    # We can recover i from the snapshot... but it's simpler to just
-    # loop+window each sample consistently.
-
-    # Better approach: loop all, stack, then slice uniformly.
-    looped_xs = []
-    looped_ys = []
-    for i in range(B):
-        xl, yl = palindrome_loop(
-            stretched_xs[i], stretched_ys[i], n_loops, per_timestep_labels)
-        looped_xs.append(xl)
-        looped_ys.append(yl)
-
-    # Stack into batch arrays
-    looped_xs = np.stack(looped_xs, axis=0)  # (B, T_total, feat)
-    if per_timestep_labels:
-        looped_ys = np.stack(looped_ys, axis=0)  # (B, T_total, ...)
-
-    # Compute window slice indices (same for all samples)
-    if n_total_loops >= 2:
-        # Restore rng to get the same i as we got for sample 0
-        rng.set_state(rng_snapshot)
-        offset_i = rng.randint(0, loop_len)
-        end_i = T_total - (loop_len - offset_i)
-        win_len_check = end_i - offset_i
-
-        last_loop_start = win_len_check - loop_len
-        readout_idx = rng.randint(last_loop_start, win_len_check)
-        bptt_len = 2 * loop_len
-        bptt_start_idx = max(0, win_len_check - bptt_len)
-
-        aug_x = looped_xs[:, offset_i:end_i]
-        if per_timestep_labels:
-            aug_y = looped_ys[:, offset_i:end_i]
-        else:
-            aug_y = batch_y  # single labels unchanged
-    else:
-        aug_x = looped_xs
-        if per_timestep_labels:
-            aug_y = looped_ys
-        else:
-            aug_y = batch_y
+    if n_total_loops < 2:
         readout_idx = T_total - 1
-        bptt_start_idx = 0
+        if per_timestep_labels:
+            return looped_x, looped_y, readout_idx, 0
+        return looped_x, batch_y, readout_idx, 0
+
+    offset = rng.randint(0, loop_len)
+    end = T_total - (loop_len - offset)
+    win_len = end - offset  # = (n_total_loops - 1) * loop_len
+
+    aug_x = looped_x[:, offset:end]
+    if per_timestep_labels:
+        aug_y = looped_y[:, offset:end]
+    else:
+        aug_y = batch_y
+
+    last_loop_start = win_len - loop_len
+    readout_idx = rng.randint(last_loop_start, win_len)
+    bptt_start_idx = max(0, win_len - 2 * loop_len)
 
     return aug_x, aug_y, readout_idx, bptt_start_idx
 
@@ -375,24 +402,15 @@ def wrap_eval_batch(batch_x, batch_y,
         labels_at_readout: (batch,) or (batch, label_dim) -- label at readout.
         readout_idx: int -- last timestep of the looped sequence.
     """
-    B = batch_x.shape[0]
     seq_len = batch_x.shape[1]
     n_loops = compute_n_loops(seq_len, min_loop_len, min_loops)
 
-    looped_xs = []
-    looped_ys = []
-    for i in range(B):
-        xl, yl = palindrome_loop(
-            batch_x[i], batch_y[i], n_loops, per_timestep_labels)
-        looped_xs.append(xl)
-        if per_timestep_labels:
-            looped_ys.append(yl)
+    looped_x, looped_y = palindrome_loop_batch(
+        batch_x, batch_y, n_loops, per_timestep_labels)
 
-    looped_x = np.stack(looped_xs, axis=0)  # (B, T_looped, feat)
     readout_idx = looped_x.shape[1] - 1
 
     if per_timestep_labels:
-        looped_y = np.stack(looped_ys, axis=0)
         labels_at_readout = looped_y[:, readout_idx]
     else:
         labels_at_readout = batch_y

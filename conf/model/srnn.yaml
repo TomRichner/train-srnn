@@ -2,8 +2,8 @@ name: srnn
 type: srnn
 num_units: ${size}
 dales: true
-n_a_E: 1
-n_a_I: 1
+n_a_E: 3
+n_a_I: 3
 n_b_E: 1
 n_b_I: 1
 per_neuron: false

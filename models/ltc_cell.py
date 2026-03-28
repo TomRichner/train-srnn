@@ -30,12 +30,12 @@ class LTCConfig:
     solver: str = "semi_implicit"  # semi_implicit | explicit | rk4
     ode_unfolds: int = 6
     erev_init_factor: float = 1.0
-    w_init_min: float = 0.001
+    w_init_min: float = 0.01
     w_init_max: float = 1.0
-    gleak_init_min: float = 0.001
+    gleak_init_min: float = 1.0
     gleak_init_max: float = 1.0
-    cm_init_min: float = 0.4
-    cm_init_max: float = 0.6
+    cm_init_min: float = 0.5
+    cm_init_max: float = 0.5
     fix_vleak: bool = False
     fix_gleak: bool = False
     fix_cm: bool = False
@@ -143,7 +143,7 @@ class LTCCell(nn.Module):
     # ------------------------------------------------------------------
 
     @torch.no_grad()
-    def apply_weight_constraints(self) -> None:
+    def constrain_parameters(self) -> None:
         """Clamp trainable parameters to their valid ranges.
 
         Call this after ``optimizer.step()`` in the training loop.

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import fields
+from typing import Optional
+
+import torch
 import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 
@@ -22,6 +25,7 @@ from pytorch_refactor.models.ctrnn_cell import (
     CTGRUCell,
     CTGRUConfig,
 )
+from pytorch_refactor.utils.io_masks import generate_neuron_partition, make_input_mask
 
 
 def _cfg_to_dataclass(model_cfg: DictConfig, dc_cls):
@@ -36,7 +40,10 @@ def _cfg_to_dataclass(model_cfg: DictConfig, dc_cls):
 # Public API
 # ---------------------------------------------------------------------------
 
-def build_cell(cfg: DictConfig) -> nn.Module:
+def build_cell(
+    cfg: DictConfig,
+    W_in_mask: Optional[torch.Tensor] = None,
+) -> nn.Module:
     """Build an RNN cell from Hydra config.
 
     Supported ``cfg.model.type`` values:
@@ -55,37 +62,47 @@ def build_cell(cfg: DictConfig) -> nn.Module:
             ltc_cfg.solver = "rk4"
         elif model_type == "ltc_ex":
             ltc_cfg.solver = "explicit"
-        return LTCCell(input_size, ltc_cfg)
+        return LTCCell(input_size, ltc_cfg, W_in_mask=W_in_mask)
 
     if model_type == "srnn":
         srnn_cfg = _cfg_to_dataclass(cfg.model, SRNNConfig)
-        return SRNNCell(srnn_cfg, input_size)
+        return SRNNCell(srnn_cfg, input_size, W_in_mask=W_in_mask)
 
     if model_type == "ctrnn":
         ctrnn_cfg = _cfg_to_dataclass(cfg.model, CTRNNConfig)
-        return CTRNNCell(input_size, ctrnn_cfg)
+        return CTRNNCell(input_size, ctrnn_cfg, W_in_mask=W_in_mask)
 
     if model_type == "node":
         node_cfg = _cfg_to_dataclass(cfg.model, NODEConfig)
-        return NODECell(input_size, node_cfg)
+        return NODECell(input_size, node_cfg, W_in_mask=W_in_mask)
 
     if model_type == "ctgru":
         ctgru_cfg = _cfg_to_dataclass(cfg.model, CTGRUConfig)
-        return CTGRUCell(input_size, ctgru_cfg)
+        return CTGRUCell(input_size, ctgru_cfg, W_in_mask=W_in_mask)
 
     raise ValueError(f"Unknown model type: {model_type!r}")
 
 
 def build_model(cfg: DictConfig) -> SequenceModel:
     """Build a full :class:`SequenceModel` from Hydra config."""
-    cell = build_cell(cfg)
+    num_units = cfg.model.num_units
+    seed = cfg.seed
+
+    # Create W_in_mask from neuron partition (same seed used by SequenceModel
+    # for the output mask, ensuring consistent partitioning).
+    input_idx, _, _ = generate_neuron_partition(num_units, seed)
+    W_in_mask = torch.tensor(
+        make_input_mask(num_units, input_idx), dtype=torch.float32
+    )
+
+    cell = build_cell(cfg, W_in_mask=W_in_mask)
     return SequenceModel(
         cell=cell,
         input_size=cfg.task.input_size,
         output_size=cfg.task.output_size,
-        num_units=cfg.model.num_units,
+        num_units=num_units,
         task_type=cfg.task.task_type,
-        io_mask_seed=cfg.seed,
+        io_mask_seed=seed,
     )
 
 
@@ -100,6 +117,7 @@ def build_batched_model(
     """
     input_size: int = cfg.task.input_size
     num_units: int = cfg.model.num_units
+    seed = cfg.seed
 
     from dataclasses import replace
 
@@ -113,7 +131,13 @@ def build_batched_model(
         preset = SRNN_PRESETS[name]
         configs.append(replace(preset, num_units=num_units))
 
-    batched_cell = BatchedSRNNCell(configs, input_size)
+    # Create W_in_mask from neuron partition
+    input_idx, _, _ = generate_neuron_partition(num_units, seed)
+    W_in_mask = torch.tensor(
+        make_input_mask(num_units, input_idx), dtype=torch.float32
+    )
+
+    batched_cell = BatchedSRNNCell(configs, input_size, W_in_mask=W_in_mask)
 
     return SequenceModel(
         cell=batched_cell,
@@ -121,5 +145,5 @@ def build_batched_model(
         output_size=cfg.task.output_size,
         num_units=num_units,
         task_type=cfg.task.task_type,
-        io_mask_seed=cfg.seed,
+        io_mask_seed=seed,
     )

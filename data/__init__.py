@@ -16,8 +16,10 @@ from .datasets import (
 
 from .transforms import (
     time_stretch,
+    time_stretch_batch,
     random_stretch_factor,
     palindrome_loop,
+    palindrome_loop_batch,
     compute_n_loops,
     random_window,
     wrap_train_batch,
@@ -39,8 +41,10 @@ __all__ = [
     "cut_in_sequences",
     # Transforms
     "time_stretch",
+    "time_stretch_batch",
     "random_stretch_factor",
     "palindrome_loop",
+    "palindrome_loop_batch",
     "compute_n_loops",
     "random_window",
     "wrap_train_batch",
