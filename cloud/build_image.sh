@@ -22,8 +22,16 @@ gcloud compute instances create "$TEMP_VM" \
     --scopes=storage-full \
     --quiet
 
-# Wait for SSH
-sleep 30
+# Wait for SSH to be ready
+echo "Waiting for SSH..."
+for i in $(seq 1 20); do
+    if gcloud compute ssh "$TEMP_VM" --zone="$ZONE" --project="$GCP_PROJECT" \
+        --command="echo SSH ready" --quiet 2>/dev/null; then
+        break
+    fi
+    echo "  SSH attempt $i/20, retrying in 15s..."
+    sleep 15
+done
 
 # Install Python + PyTorch
 gcloud compute ssh "$TEMP_VM" --zone="$ZONE" --project="$GCP_PROJECT" --command="
