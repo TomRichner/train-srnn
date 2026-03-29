@@ -55,7 +55,7 @@ gcloud compute instances create "$VM_NAME" \
     --image-project="$GCP_PROJECT" \
     --boot-disk-size="$BOOT_DISK_SIZE" \
     --boot-disk-type="$BOOT_DISK_TYPE" \
-    --scopes=storage-full \
+    --scopes=storage-full,compute-rw \
     --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,train-args=$EXTRA_ARGS" \
     --metadata-from-file=startup-script="$SCRIPT_DIR/startup.sh" \
     $SCHEDULING_ARGS \
