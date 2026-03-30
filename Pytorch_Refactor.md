@@ -38,14 +38,14 @@
 - Weights `(K, N, N)`, SFA/STD/Dale's masks `(K, 1, ...)` as buffers
 - Usage: `python train.py batched_ablations='[srnn, srnn-no-adapt, srnn-E-only]'`
 
-### Cloud (✅ complete)
-- `cloud/config.env` — GCP config for `srnn-pytorch` image family
-- `cloud/startup.sh` — VM boot → clone → train via Hydra → upload to GCS → self-delete
-- `cloud/launch_run.sh`, `launch_all.sh` — single + matrix launchers with concurrency
+### Cloud (✅ complete, verified on GCP)
+- `cloud/config.env` — n4d machine family, hyperdisk-balanced, `srnn-pytorch` image family
+- `cloud/startup.sh` — VM boot → clone → pip install → train via Hydra → upload to GCS → self-delete. Sets `PYTHONPATH` for package imports.
+- `cloud/launch_run.sh`, `launch_all.sh` — single + matrix launchers with concurrency. Includes `compute-rw` scope for self-delete.
 - `cloud/monitor.sh` — completion status grid
 - `cloud/collect_results.py` — GCS aggregation with mean±std tables
-- `cloud/build_image.sh` — PyTorch VM image builder
-- `cloud/experiments/*.env` — 9 per-experiment configs
+- `cloud/build_image.sh` — PyTorch VM image builder (SSH retry loop for reliability)
+- `cloud/experiments/*.env` — 9 per-experiment configs (note: har.env uses standard-2, LTC solver variants may need batch_size reduction)
 
 ### Integration Tests (✅ passing)
 - All 9 cell types build from Hydra config, correct shapes, gradients flow
@@ -103,8 +103,7 @@
 ### Unfinished
 
 - **Lyapunov analysis** — not ported (numpy-based, needs PyTorch cell adapter)
-- **Smoke test** — never actually run (needs dataset files in `data/`)
-- **No numerical equivalence test** — should compare TF and PyTorch outputs on identical inputs
+- **Numerical equivalence test** — should compare TF and PyTorch outputs on identical inputs
 - **Sparsity/L0 regularization** — TF experiments (ozone, occupancy, person, cheetah) support `--sparsity` for L0 masking. Not ported.
 
 ### Future Upgrades
@@ -118,13 +117,43 @@
 
 ---
 
+## GCP End-to-End Testing (2026-03-28 – ongoing)
+
+**VM image:** `srnn-pytorch-20260328` (n4d family, hyperdisk-balanced)
+
+### Cloud fixes applied
+- `startup.sh` — fixed repo URL (`TomRichner`), added `PYTHONPATH="/tmp/workdir"` export, added `__init__.py` for package imports
+- `launch_run.sh` — added `compute-rw` scope for VM self-delete
+- `config.env` — n4d machine family requires `hyperdisk-balanced` disk type (not pd-standard/pd-balanced)
+
+### Stage 0: Bug fixes — ✅ Complete
+All 5 critical bugs + 3 high-priority issues fixed and verified locally (see above).
+
+### Stage 1: Cloud infrastructure — ✅ Complete
+VM image built, datasets uploaded to GCS, code pushed.
+
+### Stage 2: Single model + single task — ✅ Complete
+`lstm` on `har` (5 epochs, size=16): full pipeline verified end-to-end (data load → train → eval → checkpoint → CSV → GCS upload → VM self-delete).
+
+### Stage 3: One of each model type on HAR — 🔄 In progress
+| Pair | Models | Status |
+|------|--------|--------|
+| 1 | lstm, ltc | ✅ exit_code=0 |
+| 2 | ctrnn, node | ✅ exit_code=0 |
+| 3 | ctgru, srnn | ✅ exit_code=0 |
+| 4 | srnn_no_adapt, srnn_e_only | ✅ exit_code=0 |
+| 5 | ltc_rk, ltc_ex | 🔄 Running (OOM'd on batch_size=128/standard-2, retrying with batch_size=32) |
+
+### Stage 4–7: Pending
+- Stage 4: One of each dataset with LSTM (9 tasks)
+- Stage 5: Full smoke test (90 combos, 2 epochs)
+- Stage 6: BatchedSRNNCell on real data
+- Stage 7: Burn-in IC + longer training
+
 ## Remaining Work
 
-- **Fix critical bugs 1–5 above** (blocking for correctness)
-- **Fix high priority issues 6–8** (blocking for equivalence with TF)
-- **Run smoke test** after bug fixes — needs dataset files in `data/`
+- **Complete GCP e2e testing** (Stages 3–7 above)
 - **Numerical equivalence test** — run TF and PyTorch on same inputs, compare outputs
-- **Cloud deploy** — build `srnn-pytorch` image, upload datasets, launch full run
 - **Port Lyapunov analysis** to PyTorch
 
 ---
