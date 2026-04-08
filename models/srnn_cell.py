@@ -120,9 +120,9 @@ SRNN_PRESETS: dict[str, SRNNConfig] = {
     "srnn-no-adapt-no-dales": SRNNConfig(dales=False, n_a_E=0, n_a_I=0, n_b_E=0, n_b_I=0),
     "srnn-sfa-only": SRNNConfig(n_a_E=1, n_a_I=1, n_b_E=0, n_b_I=0),
     "srnn-std-only": SRNNConfig(n_a_E=0, n_a_I=0, n_b_E=1, n_b_I=1),
-    "srnn-E-only": SRNNConfig(n_a_E=1, n_a_I=0, n_b_E=1, n_b_I=0),
-    "srnn-e-only-echo": SRNNConfig(n_a_E=1, n_a_I=0, n_b_E=1, n_b_I=0, echo=True),
-    "srnn-e-only-per-neuron": SRNNConfig(n_a_E=1, n_a_I=0, n_b_E=1, n_b_I=0, per_neuron=True),
+    "srnn-E-only": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0),
+    "srnn-e-only-echo": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, echo=True),
+    "srnn-e-only-per-neuron": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, per_neuron=True),
     "srnn-multi-sfa": SRNNConfig(n_a_E=2, n_a_I=2),
     "srnn-multi-sfa-E": SRNNConfig(n_a_E=2, n_a_I=0, n_b_E=1, n_b_I=0),
     "srnn-no-dales": SRNNConfig(dales=False),
@@ -317,33 +317,65 @@ class SRNNCell(nn.Module):
         return self.config.state_size
 
     def init_state(self, batch_size: int, device: torch.device = None) -> torch.Tensor:
-        """Return a zero-initialized flat state."""
+        """Return an initialized flat state.
+
+        Matches MATLAB SRNNModel2.initialize_state:
+          a_E, a_I = 0  (no adaptation at start)
+          b_E, b_I = 1  (fully available synapses, no depression)
+          x        = 0.1 * randn  (small random perturbation)
+        """
         if device is None:
             device = self.W_raw.device
-        return torch.zeros(batch_size, self.config.state_size, device=device)
+        cfg = self.config
+        parts: list[torch.Tensor] = []
+        # a_E: zeros
+        if cfg.n_a_E > 0:
+            parts.append(torch.zeros(batch_size, cfg.n_E * cfg.n_a_E, device=device))
+        # a_I: zeros
+        if cfg.n_a_I > 0:
+            parts.append(torch.zeros(batch_size, cfg.n_I * cfg.n_a_I, device=device))
+        # b_E: ones (fully available)
+        if cfg.n_b_E > 0:
+            parts.append(torch.ones(batch_size, cfg.n_E, device=device))
+        # b_I: ones (fully available)
+        if cfg.n_b_I > 0:
+            parts.append(torch.ones(batch_size, cfg.n_I, device=device))
+        # x: small random perturbation
+        parts.append(0.1 * torch.randn(batch_size, cfg.num_units, device=device))
+        return torch.cat(parts, dim=-1)
 
     # ---- Tau interpolation helpers (matches TF _make_tau_range) ----
 
     def _get_tau_a_E(self) -> torch.Tensor:
-        """Get SFA time constants for E neurons, interpolating if multi-timescale."""
+        """Get SFA time constants for E neurons, interpolating if multi-timescale.
+
+        Uses log-spacing to match MATLAB logspace(log10(lo), log10(hi), n).
+        """
         if self.log_tau_a_E is not None:
             return F.softplus(self.log_tau_a_E)
-        # Multi-timescale: interpolate n_a_E values between lo and hi
+        # Multi-timescale: log-space interpolate n_a_E values between lo and hi
         lo = F.softplus(self.log_tau_a_E_lo)  # (dim, 1)
         hi = F.softplus(self.log_tau_a_E_hi)  # (dim, 1)
         n = self.config.n_a_E
         t = torch.linspace(0.0, 1.0, n, device=lo.device)  # (n,)
-        return lo + (hi - lo) * t  # (dim, n)
+        log_lo = torch.log(lo)
+        log_hi = torch.log(hi)
+        return torch.exp(log_lo + (log_hi - log_lo) * t)  # (dim, n)
 
     def _get_tau_a_I(self) -> torch.Tensor:
-        """Get SFA time constants for I neurons, interpolating if multi-timescale."""
+        """Get SFA time constants for I neurons, interpolating if multi-timescale.
+
+        Uses log-spacing to match MATLAB logspace(log10(lo), log10(hi), n).
+        """
         if self.log_tau_a_I is not None:
             return F.softplus(self.log_tau_a_I)
         lo = F.softplus(self.log_tau_a_I_lo)
         hi = F.softplus(self.log_tau_a_I_hi)
         n = self.config.n_a_I
         t = torch.linspace(0.0, 1.0, n, device=lo.device)
-        return lo + (hi - lo) * t
+        log_lo = torch.log(lo)
+        log_hi = torch.log(hi)
+        return torch.exp(log_lo + (log_hi - log_lo) * t)
 
     # ---- ODE right-hand side ----
 
@@ -481,6 +513,7 @@ class SRNNCell(nn.Module):
             b_E_new = (b_E + dt / tau_b_rec_E) / (
                 1.0 + dt * (1.0 / tau_b_rec_E + r_E_flat / tau_b_rel_E)
             )
+            b_E_new = b_E_new.clamp(0.0, 1.0)
 
         if b_I is not None:
             tau_b_rec_I = F.softplus(self.log_tau_b_rec_I)
@@ -489,6 +522,7 @@ class SRNNCell(nn.Module):
             b_I_new = (b_I + dt / tau_b_rec_I) / (
                 1.0 + dt * (1.0 / tau_b_rec_I + r_I_flat / tau_b_rel_I)
             )
+            b_I_new = b_I_new.clamp(0.0, 1.0)
 
         return x_new, a_E_new, a_I_new, b_E_new, b_I_new, r, b_full
 
@@ -500,8 +534,8 @@ class SRNNCell(nn.Module):
         x_new = x + dt * dx
         a_E_new = (a_E + dt * da_E) if a_E is not None else None
         a_I_new = (a_I + dt * da_I) if a_I is not None else None
-        b_E_new = (b_E + dt * db_E) if b_E is not None else None
-        b_I_new = (b_I + dt * db_I) if b_I is not None else None
+        b_E_new = (b_E + dt * db_E).clamp(0.0, 1.0) if b_E is not None else None
+        b_I_new = (b_I + dt * db_I).clamp(0.0, 1.0) if b_I is not None else None
         return x_new, a_E_new, a_I_new, b_E_new, b_I_new, r, b_full
 
     def _step_rk4(self, dt, x, a_E, a_I, b_E, b_I, u, W_eff):
@@ -551,7 +585,11 @@ class SRNNCell(nn.Module):
         a_E_new = _rk4_combine(a_E, k1[1], k2[1], k3[1], k4[1])
         a_I_new = _rk4_combine(a_I, k1[2], k2[2], k3[2], k4[2])
         b_E_new = _rk4_combine(b_E, k1[3], k2[3], k3[3], k4[3])
+        if b_E_new is not None:
+            b_E_new = b_E_new.clamp(0.0, 1.0)
         b_I_new = _rk4_combine(b_I, k1[4], k2[4], k3[4], k4[4])
+        if b_I_new is not None:
+            b_I_new = b_I_new.clamp(0.0, 1.0)
         return x_new, a_E_new, a_I_new, b_E_new, b_I_new, k1[5], k1[6]
 
     def _step_exponential(self, dt, x, a_E, a_I, b_E, b_I, u, W_eff):
@@ -591,8 +629,8 @@ class SRNNCell(nn.Module):
             a_I_new = a_I * decay_a_I + (1.0 - decay_a_I) * (self.c_0_I + r_I)
 
         # STD: use explicit Euler for the nonlinear STD equation
-        b_E_new = (b_E + dt * db_E) if b_E is not None else None
-        b_I_new = (b_I + dt * db_I) if b_I is not None else None
+        b_E_new = (b_E + dt * db_E).clamp(0.0, 1.0) if b_E is not None else None
+        b_I_new = (b_I + dt * db_I).clamp(0.0, 1.0) if b_I is not None else None
 
         return x_new, a_E_new, a_I_new, b_E_new, b_I_new, r, b_full
 
@@ -948,10 +986,22 @@ class BatchedSRNNCell(nn.Module):
         return self.max_state_dim
 
     def init_state(self, batch_size: int, device: torch.device = None) -> torch.Tensor:
-        """Return zero state (K, batch, max_state_dim)."""
+        """Return initialized state (K, batch, max_state_dim).
+
+        Matches MATLAB SRNNModel2.initialize_state:
+          a = 0, b = 1 (fully available), x = 0.1 * randn.
+        """
         if device is None:
             device = self.W_raw.device
-        return torch.zeros(self.K, batch_size, self.max_state_dim, device=device)
+        state = torch.zeros(self.K, batch_size, self.max_state_dim, device=device)
+        # Unpack to set b=1 and x=randn, then repack
+        a_E, a_I, b_E, b_I, x = self.unpack_state(state)
+        # b_E, b_I: set to 1 (fully available synapses)
+        b_E = torch.ones_like(b_E)
+        b_I = torch.ones_like(b_I)
+        # x: small random perturbation
+        x = 0.1 * torch.randn_like(x)
+        return self.pack_state(a_E, a_I, b_E, b_I, x)
 
     # ---- BMM recurrent drive ----
 
@@ -1084,6 +1134,7 @@ class BatchedSRNNCell(nn.Module):
             b_E_updated = (b_E + dt / tau_b_rec_E) / (
                 1.0 + dt * (1.0 / tau_b_rec_E + r_E_flat / tau_b_rel_E)
             )
+            b_E_updated = b_E_updated.clamp(0.0, 1.0)
             std_E_m = self.std_E_mask.unsqueeze(1)  # (K, 1, 1)
             b_E_new = b_E * (1.0 - std_E_m) + b_E_updated * std_E_m
         else:
@@ -1097,6 +1148,7 @@ class BatchedSRNNCell(nn.Module):
             b_I_updated = (b_I + dt / tau_b_rec_I) / (
                 1.0 + dt * (1.0 / tau_b_rec_I + r_I_flat / tau_b_rel_I)
             )
+            b_I_updated = b_I_updated.clamp(0.0, 1.0)
             std_I_m = self.std_I_mask.unsqueeze(1)
             b_I_new = b_I * (1.0 - std_I_m) + b_I_updated * std_I_m
         else:
@@ -1181,8 +1233,8 @@ class BatchedSRNNCell(nn.Module):
             x + dt * dx,
             a_E + dt * da_E,
             a_I + dt * da_I,
-            b_E + dt * db_E,
-            b_I + dt * db_I,
+            (b_E + dt * db_E).clamp(0.0, 1.0),
+            (b_I + dt * db_I).clamp(0.0, 1.0),
             r, b_full,
         )
 
@@ -1209,8 +1261,8 @@ class BatchedSRNNCell(nn.Module):
             x + s * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]),
             a_E + s * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]),
             a_I + s * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2]),
-            b_E + s * (k1[3] + 2 * k2[3] + 2 * k3[3] + k4[3]),
-            b_I + s * (k1[4] + 2 * k2[4] + 2 * k3[4] + k4[4]),
+            (b_E + s * (k1[3] + 2 * k2[3] + 2 * k3[3] + k4[3])).clamp(0.0, 1.0),
+            (b_I + s * (k1[4] + 2 * k2[4] + 2 * k3[4] + k4[4])).clamp(0.0, 1.0),
             k1[5], k1[6],
         )
 
@@ -1252,8 +1304,8 @@ class BatchedSRNNCell(nn.Module):
             a_I_new = a_I
 
         # STD: explicit Euler for nonlinear equation
-        b_E_new = b_E + dt * db_E
-        b_I_new = b_I + dt * db_I
+        b_E_new = (b_E + dt * db_E).clamp(0.0, 1.0)
+        b_I_new = (b_I + dt * db_I).clamp(0.0, 1.0)
 
         return x_new, a_E_new, a_I_new, b_E_new, b_I_new, r, b_full
 
