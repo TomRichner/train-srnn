@@ -157,38 +157,59 @@ PyTorch values from inspecting `SRNNCell` with `SRNNConfig(n_a_E=3, n_a_I=0, n_b
 
 ## Discrepancy Summary
 
-| # | Issue | Severity | Description |
-|---|---|---|---|
-| **D1** | `n_a_E` preset value | **High** | `srnn-E-only` preset has `n_a_E=1`, but MATLAB reference uses `n_a_E=3`. Change preset or add `srnn-e-only-3sfa` variant. |
-| **D2** | `b_E` initial condition | **High** | PyTorch `init_state()` returns all zeros. For b (synaptic availability), the physical initial condition is `b=1` (no depression). MATLAB correctly initializes `b_E = ones(n_E, 1)`. |
-| **D3** | `tau_a_E` spacing | **Medium** | MATLAB: log-spaced `[0.25, 1.58, 10.0]`. PyTorch: linearly interpolated `[0.25, 5.13, 10.0]`. The middle timescale differs by 3.2×, changing multi-timescale SFA dynamics substantially. |
-| **D4** | Semi-implicit update order | **Low** | MATLAB uses updated b in the x update; PyTorch uses old b. Same formula, different coupling. Accumulates over time but each step's error is O(dt²). |
-| **D5** | `c_E` initial value | **Low** | MATLAB: 0.0500, PyTorch: softplus(−3.0) = 0.0486. 2.8% relative difference. Acceptable for trainable parameters. |
-| **D6** | `b_E` clamping | **Low** | MATLAB clamps b∈[0,1] after semi-implicit update. PyTorch does not. Since b is physical (synaptic availability fraction), clamping prevents non-physical states during extreme transients. |
-| **D7** | `x` initial condition | **Low** | MATLAB: `0.1·randn(n,1)`, PyTorch: zeros. Minor for training but affects reproducibility comparisons. |
-| **D8** | Readout default | **Info** | MATLAB default readout is `firing_rate` (r), PyTorch default is `synaptic` (b·r). Not a bug — PyTorch uses synaptic output as features. |
+| # | Issue | Severity | Status | Description |
+|---|---|---|---|---|
+| **D1** | `n_a_E` preset value | **High** | ✅ FIXED | `srnn-E-only` preset had `n_a_E=1`, now updated to `n_a_E=3` to match MATLAB. Also fixed `srnn-e-only-echo` and `srnn-e-only-per-neuron`. |
+| **D2** | `b_E` initial condition | **High** | ✅ FIXED | `init_state()` now initializes `b_E=1`, `b_I=1` (fully available synapses) in both `SRNNCell` and `BatchedSRNNCell`. |
+| **D3** | `tau_a_E` spacing | **Medium** | ✅ FIXED | `_get_tau_a_E()` and `_get_tau_a_I()` now use log-space interpolation: `exp(log(lo) + (log(hi) - log(lo)) * t)`. Verified: `[0.25, 1.581, 10.0]` matches MATLAB `logspace`. |
+| **D4** | Semi-implicit update order | **Low** | Open | MATLAB uses updated b in the x update; PyTorch uses old b. Same formula, different coupling. Accumulates over time but each step's error is O(dt²). |
+| **D5** | `c_E` initial value | **Low** | Open | MATLAB: 0.0500, PyTorch: softplus(−3.0) = 0.0486. 2.8% relative difference. Acceptable for trainable parameters. |
+| **D6** | `b_E` clamping | **Low** | ✅ FIXED | Added `b.clamp(0, 1)` after all STD updates in all solvers (semi-implicit, explicit, RK4, exponential) for both `SRNNCell` and `BatchedSRNNCell`. |
+| **D7** | `x` initial condition | **Low** | ✅ FIXED | `init_state()` now initializes `x = 0.1 * randn(...)` in both `SRNNCell` and `BatchedSRNNCell`, matching MATLAB. |
+| **D8** | Readout default | **Info** | N/A | MATLAB default readout is `firing_rate` (r), PyTorch default is `synaptic` (b·r). Not a bug — PyTorch uses synaptic output as features. |
+| **D9** | `W_raw` initialization | **Critical** | Open | PyTorch uses Kaiming init (`randn * sqrt(2/N)`) + `softplus` for Dale's law. `softplus(~0) ≈ 0.693` maps small raw weights to large effective weights. Measured spectral radius = **9.38** vs MATLAB RMT = **0.58** (16× too large). Network is far past edge of chaos, causing saturating firing rates. Correct RMT scaling is `randn / sqrt(N)`, but softplus defeats any raw-space scaling. |
 
 ---
 
-## Recommendations
+## Resolution Log
 
-### Must Fix (D1, D2)
-1. **Add `n_a_E=3` preset** — Create `srnn-e-only-3sfa` or update `srnn-E-only` to `n_a_E=3`
-2. **Fix `init_state()` for b** — Initialize b_E and b_I to 1.0, not 0.0
+All fixes applied to `models/srnn_cell.py` on 2026-04-08 (commit `d37d499`).
 
-### Should Fix (D3)
-3. **Use log-spacing for tau_a_E** — Change `_get_tau_a_E()` to interpolate in log-space:
-   ```python
-   # Current (linear):  lo + (hi - lo) * t
-   # Proposed (log):    exp(log(lo) + (log(hi) - log(lo)) * t)
-   log_lo = torch.log(lo)
-   log_hi = torch.log(hi)
-   return torch.exp(log_lo + (log_hi - log_lo) * t)
-   ```
+### D1: `n_a_E` preset — FIXED
+Updated `SRNN_PRESETS` dict: `srnn-E-only`, `srnn-e-only-echo`, and `srnn-e-only-per-neuron` now use `n_a_E=3` (was `1`), matching the MATLAB `SRNNModel2` default configuration.
 
-### Consider Fixing (D4, D6)
-4. **Update order** — Optionally reorder semi-implicit to update b before x (matches MATLAB)
-5. **Clamp b** — Add `b_E_new = b_E_new.clamp(0, 1)` after STD update
+### D2: `b_E` initial condition — FIXED
+Rewrote `SRNNCell.init_state()` to construct the state vector piece-by-piece:
+- `a_E`, `a_I` → zeros (no adaptation)
+- `b_E`, `b_I` → **ones** (fully available synapses)
+- `x` → `0.1 * randn` (see D7)
+
+Same fix applied to `BatchedSRNNCell.init_state()` using `unpack_state` / `pack_state`.
+
+### D3: `tau_a_E` log-spacing — FIXED
+Changed `_get_tau_a_E()` and `_get_tau_a_I()` from linear interpolation to log-space interpolation:
+```python
+# Before (linear):  lo + (hi - lo) * t  →  [0.25, 5.125, 10.0]
+# After  (log):     exp(log(lo) + (log(hi) - log(lo)) * t)  →  [0.25, 1.581, 10.0]
+```
+Verified: PyTorch output `[0.25, 1.5811, 10.0]` matches MATLAB `logspace(log10(0.25), log10(10), 3)` to 5 decimal places.
+
+### D6: `b` clamping — FIXED
+Added `b.clamp(0.0, 1.0)` after every STD update across all solver variants:
+- `SRNNCell`: `_step_semi_implicit`, `_step_explicit`, `_step_rk4`, `_step_exponential`
+- `BatchedSRNNCell`: `_batched_step_semi_implicit`, `_batched_step_explicit`, `_batched_step_rk4`, `_batched_step_exponential`
+
+### D7: `x` initial condition — FIXED
+Both `SRNNCell.init_state()` and `BatchedSRNNCell.init_state()` now initialize `x = 0.1 * randn(...)` instead of zeros, matching MATLAB `initialize_state`.
+
+### Remaining Open Items
+- **D4** (update order): Not fixed. Would require reordering the semi-implicit solver. Low priority — error is O(dt²) per step.
+- **D5** (c_E value): Not fixed. 2.8% difference is acceptable since c_E is a trainable parameter.
+- **D8** (readout): Not a bug — intentional design difference.
+- **D9** (W init): **Critical.** `W_raw` uses Kaiming init (`randn(N,N) * sqrt(2/N)`) meant for deep-net gradient flow, not RMT-style dynamical systems. After `softplus` (Dale's law enforcement), the effective spectral radius is 9.38 — far above MATLAB's RMT value of 0.58. The `softplus` nonlinearity maps any small value to `ln(2) ≈ 0.693`, so scaling `W_raw` alone cannot fix this. Options:
+  1. Initialize in inverse-softplus space: `W_raw = inv_softplus(target)` where `target ~ |N(0, 1/sqrt(N))|`
+  2. Post-hoc rescale: compute `W_eff`, measure spectral radius, divide by `ρ/ρ_target`
+  3. Use a different Dale's law parameterization (e.g., `W = diag(sign) @ |W_raw|` instead of softplus)
 
 ---
 
