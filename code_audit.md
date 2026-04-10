@@ -167,7 +167,8 @@ PyTorch values from inspecting `SRNNCell` with `SRNNConfig(n_a_E=3, n_a_I=0, n_b
 | **D6** | `b_E` clamping | **Low** | ✅ FIXED | Added `b.clamp(0, 1)` after all STD updates in all solvers (semi-implicit, explicit, RK4, exponential) for both `SRNNCell` and `BatchedSRNNCell`. |
 | **D7** | `x` initial condition | **Low** | ✅ FIXED | `init_state()` now initializes `x = 0.1 * randn(...)` in both `SRNNCell` and `BatchedSRNNCell`, matching MATLAB. |
 | **D8** | Readout default | **Info** | N/A | MATLAB default readout is `firing_rate` (r), PyTorch default is `synaptic` (b·r). Not a bug — PyTorch uses synaptic output as features. |
-| **D9** | `W_raw` initialization | **Critical** | Open | PyTorch uses Kaiming init (`randn * sqrt(2/N)`) + `softplus` for Dale's law. `softplus(~0) ≈ 0.693` maps small raw weights to large effective weights. Measured spectral radius = **9.38** vs MATLAB RMT = **0.58** (16× too large). Network is far past edge of chaos, causing saturating firing rates. Correct RMT scaling is `randn / sqrt(N)`, but softplus defeats any raw-space scaling. |
+| **D9** | `W_raw` initialization | **Critical** | ✅ FIXED | PyTorch used Kaiming init (`randn * sqrt(2/N)`) + `softplus` → all effective weights collapsed to ~0.693, spectral radius 9.38 (16× MATLAB). Fixed: target magnitudes `|randn| * sqrt(2/N)` clamped to min `0.001/sqrt(N)`, stored as `_softplus_inv(target)`. Spectral radius now **1.20**. |
+| **D10** | Sparsity/Dale's coupling | **Medium** | ✅ FIXED | Sparsity mask was only created and applied when `dales=True`. Now decoupled: mask created whenever `sparsity > 0`, applied in `_effective_W()` regardless of Dale's law. Prevents zeroed connections from growing back during training. |
 
 ---
 
@@ -206,10 +207,8 @@ Both `SRNNCell.init_state()` and `BatchedSRNNCell.init_state()` now initialize `
 - **D4** (update order): Not fixed. Would require reordering the semi-implicit solver. Low priority — error is O(dt²) per step.
 - **D5** (c_E value): Not fixed. 2.8% difference is acceptable since c_E is a trainable parameter.
 - **D8** (readout): Not a bug — intentional design difference.
-- **D9** (W init): **Critical.** `W_raw` uses Kaiming init (`randn(N,N) * sqrt(2/N)`) meant for deep-net gradient flow, not RMT-style dynamical systems. After `softplus` (Dale's law enforcement), the effective spectral radius is 9.38 — far above MATLAB's RMT value of 0.58. The `softplus` nonlinearity maps any small value to `ln(2) ≈ 0.693`, so scaling `W_raw` alone cannot fix this. Options:
-  1. Initialize in inverse-softplus space: `W_raw = inv_softplus(target)` where `target ~ |N(0, 1/sqrt(N))|`
-  2. Post-hoc rescale: compute `W_eff`, measure spectral radius, divide by `ρ/ρ_target`
-  3. Use a different Dale's law parameterization (e.g., `W = diag(sign) @ |W_raw|` instead of softplus)
+- **D9** (W init): ✅ FIXED. Target magnitudes `|randn(N,N)| * sqrt(2/N)`, clamped to `0.001/sqrt(N)`, stored as `W_raw = softplus_inv(target)`. Spectral radius dropped from 9.38 → 1.20. Remaining gap to MATLAB's 0.58 is because Gaussian distribution shape and sparsity (RMT `1/sqrt(N)` vs current `sqrt(2/N)`, half-normal vs column-normalized) will be addressed separately.
+- **D10** (sparsity/dales coupling): ✅ FIXED. Sparsity mask now created when `sparsity > 0` regardless of `dales`. `_effective_W()` applies mask outside the `if dales` branch. Both `SRNNCell` and `BatchedSRNNCell` fixed.
 
 ---
 

@@ -24,8 +24,17 @@ import torch.nn.functional as F
 # ---------------------------------------------------------------------------
 
 def inv_softplus(x: float) -> float:
-    """Inverse of softplus: log(exp(x) - 1)."""
+    """Inverse of softplus (scalar): log(exp(x) - 1)."""
     return math.log(math.expm1(x))
+
+
+def _softplus_inv(x: torch.Tensor) -> torch.Tensor:
+    """Inverse of F.softplus (tensor): returns log(exp(x) - 1).
+
+    Numerically stable: for large x, softplus_inv(x) ≈ x.
+    Requires x > 0.
+    """
+    return torch.log(torch.expm1(x))
 
 
 def piecewise_sigmoid(x: torch.Tensor, S_a: float = 0.9, S_c: float = 0.0) -> torch.Tensor:
@@ -162,11 +171,21 @@ class SRNNCell(nn.Module):
             self.W_in_mask: Optional[torch.Tensor] = None
 
         # ---- Recurrent weight ----
-        W_init = torch.randn(N, N) * math.sqrt(2.0 / N)
-        if config.dales and config.sparsity > 0:
+        # Generate target magnitudes (always positive)
+        W_target = torch.randn(N, N).abs() * math.sqrt(2.0 / N)
+        W_target = W_target.clamp(min=0.001 / math.sqrt(N))
+
+        if config.dales:
+            # Store in inverse-softplus space so softplus(W_raw) ≈ W_target
+            W_init = _softplus_inv(W_target)
+        else:
+            W_init = W_target
+
+        if config.sparsity > 0:
             mask = (torch.rand(N, N) > config.sparsity).float()
             self.register_buffer("sparsity_mask", mask)
-            W_init = W_init * mask
+            # Note: do NOT pre-multiply W_init by mask here.
+            # Sparsity is applied in _effective_W() as a frozen buffer.
         else:
             self.register_buffer("sparsity_mask", None)
 
@@ -260,11 +279,12 @@ class SRNNCell(nn.Module):
             W_pos = F.softplus(self.W_raw)
             W_eff = W_pos.clone()
             W_eff[:, cfg.n_E:] = -W_pos[:, cfg.n_E:]
-            if self.sparsity_mask is not None:
-                W_eff = W_eff * self.sparsity_mask
-            return W_eff
         else:
-            return self.W_raw
+            W_eff = self.W_raw
+        # Sparsity applied regardless of Dale's law
+        if self.sparsity_mask is not None:
+            W_eff = W_eff * self.sparsity_mask
+        return W_eff
 
     # ---- State packing / unpacking ----
 
@@ -749,10 +769,16 @@ class BatchedSRNNCell(nn.Module):
         W_stack = []
         sparsity_masks = []
         for c in configs:
-            w = torch.randn(N, N) * math.sqrt(2.0 / N)
-            if c.dales and c.sparsity > 0:
+            w_target = torch.randn(N, N).abs() * math.sqrt(2.0 / N)
+            w_target = w_target.clamp(min=0.001 / math.sqrt(N))
+
+            if c.dales:
+                w = _softplus_inv(w_target)
+            else:
+                w = w_target
+
+            if c.sparsity > 0:
                 m = (torch.rand(N, N) > c.sparsity).float()
-                w = w * m
                 sparsity_masks.append(m)
             else:
                 sparsity_masks.append(torch.ones(N, N))
@@ -914,10 +940,11 @@ class BatchedSRNNCell(nn.Module):
         # Blend via dales_mask
         W_dale = W_pos.clone()
         W_dale[:, :, self.n_E:] = -W_pos[:, :, self.n_E:]
-        W_dale = W_dale * self.sparsity_masks
 
         # dales_mask: (K, 1, 1)
         W_eff = self.dales_mask * W_dale + (1.0 - self.dales_mask) * self.W_raw
+        # Sparsity applied regardless of Dale's law
+        W_eff = W_eff * self.sparsity_masks
         return W_eff
 
     # ---- State packing / unpacking ----
