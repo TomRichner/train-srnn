@@ -22,10 +22,10 @@ from models.srnn_cell import SRNNConfig, SRNNCell, piecewise_sigmoid
 
 N = 300               # Network size (match MATLAB)
 N_E = N // 2          # 150 E, 150 I
-SEED = 42
-T = 50.0              # Total simulation time (seconds)
+SEED = 1
+T = 30.0              # Total simulation time (seconds)
 H = 1.0 / 400         # Outer timestep (400 Hz, match MATLAB fs)
-ODE_UNFOLDS = 6       # Sub-steps per outer step
+ODE_UNFOLDS = 1       # Sub-steps per outer step
 N_STEPS_STIM = 3      # Number of stimulus step periods
 STIM_DENSITY_E = 0.15 # Fraction of E neurons receiving input
 STIM_AMP = 0.5        # Stimulus amplitude

@@ -219,7 +219,7 @@ class SRNNCell(nn.Module):
                 self.log_tau_a_E_hi = nn.Parameter(
                     torch.full((*base_E, 1), inv_softplus(10.0)))
             c_E_shape = (n_E, config.n_a_E) if config.per_neuron else (1, config.n_a_E)
-            self.log_c_E = nn.Parameter(torch.full(c_E_shape, -3.0))
+            self.log_c_E = nn.Parameter(torch.full(c_E_shape, inv_softplus(0.05)))
             self.c_0_E = nn.Parameter(torch.zeros(c_E_shape))
         else:
             self.log_tau_a_E = None
@@ -243,7 +243,7 @@ class SRNNCell(nn.Module):
                 self.log_tau_a_I_hi = nn.Parameter(
                     torch.full((*base_I, 1), inv_softplus(10.0)))
             c_I_shape = (n_I, config.n_a_I) if config.per_neuron else (1, config.n_a_I)
-            self.log_c_I = nn.Parameter(torch.full(c_I_shape, -3.0))
+            self.log_c_I = nn.Parameter(torch.full(c_I_shape, inv_softplus(0.05)))
             self.c_0_I = nn.Parameter(torch.zeros(c_I_shape))
         else:
             self.log_tau_a_I = None
@@ -805,7 +805,7 @@ class BatchedSRNNCell(nn.Module):
         # ---- SFA E params: (K, n_E, max_n_a_E) ----
         if self.max_n_a_E > 0:
             log_tau_init = torch.zeros(self.K, n_E, self.max_n_a_E)
-            log_c_init = torch.full((self.K, n_E, self.max_n_a_E), -3.0)
+            log_c_init = torch.full((self.K, n_E, self.max_n_a_E), inv_softplus(0.05))
             c_0_init = torch.zeros(self.K, n_E, self.max_n_a_E)
             for ki, c in enumerate(configs):
                 if c.n_a_E == 1:
@@ -829,7 +829,7 @@ class BatchedSRNNCell(nn.Module):
         # ---- SFA I params: (K, n_I, max_n_a_I) ----
         if self.max_n_a_I > 0:
             log_tau_init = torch.zeros(self.K, n_I, self.max_n_a_I)
-            log_c_init = torch.full((self.K, n_I, self.max_n_a_I), -3.0)
+            log_c_init = torch.full((self.K, n_I, self.max_n_a_I), inv_softplus(0.05))
             c_0_init = torch.zeros(self.K, n_I, self.max_n_a_I)
             for ki, c in enumerate(configs):
                 if c.n_a_I == 1:
