@@ -23,7 +23,7 @@ from models.srnn_cell import SRNNConfig, SRNNCell, piecewise_sigmoid
 N = 300               # Network size (match MATLAB)
 N_E = N // 2          # 150 E, 150 I
 SEED = 1
-T = 30.0              # Total simulation time (seconds)
+T = 50.0              # Total simulation time (seconds)
 H = 1.0 / 400         # Outer timestep (400 Hz, match MATLAB fs)
 ODE_UNFOLDS = 1       # Sub-steps per outer step
 N_STEPS_STIM = 3      # Number of stimulus step periods
@@ -83,25 +83,42 @@ def plot_lines_with_colormap(ax, t, data, cmap):
 
 # ── Setup ──────────────────────────────────────────────────────────────────
 
-# Load MATLAB W and stimulus
+# Load MATLAB W and stimulus (including decomposed W components)
 MATLAB_MAT = "/Users/tom/Desktop/local_code/Intersect-LNNs-SRNNs/Matlab/SRNN/scripts/matlab_W_and_stim.mat"
 from scipy.io import loadmat
 mat = loadmat(MATLAB_MAT, squeeze_me=True)
-W_matlab = mat["W"]          # (300, 300) — already has E/I signs
+W_matlab = mat["W"]          # (300, 300) — already has E/I signs + sparsity
 u_ex_matlab = mat["u_ex"]    # (300, 20001) — at 400 Hz
 t_ex_matlab = mat["t_ex"]    # (20001,) — time vector at 400 Hz
 S0_matlab = mat["S0"]        # initial state vector
 N_mat = int(mat["n"])
 f_mat = float(mat["f"])
 
+# Decomposed W components for dales=True path
+W_init_matlab = mat["W_init"]            # (300, 300) — softplus-inverse of |W|
+sparsity_mask_matlab = mat["sparsity_mask"]  # (300, 300) — binary mask
+dales_sign_matlab = mat["dales_sign"]    # (300,) — +1 E, -1 I
+n_E_matlab = int(mat["n_E"])
+
 assert N_mat == N, f"MATLAB n={N_mat} != script N={N}"
 N_E = int(N * f_mat)
+assert N_E == n_E_matlab, f"N_E mismatch: {N_E} vs {n_E_matlab}"
 
 print(f"Loaded MATLAB W: shape={W_matlab.shape}, spectral radius={np.max(np.abs(np.linalg.eigvals(W_matlab))):.3f}")
 print(f"Loaded MATLAB stimulus: shape={u_ex_matlab.shape}, t=[{t_ex_matlab[0]:.1f}, {t_ex_matlab[-1]:.1f}]s")
+print(f"Loaded decomposed W: W_init={W_init_matlab.shape}, sparsity={sparsity_mask_matlab.mean():.4f}")
 
 torch.manual_seed(SEED)
 np.random.seed(SEED + 1)
+
+# Build rmt_export dict from MATLAB decomposed data
+rmt_export = {
+    "W_init": torch.tensor(W_init_matlab, dtype=torch.float32),
+    "sparsity_mask": torch.tensor(sparsity_mask_matlab, dtype=torch.float32),
+    "dales_sign": torch.tensor(dales_sign_matlab, dtype=torch.float32),
+    "n_E": n_E_matlab,
+    "dales": True,
+}
 
 cfg = SRNNConfig(
     num_units=N,
@@ -110,14 +127,13 @@ cfg = SRNNConfig(
     solver="rk4",
     h=H,
     ode_unfolds=ODE_UNFOLDS,
-    dales=False,  # MATLAB W already has correct E/I signs
+    dales=True,
 )
 
-cell = SRNNCell(cfg, input_size=N)
+cell = SRNNCell(cfg, input_size=N, rmt_export=rmt_export)
 
-# Inject MATLAB W directly (dales=False means W_raw is used as-is)
+# Override W_in to identity (matching MATLAB)
 with torch.no_grad():
-    cell.W_raw.copy_(torch.tensor(W_matlab, dtype=torch.float32))
     cell.W_in.copy_(torch.eye(N))
 
 # ── Resample MATLAB stimulus to match our h ────────────────────────────────
@@ -132,6 +148,16 @@ matlab_indices = np.clip(matlab_indices, 0, len(t_ex_matlab) - 1)
 u_ex = u_ex_matlab[:, matlab_indices]  # (N, n_outer_steps)
 
 u_ex_tensor = torch.tensor(u_ex, dtype=torch.float32)
+
+# Verify W round-trip: decomposed → effective should match MATLAB W
+with torch.no_grad():
+    W_eff = cell._effective_W().numpy()
+    rho = np.max(np.abs(np.linalg.eigvals(W_eff)))
+    rho_matlab = np.max(np.abs(np.linalg.eigvals(W_matlab)))
+    print(f"\nW_eff spectral radius: {rho:.4f} (MATLAB: {rho_matlab:.4f})")
+    # Check reconstruction error
+    err = np.max(np.abs(W_eff - W_matlab))
+    print(f"Max |W_eff - W_matlab|: {err:.2e}")
 
 print(f"Config: solver={cfg.solver}, h={H}s, unfolds={ODE_UNFOLDS}, dt={H/ODE_UNFOLDS:.6f}s")
 print(f"Simulation: {n_outer_steps} outer steps, T={T}s")

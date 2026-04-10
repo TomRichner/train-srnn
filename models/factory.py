@@ -17,6 +17,7 @@ from pytorch_refactor.models.srnn_cell import (
     BatchedSRNNCell,
     SRNN_PRESETS,
 )
+from pytorch_refactor.models.rmt_matrix import RMTMatrix
 from pytorch_refactor.models.ctrnn_cell import (
     CTRNNCell,
     CTRNNConfig,
@@ -66,7 +67,15 @@ def build_cell(
 
     if model_type == "srnn":
         srnn_cfg = _cfg_to_dataclass(cfg.model, SRNNConfig)
-        return SRNNCell(srnn_cfg, input_size, W_in_mask=W_in_mask)
+        rmt = RMTMatrix(
+            n=num_units,
+            density=cfg.model.get("alpha", 1.0 / 3.0),
+            seed=cfg.seed,
+            level_of_chaos=cfg.model.get("level_of_chaos", 1.0),
+        )
+        rmt.build()
+        rmt_export = rmt.export_for_srnn(dales=srnn_cfg.dales)
+        return SRNNCell(srnn_cfg, input_size, rmt_export, W_in_mask=W_in_mask)
 
     if model_type == "ctrnn":
         ctrnn_cfg = _cfg_to_dataclass(cfg.model, CTRNNConfig)
@@ -131,13 +140,25 @@ def build_batched_model(
         preset = SRNN_PRESETS[name]
         configs.append(replace(preset, num_units=num_units))
 
+    # Build ONE RMTMatrix (same seed → same W for all ablations)
+    rmt = RMTMatrix(
+        n=num_units,
+        density=cfg.model.get("alpha", 1.0 / 3.0),
+        seed=seed,
+        level_of_chaos=cfg.model.get("level_of_chaos", 1.0),
+    )
+    rmt.build()
+
+    # Export per variant (same underlying W, different dales modes)
+    rmt_exports = [rmt.export_for_srnn(dales=c.dales) for c in configs]
+
     # Create W_in_mask from neuron partition
     input_idx, _, _ = generate_neuron_partition(num_units, seed)
     W_in_mask = torch.tensor(
         make_input_mask(num_units, input_idx), dtype=torch.float32
     )
 
-    batched_cell = BatchedSRNNCell(configs, input_size, W_in_mask=W_in_mask)
+    batched_cell = BatchedSRNNCell(configs, input_size, rmt_exports, W_in_mask=W_in_mask)
 
     return SequenceModel(
         cell=batched_cell,

@@ -95,7 +95,6 @@ class SRNNConfig:
     h: float = 0.04
     ode_unfolds: int = 6
     readout: str = "synaptic"
-    sparsity: float = 0.5
 
     @property
     def n_E(self) -> int:
@@ -155,6 +154,7 @@ class SRNNCell(nn.Module):
         self,
         config: SRNNConfig,
         input_size: int,
+        rmt_export: dict,
         W_in_mask: Optional[torch.Tensor] = None,
     ):
         super().__init__()
@@ -170,26 +170,11 @@ class SRNNCell(nn.Module):
         else:
             self.W_in_mask: Optional[torch.Tensor] = None
 
-        # ---- Recurrent weight ----
-        # Generate target magnitudes (always positive)
-        W_target = torch.randn(N, N).abs() * math.sqrt(2.0 / N)
-        W_target = W_target.clamp(min=0.001 / math.sqrt(N))
+        # ---- Recurrent weight (from RMTMatrix) ----
+        self.W_raw = nn.Parameter(rmt_export["W_init"].clone())
+        self.register_buffer("sparsity_mask", rmt_export["sparsity_mask"].clone())
+        self.register_buffer("dales_sign", rmt_export["dales_sign"].clone())
 
-        if config.dales:
-            # Store in inverse-softplus space so softplus(W_raw) ≈ W_target
-            W_init = _softplus_inv(W_target)
-        else:
-            W_init = W_target
-
-        if config.sparsity > 0:
-            mask = (torch.rand(N, N) > config.sparsity).float()
-            self.register_buffer("sparsity_mask", mask)
-            # Note: do NOT pre-multiply W_init by mask here.
-            # Sparsity is applied in _effective_W() as a frozen buffer.
-        else:
-            self.register_buffer("sparsity_mask", None)
-
-        self.W_raw = nn.Parameter(W_init)
         if config.echo:
             self.W_raw.requires_grad_(False)
 
@@ -273,17 +258,16 @@ class SRNNCell(nn.Module):
     # ---- Weight construction ----
 
     def _effective_W(self) -> torch.Tensor:
-        """Build the effective weight matrix, applying Dale's law if enabled."""
-        cfg = self.config
-        if cfg.dales:
-            W_pos = F.softplus(self.W_raw)
-            W_eff = W_pos.clone()
-            W_eff[:, cfg.n_E:] = -W_pos[:, cfg.n_E:]
-        else:
-            W_eff = self.W_raw
-        # Sparsity applied regardless of Dale's law
-        if self.sparsity_mask is not None:
-            W_eff = W_eff * self.sparsity_mask
+        """Build effective W — branch-free, compatible with batched bmm.
+
+        W_eff = dales_flag * dales_sign * softplus(W_raw) * mask
+              + (1 - dales_flag) * W_raw * mask
+
+        dales_sign is (N,) and broadcasts column-wise over (N, N).
+        """
+        d = float(self.config.dales)
+        W_eff = (d * self.dales_sign * F.softplus(self.W_raw)
+               + (1.0 - d) * self.W_raw) * self.sparsity_mask
         return W_eff
 
     # ---- State packing / unpacking ----
@@ -732,10 +716,12 @@ class BatchedSRNNCell(nn.Module):
         self,
         configs: list[SRNNConfig],
         input_size: int,
+        rmt_exports: list[dict],
         W_in_mask: Optional[torch.Tensor] = None,
     ):
         super().__init__()
         assert len(configs) > 0
+        assert len(rmt_exports) == len(configs), "Must provide one rmt_export per config"
         N = configs[0].num_units
         for c in configs:
             assert c.num_units == N, "All configs must share num_units"
@@ -764,27 +750,14 @@ class BatchedSRNNCell(nn.Module):
             + N
         )
 
-        # ---- Per-variant parameters stacked as (K, ...) ----
-        # Recurrent weights: (K, N, N)
-        W_stack = []
-        sparsity_masks = []
-        for c in configs:
-            w_target = torch.randn(N, N).abs() * math.sqrt(2.0 / N)
-            w_target = w_target.clamp(min=0.001 / math.sqrt(N))
+        # ---- Per-variant parameters stacked as (K, ...) from RMTMatrix ----
+        W_stack = [exp["W_init"].clone() for exp in rmt_exports]
+        sparsity_stack = [exp["sparsity_mask"].clone() for exp in rmt_exports]
+        dales_sign_stack = [exp["dales_sign"].clone() for exp in rmt_exports]
 
-            if c.dales:
-                w = _softplus_inv(w_target)
-            else:
-                w = w_target
-
-            if c.sparsity > 0:
-                m = (torch.rand(N, N) > c.sparsity).float()
-                sparsity_masks.append(m)
-            else:
-                sparsity_masks.append(torch.ones(N, N))
-            W_stack.append(w)
-        self.W_raw = nn.Parameter(torch.stack(W_stack))  # (K, N, N)
-        self.register_buffer("sparsity_masks", torch.stack(sparsity_masks))  # (K, N, N)
+        self.W_raw = nn.Parameter(torch.stack(W_stack))           # (K, N, N)
+        self.register_buffer("sparsity_masks", torch.stack(sparsity_stack))    # (K, N, N)
+        self.register_buffer("dales_signs", torch.stack(dales_sign_stack))     # (K, N)
 
         # Input weights: (K, N, input_size)
         self.W_in = nn.Parameter(torch.randn(self.K, N, input_size) * 0.1)
@@ -933,18 +906,17 @@ class BatchedSRNNCell(nn.Module):
     # ---- Weight construction ----
 
     def _effective_W(self) -> torch.Tensor:
-        """Build effective (K, N, N) weight matrix applying Dale's per variant."""
-        W_pos = F.softplus(self.W_raw)  # (K, N, N)
-        # For Dale's variants: positive E cols, negative I cols
-        # For non-Dale's: use raw weights directly
-        # Blend via dales_mask
-        W_dale = W_pos.clone()
-        W_dale[:, :, self.n_E:] = -W_pos[:, :, self.n_E:]
+        """Build effective (K, N, N) weight matrix — branch-free.
 
-        # dales_mask: (K, 1, 1)
-        W_eff = self.dales_mask * W_dale + (1.0 - self.dales_mask) * self.W_raw
-        # Sparsity applied regardless of Dale's law
-        W_eff = W_eff * self.sparsity_masks
+        W_eff = dales_mask * dales_signs * softplus(W_raw) * sparsity
+              + (1 - dales_mask) * W_raw * sparsity
+
+        dales_signs: (K, N) → (K, 1, N) for column-wise broadcast.
+        dales_mask:  (K, 1, 1) — 1.0 if Dale's active for variant k.
+        """
+        signs = self.dales_signs.unsqueeze(1)  # (K, 1, N)
+        W_eff = (self.dales_mask * signs * F.softplus(self.W_raw)
+               + (1.0 - self.dales_mask) * self.W_raw) * self.sparsity_masks
         return W_eff
 
     # ---- State packing / unpacking ----

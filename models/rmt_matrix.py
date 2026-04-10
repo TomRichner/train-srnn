@@ -61,6 +61,7 @@ class RMTMatrix:
         n: int,
         f: float = 0.5,
         indegree: Optional[int] = None,
+        density: Optional[float] = None,
         seed: int = 42,
         level_of_chaos: float = 1.0,
         mu_E_tilde: Optional[float] = None,
@@ -75,10 +76,17 @@ class RMTMatrix:
             raise ValueError(
                 f"Invalid zrs_mode '{zrs_mode}'. Valid: {self.VALID_ZRS_MODES}"
             )
+        if density is not None and indegree is not None:
+            raise ValueError("Specify density or indegree, not both")
 
         self.n = n
         self.f = f
-        self.indegree = indegree if indegree is not None else n
+        if density is not None:
+            self.indegree = round(density * n)
+        elif indegree is not None:
+            self.indegree = indegree
+        else:
+            self.indegree = n  # fully connected
         self.seed = seed
         self.level_of_chaos = level_of_chaos
         self.E_W = E_W
@@ -312,6 +320,7 @@ class RMTMatrix:
             "sparsity_mask": sparsity_mask,
             "dales_sign": dales_sign,
             "n_E": self.n_E,
+            "dales": dales,
         }
 
     # ── Plotting ───────────────────────────────────────────────────────────

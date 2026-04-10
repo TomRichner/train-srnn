@@ -67,18 +67,13 @@ cfg = SRNNConfig(
     h=H,
     ode_unfolds=ODE_UNFOLDS,
     dales=True,
-    sparsity=0.0,  # Sparsity handled by RMT mask, not random
 )
 
-cell = SRNNCell(cfg, input_size=N)
+cell = SRNNCell(cfg, input_size=N, rmt_export=export)
 
-# Inject RMT weights and sparsity mask
+# Override W_in to identity (matching MATLAB)
 with torch.no_grad():
-    cell.W_raw.copy_(export["W_init"])
-    cell.W_in.copy_(torch.eye(N))  # W_in = eye(n), matching MATLAB
-
-# Replace the random sparsity mask with the RMT one
-cell.sparsity_mask = export["sparsity_mask"]
+    cell.W_in.copy_(torch.eye(N))
 
 # ── Generate Step Stimulus (matching StepStimulus.m) ───────────────────────
 

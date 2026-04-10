@@ -7,10 +7,16 @@ import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 from models.srnn_cell import SRNNConfig, SRNNCell
+from models.rmt_matrix import RMTMatrix
 
 torch.manual_seed(42)
+
+rmt = RMTMatrix(n=300, density=1.0/3.0, seed=42, level_of_chaos=1.0)
+rmt.build()
+export = rmt.export_for_srnn(dales=True)
+
 cfg = SRNNConfig(num_units=300, n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, dales=True)
-cell = SRNNCell(cfg, input_size=300)
+cell = SRNNCell(cfg, input_size=300, rmt_export=export)
 
 with torch.no_grad():
     W = cell._effective_W().numpy()
