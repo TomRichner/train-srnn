@@ -128,7 +128,7 @@ VMs self-delete after training completes and results are uploaded to GCS.
 ## Project Structure
 
 ```
-pytorch_refactor/
+train-srnn/
   train.py                  # Hydra training entry point
   smoke_test.sh             # Quick 2-epoch test of all model x task combos
   requirements.txt
@@ -162,7 +162,7 @@ pytorch_refactor/
 
 ## Key Differences from TF 1.x Version
 
-| | TF 1.x (`experiments_with_ltcs/`) | PyTorch (`pytorch_refactor/`) |
+| | TF 1.x (`experiments_with_ltcs/`) | PyTorch (`train-srnn/`) |
 |---|---|---|
 | Config | argparse per script | Hydra YAML with CLI overrides |
 | Models | `tf.nn.rnn_cell.RNNCell` | `nn.Module` with `(input, state) -> (output, state)` |

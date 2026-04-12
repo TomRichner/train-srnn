@@ -9,16 +9,16 @@ import torch
 import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 
-from pytorch_refactor.models.sequence_model import LSTMCellWrapper, SequenceModel
-from pytorch_refactor.models.ltc_cell import LTCCell, LTCConfig
-from pytorch_refactor.models.srnn_cell import (
+from train_srnn.models.sequence_model import LSTMCellWrapper, SequenceModel
+from train_srnn.models.ltc_cell import LTCCell, LTCConfig
+from train_srnn.models.srnn_cell import (
     SRNNCell,
     SRNNConfig,
     BatchedSRNNCell,
     SRNN_PRESETS,
 )
-from pytorch_refactor.models.rmt_matrix import RMTMatrix
-from pytorch_refactor.models.ctrnn_cell import (
+from train_srnn.models.rmt_matrix import RMTMatrix
+from train_srnn.models.ctrnn_cell import (
     CTRNNCell,
     CTRNNConfig,
     NODECell,
@@ -26,7 +26,7 @@ from pytorch_refactor.models.ctrnn_cell import (
     CTGRUCell,
     CTGRUConfig,
 )
-from pytorch_refactor.utils.io_masks import generate_neuron_partition, make_input_mask
+from train_srnn.utils.io_masks import generate_neuron_partition, make_input_mask
 
 
 def _cfg_to_dataclass(model_cfg: DictConfig, dc_cls):

@@ -12,11 +12,11 @@ import torch
 import torch.nn as nn
 from omegaconf import DictConfig
 
-from pytorch_refactor.data.datasets import load_dataset
-from pytorch_refactor.data.transforms import wrap_eval_batch, wrap_train_batch
-from pytorch_refactor.models.factory import build_batched_model, build_model
-from pytorch_refactor.utils.lr_schedule import WarmupHoldCosineSchedule
-from pytorch_refactor.utils.trainable_ic import compute_burn_in
+from train_srnn.data.datasets import load_dataset
+from train_srnn.data.transforms import wrap_eval_batch, wrap_train_batch
+from train_srnn.models.factory import build_batched_model, build_model
+from train_srnn.utils.lr_schedule import WarmupHoldCosineSchedule
+from train_srnn.utils.trainable_ic import compute_burn_in
 
 log = logging.getLogger(__name__)
 

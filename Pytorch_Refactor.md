@@ -2,7 +2,7 @@
 
 **Started:** 2026-03-26
 **Source:** `experiments_with_ltcs/` (TF 1.x) + `cloud/` (GCP scripts)
-**Target:** `pytorch_refactor/` (PyTorch 2.2+, Hydra, torch.compile, bmm ablation tiling)
+**Target:** `train-srnn/` (PyTorch 2.2+, Hydra, torch.compile, bmm ablation tiling)
 
 ---
 
@@ -160,7 +160,7 @@ VM image built, datasets uploaded to GCS, code pushed.
 
 ## Key Differences from TF Version
 
-| | TF 1.x (`experiments_with_ltcs/`) | PyTorch (`pytorch_refactor/`) |
+| | TF 1.x (`experiments_with_ltcs/`) | PyTorch (`train-srnn/`) |
 |---|---|---|
 | Config | argparse per script | Hydra YAML with overrides |
 | Models | `tf.nn.rnn_cell.RNNCell` | `nn.Module` with `(input, state) → (output, state)` |

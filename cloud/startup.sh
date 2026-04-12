@@ -29,8 +29,8 @@ cleanup() {
     echo "=== Cleanup (exit=$exit_code) $(date -Iseconds) ==="
 
     # Upload final results
-    if [ -d "/tmp/workdir/results" ]; then
-        gcloud storage cp -r /tmp/workdir/results/* "$RESULTS_PREFIX/" 2>/dev/null || true
+    if [ -d "/tmp/train_srnn/results" ]; then
+        gcloud storage cp -r /tmp/train_srnn/results/* "$RESULTS_PREFIX/" 2>/dev/null || true
     fi
 
     # Upload log
@@ -55,7 +55,7 @@ trap cleanup EXIT
 # Step 1: Clone repo
 GCP_ZONE=$(curl -sf -H "$META_HEADER" "http://metadata.google.internal/computeMetadata/v1/instance/zone" | rev | cut -d/ -f1 | rev)
 REPO_URL="https://github.com/TomRichner/liquid_time_constant_networks.git"
-WORKDIR="/tmp/workdir"
+WORKDIR="/tmp/train_srnn"
 
 for attempt in 1 2 3; do
     if git clone --depth 1 "$REPO_URL" "$WORKDIR" 2>/dev/null; then
@@ -64,7 +64,7 @@ for attempt in 1 2 3; do
     echo "Clone attempt $attempt failed, retrying in 30s..."
     sleep 30
 done
-cd "$WORKDIR/pytorch_refactor"
+cd "$WORKDIR"
 echo "Git commit: $(git rev-parse --short HEAD)"
 
 # Step 2: Download dataset (if needed)
@@ -87,8 +87,8 @@ fi
 echo "=== Training start $(date -Iseconds) ==="
 mkdir -p results/$EXPERIMENT
 
-# Add parent dir to PYTHONPATH so `pytorch_refactor` package is importable
-export PYTHONPATH="/tmp/workdir:${PYTHONPATH:-}"
+# Add parent dir to PYTHONPATH so `train_srnn` package is importable
+export PYTHONPATH="/tmp:${PYTHONPATH:-}"
 
 python3 train.py \
     model=$MODEL \

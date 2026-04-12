@@ -8,12 +8,12 @@ initial conditions, and truncated BPTT support.
 import torch
 import torch.nn as nn
 
-from pytorch_refactor.utils.io_masks import (
+from train_srnn.utils.io_masks import (
     generate_neuron_partition,
     make_input_mask,
     make_output_mask,
 )
-from pytorch_refactor.utils.trainable_ic import TrainableIC
+from train_srnn.utils.trainable_ic import TrainableIC
 
 
 class LSTMCellWrapper(nn.Module):
