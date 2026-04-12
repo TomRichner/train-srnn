@@ -45,7 +45,7 @@ There is no separate lint/test runner — `smoke_test.sh` is the integration che
 
 **SRNN specifics.** Dale's law applied via `_effective_W` (softplus + sparsity_mask, inhibitory columns negated). Multi-timescale SFA: when `n_a_E >= 2`, learnable `log_tau_a_E_lo`/`hi` endpoints are interpolated linearly across `n_a_E` timescales at runtime. `per_neuron=True` switches adaptation params from shape `(1,)` to `(n_E,)`/`(n_I,)`. `echo=True` freezes recurrent W (reservoir mode). Activation is `piecewise_sigmoid` with 5 regions.
 
-**Cloud (`cloud/`).** GCP VM-per-run model: `launch_run.sh` / `launch_all.sh` create spot VMs whose `startup.sh` reads metadata tags, clones the `train-srnn` repo, downloads the dataset from GCS, runs `train.py`, uploads results, and self-deletes. `monitor.sh` shows a model×task completion matrix; `collect_results.py` aggregates seed CSVs from GCS. Per-task overrides live in `cloud/experiments/<task>.env`. Defaults in `cloud/config.env` (project, bucket, machine type — n4d requires hyperdisk-balanced).
+**Cloud (`cloud/`).** GCP VM-per-run model: `launch_run.sh` / `launch_all.sh` create VMs (scoped `cloud-platform`) whose `startup.sh` fetches an SSH deploy key from GCP Secret Manager (`train-srnn-deploy-key` in project `liquidneuralnets`), clones the private `train-srnn` repo via SSH, downloads the dataset from GCS, runs `train.py`, uploads results, and self-deletes. The deploy key is scrubbed from disk after clone. `monitor.sh` shows a model×task completion matrix; `collect_results.py` aggregates seed CSVs from GCS. Per-task overrides live in `cloud/experiments/<task>.env`. Defaults in `cloud/config.env` (project, bucket, machine type — n4d requires hyperdisk-balanced).
 
 ## Conventions worth knowing
 

@@ -776,12 +776,14 @@ Local machine                          GCP
   |  -------------------------------->  gcloud compute instances create
   |                                     |
   |                                     VM boots -> startup.sh runs:
-  |                                       1. Clone repo from GitHub
-  |                                       2. Download dataset from GCS
-  |                                       3. pip install requirements
-  |                                       4. python3 train.py model=X task=Y ...
-  |                                       5. Upload results to GCS
-  |                                       6. Self-delete VM
+  |                                       1. Fetch deploy key from Secret Manager
+  |                                       2. Clone private repo via SSH
+  |                                       3. Scrub deploy key from disk
+  |                                       4. Download dataset from GCS
+  |                                       5. pip install requirements
+  |                                       6. python3 train.py model=X task=Y ...
+  |                                       7. Upload results to GCS
+  |                                       8. Self-delete VM
   |                                     |
   |  monitor.sh                         |
   |  <------------------------------->  gcloud compute instances list
@@ -846,15 +848,17 @@ The startup script runs automatically when a GCP VM boots. It reads experiment p
 **Execution steps:**
 
 1. Read all metadata tags via `curl` to GCE metadata server
-2. Clone repo from GitHub (3 retries)
-3. Download dataset from GCS (unless smnist, which downloads via torchvision)
-4. Activate Python venv (`/opt/python-venv` if pre-built image, else create new)
-5. Install requirements (pip)
-6. Set `PYTHONPATH=/tmp/workdir` for package imports
-7. Run: `python3 train.py model=$MODEL task=$EXPERIMENT seed=$SEED $TRAIN_ARGS`
-8. On exit (success or failure):
-   - Upload results, logs, and metadata JSON to GCS
-   - Self-delete VM via `gcloud compute instances delete`
+2. Fetch SSH deploy key from GCP Secret Manager (`train-srnn-deploy-key`)
+3. Configure SSH for GitHub, clone private repo via SSH (3 retries)
+4. Scrub deploy key from disk
+5. Download dataset from GCS (unless smnist, which downloads via torchvision)
+6. Activate Python venv (`/opt/python-venv` if pre-built image, else create new)
+7. Install requirements (pip)
+8. Set `PYTHONPATH=$WORKDIR` for `train_srnn` package imports
+9. Run: `python3 train.py model=$MODEL task=$EXPERIMENT seed=$SEED $TRAIN_ARGS`
+10. On exit (success or failure):
+    - Upload results, logs, and metadata JSON to GCS
+    - Self-delete VM via `gcloud compute instances delete`
 
 ### GCS Directory Structure
 

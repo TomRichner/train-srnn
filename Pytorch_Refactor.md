@@ -9,20 +9,20 @@
 ## Status
 
 ### Models (✅ complete)
-- **`models/srnn_cell.py`** — `SRNNCell` + `BatchedSRNNCell`. 15 presets in `SRNN_PRESETS`. 4 ODE solvers (semi_implicit, explicit, rk4, exponential). Piecewise sigmoid, Dale's law, SFA (multi-timescale), STD. torch.compile-friendly: ablation differences are float buffer masks, no Python branching on tensor values.
-- **`models/ltc_cell.py`** — `LTCCell` with sensory/recurrent sigmoid gating, trainable reversal potentials, 3 ODE solvers, parameter constraints.
-- **`models/ctrnn_cell.py`** — `CTRNNCell` (Euler), `NODECell` (RK4), `CTGRUCell` (M=8 multi-timescale GRU).
-- **`models/sequence_model.py`** — `SequenceModel` wrapper: unrolling, I/O masks, truncated BPTT, readout head, trainable IC. `LSTMCellWrapper` baseline.
-- **`models/factory.py`** — `build_model(cfg)` / `build_batched_model(cfg, names)` from Hydra config.
+- **`train_srnn/models/srnn_cell.py`** — `SRNNCell` + `BatchedSRNNCell`. 15 presets in `SRNN_PRESETS`. 4 ODE solvers (semi_implicit, explicit, rk4, exponential). Piecewise sigmoid, Dale's law, SFA (multi-timescale), STD. torch.compile-friendly: ablation differences are float buffer masks, no Python branching on tensor values.
+- **`train_srnn/models/ltc_cell.py`** — `LTCCell` with sensory/recurrent sigmoid gating, trainable reversal potentials, 3 ODE solvers, parameter constraints.
+- **`train_srnn/models/ctrnn_cell.py`** — `CTRNNCell` (Euler), `NODECell` (RK4), `CTGRUCell` (M=8 multi-timescale GRU).
+- **`train_srnn/models/sequence_model.py`** — `SequenceModel` wrapper: unrolling, I/O masks, truncated BPTT, readout head, trainable IC. `LSTMCellWrapper` baseline.
+- **`train_srnn/models/factory.py`** — `build_model(cfg)` / `build_batched_model(cfg, names)` from Hydra config.
 
 ### Data (✅ complete)
-- **`data/datasets.py`** — 9 loaders (SMNIST, HAR, gesture, occupancy, traffic, power, ozone, person, cheetah). Batch-first numpy `(N, T, F)`.
-- **`data/transforms.py`** — PCHIP time stretch, palindrome looping, random windowing, `wrap_train_batch()` / `wrap_eval_batch()`.
+- **`train_srnn/data/datasets.py`** — 9 loaders (SMNIST, HAR, gesture, occupancy, traffic, power, ozone, person, cheetah). Batch-first numpy `(N, T, F)`.
+- **`train_srnn/data/transforms.py`** — PCHIP time stretch, palindrome looping, random windowing, `wrap_train_batch()` / `wrap_eval_batch()`.
 
 ### Utils (✅ complete)
-- **`utils/io_masks.py`** — Neuron partitioning (1/4 input, 1/2 inter, 1/4 output).
-- **`utils/lr_schedule.py`** — `WarmupHoldCosineSchedule` (warmup → hold → cosine decay).
-- **`utils/trainable_ic.py`** — `TrainableIC` module + `compute_burn_in()`. Fully integrated (was deferred in TF version).
+- **`train_srnn/utils/io_masks.py`** — Neuron partitioning (1/4 input, 1/2 inter, 1/4 output).
+- **`train_srnn/utils/lr_schedule.py`** — `WarmupHoldCosineSchedule` (warmup → hold → cosine decay).
+- **`train_srnn/utils/trainable_ic.py`** — `TrainableIC` module + `compute_burn_in()`. Fully integrated (was deferred in TF version).
 
 ### Hydra Configs (✅ complete)
 - `conf/config.yaml` — main config with CLI overrides
@@ -40,8 +40,8 @@
 
 ### Cloud (✅ complete, verified on GCP)
 - `cloud/config.env` — n4d machine family, hyperdisk-balanced, `srnn-pytorch` image family
-- `cloud/startup.sh` — VM boot → clone → pip install → train via Hydra → upload to GCS → self-delete. Sets `PYTHONPATH` for package imports.
-- `cloud/launch_run.sh`, `launch_all.sh` — single + matrix launchers with concurrency. Includes `compute-rw` scope for self-delete.
+- `cloud/startup.sh` — VM boot → fetch deploy key from Secret Manager → SSH clone private repo → scrub key → pip install → train via Hydra → upload to GCS → self-delete. Sets `PYTHONPATH` for `train_srnn` package imports.
+- `cloud/launch_run.sh`, `launch_all.sh` — single + matrix launchers with concurrency. Uses `cloud-platform` scope for Secret Manager + self-delete.
 - `cloud/monitor.sh` — completion status grid
 - `cloud/collect_results.py` — GCS aggregation with mean±std tables
 - `cloud/build_image.sh` — PyTorch VM image builder (SSH retry loop for reliability)
@@ -59,19 +59,19 @@
 
 ### Critical Bugs — ✅ ALL FIXED (2026-03-28)
 
-**1. ~~Piecewise sigmoid was mathematically wrong~~** — `models/srnn_cell.py` — **FIXED**
+**1. ~~Piecewise sigmoid was mathematically wrong~~** — `train_srnn/models/srnn_cell.py` — **FIXED**
 - Critical points now use `a = S_a / 2.0`, matching TF exactly. Linear region is 90% of output range.
 
-**2. ~~Multi-timescale SFA had no interpolation~~** — `models/srnn_cell.py` — **FIXED**
+**2. ~~Multi-timescale SFA had no interpolation~~** — `train_srnn/models/srnn_cell.py` — **FIXED**
 - Added `_get_tau_a_E()` / `_get_tau_a_I()` helpers that interpolate N evenly-spaced timescales between trainable lo/hi endpoints at runtime, matching TF `_make_tau_range()`. BatchedSRNNCell initializes intermediate values via interpolation.
 
-**3. ~~CTGRUCell was simplified/incorrect~~** — `models/ctrnn_cell.py` — **FIXED**
+**3. ~~CTGRUCell was simplified/incorrect~~** — `train_srnn/models/ctrnn_cell.py` — **FIXED**
 - Complete rewrite with learned `tau_r_dense` and `tau_s_dense` Dense layers, data-dependent softmax weighting over timescales, exponential decay per timescale — matches TF architecture.
 
-**4. ~~LTC initialization values were wrong~~** — `models/ltc_cell.py` — **FIXED**
+**4. ~~LTC initialization values were wrong~~** — `train_srnn/models/ltc_cell.py` — **FIXED**
 - `w_init_min=0.01`, `cm_init=0.5` (constant), `gleak_init=1.0` (constant) — matches TF.
 
-**5. ~~LTC method name mismatch~~** — `models/ltc_cell.py` — **FIXED**
+**5. ~~LTC method name mismatch~~** — `train_srnn/models/ltc_cell.py` — **FIXED**
 - Renamed `apply_weight_constraints()` → `constrain_parameters()` to match `SequenceModel` call.
 
 ### High Priority Issues — ✅ ALL FIXED (2026-03-28)
@@ -84,7 +84,7 @@
 - All cell types (LTC, SRNN, CTRNN, NODE, CTGRU) and `BatchedSRNNCell` accept and apply W_in_mask.
 - SRNNCell applies mask to `W_in` rows; other cells use existing mask mechanisms.
 
-**8. `wrap_train_batch` RNG state management was fragile** — `data/transforms.py` — **FIXED** (prior vectorization)
+**8. `wrap_train_batch` RNG state management was fragile** — `train_srnn/data/transforms.py` — **FIXED** (prior vectorization)
 - Replaced per-sample loops and fragile RNG save/restore with clean vectorized batch operations.
 
 ### What's Correct

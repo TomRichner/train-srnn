@@ -106,6 +106,27 @@ python train.py model=srnn task=har epochs=50 lr=1e-3 size=64 seed=42
 
 Run experiments at scale on GCP VMs. See `cloud/` for infrastructure scripts.
 
+### Prerequisites
+
+The repo is private. VMs authenticate via an SSH deploy key stored in GCP Secret Manager:
+
+1. Generate a deploy key: `ssh-keygen -t ed25519 -C "train-srnn-deploy-key" -f ~/.ssh/train-srnn-deploy -N ""`
+2. Add the public key to GitHub: `TomRichner/train-srnn` > Settings > Deploy keys (read-only)
+3. Store the private key in Secret Manager:
+   ```bash
+   gcloud secrets create train-srnn-deploy-key --project=liquidneuralnets --replication-policy=automatic
+   gcloud secrets versions add train-srnn-deploy-key --project=liquidneuralnets --data-file=~/.ssh/train-srnn-deploy
+   ```
+4. Grant the Compute Engine default service account access:
+   ```bash
+   PROJECT_NUMBER=$(gcloud projects describe liquidneuralnets --format='value(projectNumber)')
+   gcloud secrets add-iam-policy-binding train-srnn-deploy-key --project=liquidneuralnets \
+       --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+       --role="roles/secretmanager.secretAccessor"
+   ```
+
+### Usage
+
 ```bash
 # Build VM image (one-time)
 bash cloud/build_image.sh
