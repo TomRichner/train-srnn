@@ -1,5 +1,5 @@
 name: ozone
-data_dir: data/ozone
+data_dir: train_srnn/data/ozone
 seq_len: 32
 input_size: 72
 output_size: 2

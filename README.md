@@ -136,19 +136,20 @@ train-srnn/
     config.yaml             # Root config (defaults, hyperparameters)
     model/                  # 17 model configs (lstm, ltc, srnn, ablations...)
     task/                   # 9 task configs (har, smnist, gesture...)
-  models/
-    sequence_model.py       # SequenceModel wrapper (unrolling, I/O masks, readout)
-    factory.py              # build_model() / build_batched_model() from config
-    srnn_cell.py            # SRNNCell + BatchedSRNNCell + SRNN_PRESETS
-    ltc_cell.py             # LTCCell (3 ODE solvers)
-    ctrnn_cell.py           # CTRNNCell, NODECell, CTGRUCell
-  data/
-    datasets.py             # 9 dataset loaders → numpy (N, T, F)
-    transforms.py           # Time stretch, palindrome loop, train/eval wrappers
-  utils/
-    io_masks.py             # Neuron partitioning (input / inter / output)
-    lr_schedule.py          # WarmupHoldCosineSchedule
-    trainable_ic.py         # TrainableIC + compute_burn_in()
+  train_srnn/               # Python package
+    models/
+      sequence_model.py     # SequenceModel wrapper (unrolling, I/O masks, readout)
+      factory.py            # build_model() / build_batched_model() from config
+      srnn_cell.py          # SRNNCell + BatchedSRNNCell + SRNN_PRESETS
+      ltc_cell.py           # LTCCell (3 ODE solvers)
+      ctrnn_cell.py         # CTRNNCell, NODECell, CTGRUCell
+    data/
+      datasets.py           # 9 dataset loaders → numpy (N, T, F)
+      transforms.py         # Time stretch, palindrome loop, train/eval wrappers
+    utils/
+      io_masks.py           # Neuron partitioning (input / inter / output)
+      lr_schedule.py        # WarmupHoldCosineSchedule
+      trainable_ic.py       # TrainableIC + compute_burn_in()
   cloud/
     config.env              # GCP project, zone, bucket, machine config
     startup.sh              # VM boot script (clone, train, upload, self-delete)

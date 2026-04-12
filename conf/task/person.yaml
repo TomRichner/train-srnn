@@ -1,5 +1,5 @@
 name: person
-data_dir: data/person
+data_dir: train_srnn/data/person
 seq_len: 32
 input_size: 7
 output_size: 7

@@ -1,13 +1,10 @@
 """Compare PyTorch SRNN weight distribution to MATLAB RMT reference."""
-import sys
-sys.path.insert(0, ".")
-
 import torch
 import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
-from models.srnn_cell import SRNNConfig, SRNNCell
-from models.rmt_matrix import RMTMatrix
+from train_srnn.models.srnn_cell import SRNNConfig, SRNNCell
+from train_srnn.models.rmt_matrix import RMTMatrix
 
 torch.manual_seed(42)
 

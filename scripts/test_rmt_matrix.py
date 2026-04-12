@@ -1,10 +1,7 @@
 """Test RMTMatrix: verify spectral properties, sparsity, and export round-trip."""
-import sys
-sys.path.insert(0, ".")
-
 import numpy as np
 import matplotlib.pyplot as plt
-from models.rmt_matrix import RMTMatrix
+from train_srnn.models.rmt_matrix import RMTMatrix
 
 # ── Build with MATLAB defaults ─────────────────────────────────────────────
 

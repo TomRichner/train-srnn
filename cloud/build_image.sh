@@ -35,7 +35,7 @@ done
 
 # Install Python + PyTorch
 gcloud compute ssh "$TEMP_VM" --zone="$ZONE" --project="$GCP_PROJECT" --command="
-    sudo apt-get update && sudo apt-get install -y python3-pip python3-venv git
+    sudo apt-get update && sudo apt-get install -y python3-pip python3-venv git openssh-client
     sudo python3 -m venv /opt/python-venv
     sudo /opt/python-venv/bin/pip install --upgrade pip
     sudo /opt/python-venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu

@@ -8,15 +8,12 @@ Usage:
     python scripts/test_srnn_defaults.py
 """
 
-import sys
-sys.path.insert(0, ".")
-
 import torch
 import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-from models.srnn_cell import SRNNConfig, SRNNCell, piecewise_sigmoid
+from train_srnn.models.srnn_cell import SRNNConfig, SRNNCell, piecewise_sigmoid
 
 # ── Configuration ──────────────────────────────────────────────────────────
 

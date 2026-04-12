@@ -21,6 +21,8 @@ BUCKET=$(curl -sf -H "$META_HEADER" "$META_URL/bucket")
 RESULTS_PREFIX="$BUCKET/results-pytorch/$RUN_NAME/$MODEL/$EXPERIMENT/seed$SEED"
 VM_NAME=$(hostname)
 
+WORKDIR="/tmp/workdir"
+
 echo "Run: $RUN_NAME | Experiment: $EXPERIMENT | Model: $MODEL | Seed: $SEED"
 
 # Cleanup handler
@@ -29,8 +31,8 @@ cleanup() {
     echo "=== Cleanup (exit=$exit_code) $(date -Iseconds) ==="
 
     # Upload final results
-    if [ -d "/tmp/train_srnn/results" ]; then
-        gcloud storage cp -r /tmp/train_srnn/results/* "$RESULTS_PREFIX/" 2>/dev/null || true
+    if [ -d "$WORKDIR/results" ]; then
+        gcloud storage cp -r "$WORKDIR/results/*" "$RESULTS_PREFIX/" 2>/dev/null || true
     fi
 
     # Upload log
@@ -52,25 +54,64 @@ json.dump({
 }
 trap cleanup EXIT
 
-# Step 1: Clone repo
+# Step 1: Clone private repo via deploy key from Secret Manager
 GCP_ZONE=$(curl -sf -H "$META_HEADER" "http://metadata.google.internal/computeMetadata/v1/instance/zone" | rev | cut -d/ -f1 | rev)
-REPO_URL="https://github.com/TomRichner/liquid_time_constant_networks.git"
-WORKDIR="/tmp/train_srnn"
+GCP_PROJECT=$(curl -sf -H "$META_HEADER" "http://metadata.google.internal/computeMetadata/v1/project/project-id")
+REPO_URL="git@github.com:TomRichner/train-srnn.git"
 
+# Fetch deploy key from Secret Manager
+SSH_DIR="/root/.ssh"
+DEPLOY_KEY="$SSH_DIR/deploy_key"
+mkdir -p "$SSH_DIR"
+chmod 700 "$SSH_DIR"
+
+echo "Fetching deploy key from Secret Manager..."
+if ! gcloud secrets versions access latest \
+    --secret="train-srnn-deploy-key" \
+    --project="$GCP_PROJECT" > "$DEPLOY_KEY" 2>/dev/null; then
+    echo "FATAL: Could not fetch deploy key from Secret Manager"
+    echo "Check: (1) secret 'train-srnn-deploy-key' exists in project '$GCP_PROJECT'"
+    echo "       (2) VM service account has secretmanager.secretAccessor role"
+    echo "       (3) VM was launched with cloud-platform scope"
+    exit 1
+fi
+chmod 600 "$DEPLOY_KEY"
+
+# Configure SSH for GitHub
+ssh-keyscan -t ed25519 github.com >> "$SSH_DIR/known_hosts" 2>/dev/null
+cat > "$SSH_DIR/config" <<SSHEOF
+Host github.com
+    IdentityFile $DEPLOY_KEY
+    StrictHostKeyChecking yes
+    IdentitiesOnly yes
+SSHEOF
+chmod 600 "$SSH_DIR/config"
+
+# Clone with retry
 for attempt in 1 2 3; do
-    if git clone --depth 1 "$REPO_URL" "$WORKDIR" 2>/dev/null; then
+    if git clone --depth 1 "$REPO_URL" "$WORKDIR" 2>&1; then
         break
     fi
     echo "Clone attempt $attempt failed, retrying in 30s..."
     sleep 30
 done
+
+# Verify clone succeeded
+if [ ! -d "$WORKDIR/.git" ]; then
+    echo "FATAL: Git clone failed after 3 attempts"
+    exit 1
+fi
+
+# Scrub deploy key from disk
+rm -f "$DEPLOY_KEY" "$SSH_DIR/config"
+
 cd "$WORKDIR"
 echo "Git commit: $(git rev-parse --short HEAD)"
 
 # Step 2: Download dataset (if needed)
 if [ "$EXPERIMENT" != "smnist" ]; then
-    mkdir -p "data/$EXPERIMENT"
-    gcloud storage cp -r "$BUCKET/datasets/$EXPERIMENT/*" "data/$EXPERIMENT/" || true
+    mkdir -p "train_srnn/data/$EXPERIMENT"
+    gcloud storage cp -r "$BUCKET/datasets/$EXPERIMENT/*" "train_srnn/data/$EXPERIMENT/" || true
 fi
 
 # Step 3: Setup Python environment
@@ -88,7 +129,7 @@ echo "=== Training start $(date -Iseconds) ==="
 mkdir -p results/$EXPERIMENT
 
 # Add parent dir to PYTHONPATH so `train_srnn` package is importable
-export PYTHONPATH="/tmp:${PYTHONPATH:-}"
+export PYTHONPATH="$WORKDIR:${PYTHONPATH:-}"
 
 python3 train.py \
     model=$MODEL \

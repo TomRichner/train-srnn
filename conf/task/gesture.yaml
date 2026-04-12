@@ -1,5 +1,5 @@
 name: gesture
-data_dir: data/gesture
+data_dir: train_srnn/data/gesture
 seq_len: 32
 input_size: 32
 output_size: 5

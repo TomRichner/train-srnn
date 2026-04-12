@@ -1,5 +1,5 @@
 name: har
-data_dir: data/har
+data_dir: train_srnn/data/har
 seq_len: 16
 input_size: 561
 output_size: 6

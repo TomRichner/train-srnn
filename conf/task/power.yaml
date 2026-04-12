@@ -1,5 +1,5 @@
 name: power
-data_dir: data/power
+data_dir: train_srnn/data/power
 seq_len: 32
 input_size: 6
 output_size: 1

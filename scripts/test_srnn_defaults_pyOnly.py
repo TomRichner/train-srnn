@@ -10,15 +10,12 @@ Usage:
     python scripts/test_srnn_defaults_pyOnly.py
 """
 
-import sys
-sys.path.insert(0, ".")
-
 import torch
 import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
-from models.srnn_cell import SRNNConfig, SRNNCell, piecewise_sigmoid
-from models.rmt_matrix import RMTMatrix
+from train_srnn.models.srnn_cell import SRNNConfig, SRNNCell, piecewise_sigmoid
+from train_srnn.models.rmt_matrix import RMTMatrix
 
 # ── MATLAB-matching defaults ───────────────────────────────────────────────
 

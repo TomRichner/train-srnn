@@ -1,5 +1,5 @@
 name: cheetah
-data_dir: data/cheetah
+data_dir: train_srnn/data/cheetah
 seq_len: null  # variable
 input_size: 17
 output_size: 17

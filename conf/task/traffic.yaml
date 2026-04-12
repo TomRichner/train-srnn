@@ -1,5 +1,5 @@
 name: traffic
-data_dir: data/traffic
+data_dir: train_srnn/data/traffic
 seq_len: 32
 input_size: 7
 output_size: 1
