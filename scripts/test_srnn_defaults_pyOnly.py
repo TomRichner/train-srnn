@@ -27,8 +27,8 @@ F_EXC = 0.5              # Fraction excitatory
 N_E = int(N * F_EXC)
 INDEGREE = 100
 LEVEL_OF_CHAOS = 1.0
-RNG_SEED_NETWORK = 1     # MATLAB rng_seeds(1)
-RNG_SEED_STIMULUS = 2    # MATLAB rng_seeds(2)
+RNG_SEED_NETWORK = 7
+RNG_SEED_STIMULUS = 8
 
 T = 50.0                 # Simulation time (seconds)
 FS = 400                 # Sampling frequency (Hz)
