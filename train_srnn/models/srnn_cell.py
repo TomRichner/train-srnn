@@ -95,6 +95,7 @@ class SRNNConfig:
     h: float = 0.01
     ode_unfolds: int = 4
     readout: str = "synaptic"
+    tau_global_init: float = 1.0  # Initial value for global timescale multiplier
 
     @property
     def n_E(self) -> int:
@@ -183,6 +184,11 @@ class SRNNCell(nn.Module):
 
         # ---- Threshold ----
         self.a_0 = nn.Parameter(torch.full((N,), 0.35))
+
+        # ---- Global timescale multiplier ----
+        self.log_tau_global = nn.Parameter(
+            torch.full((), inv_softplus(config.tau_global_init))
+        )
 
         # ---- Dendritic time constant ----
         tau_d_shape = (N,) if config.per_neuron else (1,)
@@ -353,38 +359,51 @@ class SRNNCell(nn.Module):
         parts.append(0.1 * torch.randn(batch_size, cfg.num_units, device=device))
         return torch.cat(parts, dim=-1)
 
-    # ---- Tau interpolation helpers (matches TF _make_tau_range) ----
+    # ---- Tau helpers (centralized, all scaled by tau_global) ----
+
+    def _tau_global(self) -> torch.Tensor:
+        return F.softplus(self.log_tau_global)
+
+    def _tau_d(self) -> torch.Tensor:
+        return self._tau_global() * F.softplus(self.log_tau_d)
 
     def _get_tau_a_E(self) -> torch.Tensor:
-        """Get SFA time constants for E neurons, interpolating if multi-timescale.
-
-        Uses log-spacing to match MATLAB logspace(log10(lo), log10(hi), n).
-        """
+        """Get SFA time constants for E neurons, interpolating if multi-timescale."""
+        g = self._tau_global()
         if self.log_tau_a_E is not None:
-            return F.softplus(self.log_tau_a_E)
-        # Multi-timescale: log-space interpolate n_a_E values between lo and hi
-        lo = F.softplus(self.log_tau_a_E_lo)  # (dim, 1)
-        hi = F.softplus(self.log_tau_a_E_hi)  # (dim, 1)
+            return g * F.softplus(self.log_tau_a_E)
+        lo = F.softplus(self.log_tau_a_E_lo)
+        hi = F.softplus(self.log_tau_a_E_hi)
         n = self.config.n_a_E
-        t = torch.linspace(0.0, 1.0, n, device=lo.device)  # (n,)
+        t = torch.linspace(0.0, 1.0, n, device=lo.device)
         log_lo = torch.log(lo)
         log_hi = torch.log(hi)
-        return torch.exp(log_lo + (log_hi - log_lo) * t)  # (dim, n)
+        return g * torch.exp(log_lo + (log_hi - log_lo) * t)
 
     def _get_tau_a_I(self) -> torch.Tensor:
-        """Get SFA time constants for I neurons, interpolating if multi-timescale.
-
-        Uses log-spacing to match MATLAB logspace(log10(lo), log10(hi), n).
-        """
+        """Get SFA time constants for I neurons, interpolating if multi-timescale."""
+        g = self._tau_global()
         if self.log_tau_a_I is not None:
-            return F.softplus(self.log_tau_a_I)
+            return g * F.softplus(self.log_tau_a_I)
         lo = F.softplus(self.log_tau_a_I_lo)
         hi = F.softplus(self.log_tau_a_I_hi)
         n = self.config.n_a_I
         t = torch.linspace(0.0, 1.0, n, device=lo.device)
         log_lo = torch.log(lo)
         log_hi = torch.log(hi)
-        return torch.exp(log_lo + (log_hi - log_lo) * t)
+        return g * torch.exp(log_lo + (log_hi - log_lo) * t)
+
+    def _tau_b_rec_E(self) -> torch.Tensor:
+        return self._tau_global() * F.softplus(self.log_tau_b_rec_E)
+
+    def _tau_b_rel_E(self) -> torch.Tensor:
+        return self._tau_global() * F.softplus(self.log_tau_b_rel_E)
+
+    def _tau_b_rec_I(self) -> torch.Tensor:
+        return self._tau_global() * F.softplus(self.log_tau_b_rec_I)
+
+    def _tau_b_rel_I(self) -> torch.Tensor:
+        return self._tau_global() * F.softplus(self.log_tau_b_rel_I)
 
     # ---- ODE right-hand side ----
 
@@ -433,13 +452,13 @@ class SRNNCell(nn.Module):
         Wbr = br @ W_eff.T  # (batch, N)
 
         # 5. Dendritic potential derivative
-        tau_d = F.softplus(self.log_tau_d)  # (N,) or (1,)
+        tau_d = self._tau_d()
         dx = (-x + u + Wbr) / tau_d
 
         # 6. SFA derivatives
         da_E = da_I = None
         if a_E is not None:
-            tau_a_E = self._get_tau_a_E()  # (dim, n_a_E), interpolated if multi
+            tau_a_E = self._get_tau_a_E()
             r_E = r[:, :n_E].unsqueeze(-1)  # (batch, n_E, 1)
             da_E = (-a_E + self.c_0_E + r_E) / tau_a_E
 
@@ -451,14 +470,14 @@ class SRNNCell(nn.Module):
         # 7. STD derivatives
         db_E = db_I = None
         if b_E is not None:
-            tau_b_rec_E = F.softplus(self.log_tau_b_rec_E)
-            tau_b_rel_E = F.softplus(self.log_tau_b_rel_E)
+            tau_b_rec_E = self._tau_b_rec_E()
+            tau_b_rel_E = self._tau_b_rel_E()
             r_E_flat = r[:, :n_E]
             db_E = (1.0 - b_E) / tau_b_rec_E - r_E_flat * b_E / tau_b_rel_E
 
         if b_I is not None:
-            tau_b_rec_I = F.softplus(self.log_tau_b_rec_I)
-            tau_b_rel_I = F.softplus(self.log_tau_b_rel_I)
+            tau_b_rec_I = self._tau_b_rec_I()
+            tau_b_rel_I = self._tau_b_rel_I()
             r_I_flat = r[:, n_E:]
             db_I = (1.0 - b_I) / tau_b_rec_I - r_I_flat * b_I / tau_b_rel_I
 
@@ -495,14 +514,14 @@ class SRNNCell(nn.Module):
         Wbr = br @ W_eff.T
 
         # Semi-implicit x update
-        tau_d = F.softplus(self.log_tau_d)
+        tau_d = self._tau_d()
         alpha_x = dt / tau_d
         x_new = (x + alpha_x * (u + Wbr)) / (1.0 + alpha_x)
 
         # Semi-implicit SFA update
         a_E_new = a_I_new = None
         if a_E is not None:
-            tau_a_E = self._get_tau_a_E()  # (dim, n_a_E), interpolated if multi
+            tau_a_E = self._get_tau_a_E()
             alpha_a_E = dt / tau_a_E
             r_E = r[:, :n_E].unsqueeze(-1)
             a_E_new = (a_E + alpha_a_E * (self.c_0_E + r_E)) / (1.0 + alpha_a_E)
@@ -516,8 +535,8 @@ class SRNNCell(nn.Module):
         # Semi-implicit STD update
         b_E_new = b_I_new = None
         if b_E is not None:
-            tau_b_rec_E = F.softplus(self.log_tau_b_rec_E)
-            tau_b_rel_E = F.softplus(self.log_tau_b_rel_E)
+            tau_b_rec_E = self._tau_b_rec_E()
+            tau_b_rel_E = self._tau_b_rel_E()
             r_E_flat = r[:, :n_E]
             b_E_new = (b_E + dt / tau_b_rec_E) / (
                 1.0 + dt * (1.0 / tau_b_rec_E + r_E_flat / tau_b_rel_E)
@@ -525,8 +544,8 @@ class SRNNCell(nn.Module):
             b_E_new = b_E_new.clamp(0.0, 1.0)
 
         if b_I is not None:
-            tau_b_rec_I = F.softplus(self.log_tau_b_rec_I)
-            tau_b_rel_I = F.softplus(self.log_tau_b_rel_I)
+            tau_b_rec_I = self._tau_b_rec_I()
+            tau_b_rel_I = self._tau_b_rel_I()
             r_I_flat = r[:, n_E:]
             b_I_new = (b_I + dt / tau_b_rec_I) / (
                 1.0 + dt * (1.0 / tau_b_rec_I + r_I_flat / tau_b_rel_I)
@@ -612,7 +631,7 @@ class SRNNCell(nn.Module):
         )
 
         # Exponential update for x: x_new = x*exp(-dt/tau) + (1-exp(-dt/tau)) * driving
-        tau_d = F.softplus(self.log_tau_d)
+        tau_d = self._tau_d()
         decay_x = torch.exp(-dt / tau_d)
         b_rebuilt = torch.ones_like(r)
         if b_E is not None:
@@ -777,6 +796,11 @@ class BatchedSRNNCell(nn.Module):
         # Threshold: (K, N)
         self.a_0 = nn.Parameter(torch.full((self.K, N), 0.35))
 
+        # Global timescale multiplier: (K,) — one per variant
+        self.log_tau_global = nn.Parameter(torch.tensor(
+            [inv_softplus(c.tau_global_init) for c in configs]
+        ))
+
         # Dendritic time constant: (K, N)
         self.log_tau_d = nn.Parameter(torch.full((self.K, N), inv_softplus(0.1)))
 
@@ -928,6 +952,40 @@ class BatchedSRNNCell(nn.Module):
         W_eff = (self.dales_mask * signs * F.softplus(self.W_raw)
                + (1.0 - self.dales_mask) * self.W_raw) * self.sparsity_masks
         return W_eff
+
+    # ---- Tau helpers (centralized, all scaled by tau_global) ----
+
+    def _tau_global(self) -> torch.Tensor:
+        """(K,)"""
+        return F.softplus(self.log_tau_global)
+
+    def _tau_d(self) -> torch.Tensor:
+        """(K, N)"""
+        return self._tau_global().unsqueeze(-1) * F.softplus(self.log_tau_d)
+
+    def _tau_a_E(self) -> torch.Tensor:
+        """(K, n_E, max_n_a_E)"""
+        return self._tau_global().reshape(self.K, 1, 1) * F.softplus(self.log_tau_a_E)
+
+    def _tau_a_I(self) -> torch.Tensor:
+        """(K, n_I, max_n_a_I)"""
+        return self._tau_global().reshape(self.K, 1, 1) * F.softplus(self.log_tau_a_I)
+
+    def _tau_b_rec_E(self) -> torch.Tensor:
+        """(K, n_E)"""
+        return self._tau_global().unsqueeze(-1) * F.softplus(self.log_tau_b_rec_E)
+
+    def _tau_b_rel_E(self) -> torch.Tensor:
+        """(K, n_E)"""
+        return self._tau_global().unsqueeze(-1) * F.softplus(self.log_tau_b_rel_E)
+
+    def _tau_b_rec_I(self) -> torch.Tensor:
+        """(K, n_I)"""
+        return self._tau_global().unsqueeze(-1) * F.softplus(self.log_tau_b_rec_I)
+
+    def _tau_b_rel_I(self) -> torch.Tensor:
+        """(K, n_I)"""
+        return self._tau_global().unsqueeze(-1) * F.softplus(self.log_tau_b_rel_I)
 
     # ---- State packing / unpacking ----
 
@@ -1109,27 +1167,26 @@ class BatchedSRNNCell(nn.Module):
         Wbr = self._batched_recurrent_drive(br, W_eff)  # (K, B, N)
 
         # Semi-implicit x update
-        tau_d = F.softplus(self.log_tau_d).unsqueeze(1)  # (K, 1, N)
+        tau_d = self._tau_d().unsqueeze(1)  # (K, 1, N)
         alpha_x = dt / tau_d
         x_new = (x + alpha_x * (u + Wbr)) / (1.0 + alpha_x)
 
         # SFA E update
         if self.max_n_a_E > 0:
-            tau_a_E = F.softplus(self.log_tau_a_E)  # (K, n_E, max_n_a_E)
-            alpha_a_E = dt / tau_a_E  # (K, n_E, max_n_a_E)
+            tau_a_E = self._tau_a_E()  # (K, n_E, max_n_a_E)
+            alpha_a_E = dt / tau_a_E
             r_E = r[:, :, :n_E].unsqueeze(-1)  # (K, B, n_E, 1)
             c_0_E = self.c_0_E.unsqueeze(1)  # (K, 1, n_E, max_n_a_E)
             alpha_a_E_b = alpha_a_E.unsqueeze(1)  # (K, 1, n_E, max_n_a_E)
             a_E_updated = (a_E + alpha_a_E_b * (c_0_E + r_E)) / (1.0 + alpha_a_E_b)
-            # Mask: keep old (zero) for inactive timescales
-            sfa_E_mask_b = self.sfa_E_mask.unsqueeze(1)  # (K, 1, 1, max_n_a_E)
+            sfa_E_mask_b = self.sfa_E_mask.unsqueeze(1)
             a_E_new = a_E * (1.0 - sfa_E_mask_b) + a_E_updated * sfa_E_mask_b
         else:
             a_E_new = a_E
 
         # SFA I update
         if self.max_n_a_I > 0:
-            tau_a_I = F.softplus(self.log_tau_a_I)
+            tau_a_I = self._tau_a_I()
             alpha_a_I = dt / tau_a_I
             r_I = r[:, :, n_E:].unsqueeze(-1)
             c_0_I = self.c_0_I.unsqueeze(1)
@@ -1142,22 +1199,22 @@ class BatchedSRNNCell(nn.Module):
 
         # STD E update
         if self.max_n_b_E > 0:
-            tau_b_rec_E = F.softplus(self.log_tau_b_rec_E).unsqueeze(1)  # (K, 1, n_E)
-            tau_b_rel_E = F.softplus(self.log_tau_b_rel_E).unsqueeze(1)
+            tau_b_rec_E = self._tau_b_rec_E().unsqueeze(1)  # (K, 1, n_E)
+            tau_b_rel_E = self._tau_b_rel_E().unsqueeze(1)
             r_E_flat = r[:, :, :n_E]
             b_E_updated = (b_E + dt / tau_b_rec_E) / (
                 1.0 + dt * (1.0 / tau_b_rec_E + r_E_flat / tau_b_rel_E)
             )
             b_E_updated = b_E_updated.clamp(0.0, 1.0)
-            std_E_m = self.std_E_mask.unsqueeze(1)  # (K, 1, 1)
+            std_E_m = self.std_E_mask.unsqueeze(1)
             b_E_new = b_E * (1.0 - std_E_m) + b_E_updated * std_E_m
         else:
             b_E_new = b_E
 
         # STD I update
         if self.max_n_b_I > 0:
-            tau_b_rec_I = F.softplus(self.log_tau_b_rec_I).unsqueeze(1)
-            tau_b_rel_I = F.softplus(self.log_tau_b_rel_I).unsqueeze(1)
+            tau_b_rec_I = self._tau_b_rec_I().unsqueeze(1)
+            tau_b_rel_I = self._tau_b_rel_I().unsqueeze(1)
             r_I_flat = r[:, :, n_E:]
             b_I_updated = (b_I + dt / tau_b_rec_I) / (
                 1.0 + dt * (1.0 / tau_b_rec_I + r_I_flat / tau_b_rel_I)
@@ -1199,12 +1256,12 @@ class BatchedSRNNCell(nn.Module):
 
         Wbr = self._batched_recurrent_drive(br, W_eff)
 
-        tau_d = F.softplus(self.log_tau_d).unsqueeze(1)
+        tau_d = self._tau_d().unsqueeze(1)
         dx = (-x + u + Wbr) / tau_d
 
         # SFA derivatives
         if self.max_n_a_E > 0:
-            tau_a_E = F.softplus(self.log_tau_a_E).unsqueeze(1)
+            tau_a_E = self._tau_a_E().unsqueeze(1)
             r_E = r[:, :, :n_E].unsqueeze(-1)
             c_0_E = self.c_0_E.unsqueeze(1)
             da_E = ((-a_E + c_0_E + r_E) / tau_a_E) * self.sfa_E_mask.unsqueeze(1)
@@ -1212,7 +1269,7 @@ class BatchedSRNNCell(nn.Module):
             da_E = torch.zeros_like(a_E)
 
         if self.max_n_a_I > 0:
-            tau_a_I = F.softplus(self.log_tau_a_I).unsqueeze(1)
+            tau_a_I = self._tau_a_I().unsqueeze(1)
             r_I = r[:, :, n_E:].unsqueeze(-1)
             c_0_I = self.c_0_I.unsqueeze(1)
             da_I = ((-a_I + c_0_I + r_I) / tau_a_I) * self.sfa_I_mask.unsqueeze(1)
@@ -1221,16 +1278,16 @@ class BatchedSRNNCell(nn.Module):
 
         # STD derivatives
         if self.max_n_b_E > 0:
-            tau_b_rec_E = F.softplus(self.log_tau_b_rec_E).unsqueeze(1)
-            tau_b_rel_E = F.softplus(self.log_tau_b_rel_E).unsqueeze(1)
+            tau_b_rec_E = self._tau_b_rec_E().unsqueeze(1)
+            tau_b_rel_E = self._tau_b_rel_E().unsqueeze(1)
             r_E_flat = r[:, :, :n_E]
             db_E = ((1.0 - b_E) / tau_b_rec_E - r_E_flat * b_E / tau_b_rel_E) * self.std_E_mask.unsqueeze(1)
         else:
             db_E = torch.zeros_like(b_E)
 
         if self.max_n_b_I > 0:
-            tau_b_rec_I = F.softplus(self.log_tau_b_rec_I).unsqueeze(1)
-            tau_b_rel_I = F.softplus(self.log_tau_b_rel_I).unsqueeze(1)
+            tau_b_rec_I = self._tau_b_rec_I().unsqueeze(1)
+            tau_b_rel_I = self._tau_b_rel_I().unsqueeze(1)
             r_I_flat = r[:, :, n_E:]
             db_I = ((1.0 - b_I) / tau_b_rec_I - r_I_flat * b_I / tau_b_rel_I) * self.std_I_mask.unsqueeze(1)
         else:
@@ -1288,7 +1345,7 @@ class BatchedSRNNCell(nn.Module):
         n_E = self.n_E
 
         # Exponential x
-        tau_d = F.softplus(self.log_tau_d).unsqueeze(1)
+        tau_d = self._tau_d().unsqueeze(1)
         decay_x = torch.exp(-dt / tau_d)
         br = b_full * r
         Wbr = self._batched_recurrent_drive(br, W_eff)
@@ -1296,7 +1353,7 @@ class BatchedSRNNCell(nn.Module):
 
         # Exponential SFA
         if self.max_n_a_E > 0:
-            tau_a_E = F.softplus(self.log_tau_a_E).unsqueeze(1)
+            tau_a_E = self._tau_a_E().unsqueeze(1)
             decay_a_E = torch.exp(-dt / tau_a_E)
             r_E = r[:, :, :n_E].unsqueeze(-1)
             c_0_E = self.c_0_E.unsqueeze(1)
@@ -1307,7 +1364,7 @@ class BatchedSRNNCell(nn.Module):
             a_E_new = a_E
 
         if self.max_n_a_I > 0:
-            tau_a_I = F.softplus(self.log_tau_a_I).unsqueeze(1)
+            tau_a_I = self._tau_a_I().unsqueeze(1)
             decay_a_I = torch.exp(-dt / tau_a_I)
             r_I = r[:, :, n_E:].unsqueeze(-1)
             c_0_I = self.c_0_I.unsqueeze(1)
