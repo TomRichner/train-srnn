@@ -163,39 +163,54 @@ def append_history_row(
 
 
 # ---------------------------------------------------------------------------
-# Test results JSON
+# Test history CSV
 # ---------------------------------------------------------------------------
 
-def write_test_results(
+_TEST_HISTORY_HEADER_SINGLE = [
+    "epoch", "tag", "test_loss", "test_metric", "timestamp",
+]
+_TEST_HISTORY_HEADER_BATCHED = [
+    "epoch", "tag", "variant", "test_loss", "test_metric", "timestamp",
+]
+
+
+def append_test_history_row(
     output_dir: str,
+    epoch: int,
+    tag: str,
     test_loss: float | list[float],
     test_metric: float | list[float],
-    best_epoch: int | list[int],
-    metric_name: str,
     K: int | None = None,
     ablation_names: list[str] | None = None,
 ) -> None:
-    """Write ``test_results.json`` after final evaluation."""
+    """Append test metrics to ``test_history.csv`` (one row per variant)."""
     os.makedirs(output_dir, exist_ok=True)
-    path = os.path.join(output_dir, "test_results.json")
+    path = os.path.join(output_dir, "test_history.csv")
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    write_header = not os.path.exists(path)
 
-    if K is not None:
-        results = []
-        for k in range(K):
-            results.append({
-                "variant": ablation_names[k] if ablation_names else f"variant_{k}",
-                "best_epoch": best_epoch[k],
-                "test_loss": round(test_loss[k], 6),
-                "test_metric": round(test_metric[k], 6),
-                "metric_name": metric_name,
-            })
-    else:
-        results = {
-            "best_epoch": best_epoch,
-            "test_loss": round(test_loss, 6),
-            "test_metric": round(test_metric, 6),
-            "metric_name": metric_name,
-        }
+    with open(path, "a", newline="") as f:
+        writer = csv.writer(f)
 
-    with open(path, "w") as f:
-        json.dump(results, f, indent=2)
+        if K is not None:
+            if write_header:
+                writer.writerow(_TEST_HISTORY_HEADER_BATCHED)
+            for k in range(K):
+                writer.writerow([
+                    epoch,
+                    tag,
+                    ablation_names[k] if ablation_names else f"variant_{k}",
+                    f"{test_loss[k]:.6f}",
+                    f"{test_metric[k]:.6f}",
+                    ts,
+                ])
+        else:
+            if write_header:
+                writer.writerow(_TEST_HISTORY_HEADER_SINGLE)
+            writer.writerow([
+                epoch,
+                tag,
+                f"{test_loss:.6f}",
+                f"{test_metric:.6f}",
+                ts,
+            ])

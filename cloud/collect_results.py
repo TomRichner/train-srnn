@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Collect and aggregate results from GCS.
 
-Reads ``test_results.json`` files from each seed directory and aggregates
-across seeds. Handles both single-model runs (JSON dict) and batched
-ablation runs (JSON list of dicts with ``variant`` key).
+For each seed, reads ``training_history.csv`` (per-epoch valid metrics) and
+``test_history.csv`` (test metrics at checkpoint epochs). For each variant
+independently, finds the checkpoint epoch with best validation metric and
+reports the test metric at that epoch.
+
+Works for both single-model runs (no ``variant`` column) and batched ablation
+runs (one row per variant per epoch / checkpoint).
 
 Usage:
     python3 cloud/collect_results.py <run_name>
@@ -13,11 +17,17 @@ Usage:
 import argparse
 import csv
 import datetime
+import io
 import json
 import os
 import statistics
 import subprocess
 import sys
+from collections import defaultdict
+
+
+CLASSIFICATION = {"har", "gesture", "occupancy", "smnist", "ozone_fixed", "person"}
+HIGHER_IS_BETTER = CLASSIFICATION  # accuracy & F1
 
 
 def gcs_ls(path):
@@ -44,14 +54,68 @@ def gcs_cat(path):
         return None
 
 
-def collect(run_name, bucket, seeds=5, models=None, experiments=None):
-    """Collect all results for a run from test_results.json files.
+def _parse_csv(text):
+    """Parse CSV text into list of dicts."""
+    reader = csv.DictReader(io.StringIO(text))
+    return list(reader)
 
-    Returns:
-        (results, timing) where:
-          results: list of dicts with keys: model, experiment, seed,
-              best_epoch, test_loss, test_metric, metric_name
-          timing: dict of (model, exp, seed) -> metadata dict
+
+def _pick_best(train_rows, test_rows, higher_is_better):
+    """For each variant, find checkpoint epoch with best valid_metric and
+    return the test metric at that epoch.
+
+    Returns dict: {variant: {"best_epoch", "valid_metric", "test_loss", "test_metric"}}.
+    If rows lack a ``variant`` column (single-model), uses key "__single__".
+    """
+    # Index test rows by (variant, epoch) — tag is ignored; epoch is unique per variant
+    # except for the edge case where last epoch also lands on a periodic boundary.
+    test_by_ve = {}
+    for r in test_rows:
+        variant = r.get("variant", "__single__")
+        epoch = int(r["epoch"])
+        # Prefer the 'last' tag if two rows share an epoch (keeps the last-eval weights)
+        key = (variant, epoch)
+        if key not in test_by_ve or r.get("tag") == "last":
+            test_by_ve[key] = r
+
+    # Group training rows by variant, filter to checkpoint epochs that have test data
+    by_variant = defaultdict(list)
+    for r in train_rows:
+        variant = r.get("variant", "__single__")
+        epoch = int(r["epoch"])
+        if (variant, epoch) in test_by_ve:
+            by_variant[variant].append(r)
+
+    # Also consider init / last checkpoints (epoch 0 is covered by "init" + possibly epoch_000)
+    # If there's a test row at an epoch with no training row (init), add a synthetic row
+    # pointing to the valid metric from the nearest training row (or skip it; init has no valid).
+    # Simplest: skip init from the "best" selection (it's random weights — never the best).
+
+    result = {}
+    for variant, rows in by_variant.items():
+        key = "valid_metric"
+        best_row = (max(rows, key=lambda r: float(r[key]))
+                    if higher_is_better
+                    else min(rows, key=lambda r: float(r[key])))
+        epoch = int(best_row["epoch"])
+        test_row = test_by_ve[(variant, epoch)]
+        result[variant] = {
+            "best_epoch": epoch,
+            "valid_metric": float(best_row["valid_metric"]),
+            "test_loss": float(test_row["test_loss"]),
+            "test_metric": float(test_row["test_metric"]),
+        }
+
+    return result
+
+
+def collect(run_name, bucket, seeds=5, models=None, experiments=None):
+    """Collect per-seed results for a run.
+
+    Returns (results, timing) where:
+      results: list of dicts with keys: model, experiment, seed,
+          best_epoch, valid_metric, test_loss, test_metric
+      timing: dict of (model, exp, seed) -> run_metadata dict
     """
     base = f"{bucket}/results-pytorch/{run_name}"
     results = []
@@ -62,10 +126,10 @@ def collect(run_name, bucket, seeds=5, models=None, experiments=None):
     for model in model_dirs:
         exp_dirs = experiments or [os.path.basename(p) for p in gcs_ls(f"{base}/{model}")]
         for exp in exp_dirs:
+            higher_is_better = exp in HIGHER_IS_BETTER
             for seed in range(1, seeds + 1):
                 seed_path = f"{base}/{model}/{exp}/seed{seed}"
 
-                # Read run metadata if present
                 meta_content = gcs_cat(f"{seed_path}/run_metadata.json")
                 if meta_content:
                     try:
@@ -73,38 +137,27 @@ def collect(run_name, bucket, seeds=5, models=None, experiments=None):
                     except json.JSONDecodeError:
                         pass
 
-                # Read test_results.json
-                content = gcs_cat(f"{seed_path}/test_results.json")
-                if not content:
+                train_content = gcs_cat(f"{seed_path}/training_history.csv")
+                test_content = gcs_cat(f"{seed_path}/test_history.csv")
+                if not train_content or not test_content:
                     continue
 
                 try:
-                    data = json.loads(content)
-                except json.JSONDecodeError:
+                    train_rows = _parse_csv(train_content)
+                    test_rows = _parse_csv(test_content)
+                except Exception:
                     continue
 
-                # Batched ablation: list of dicts with 'variant'
-                if isinstance(data, list):
-                    for entry in data:
-                        results.append({
-                            "model": entry.get("variant", model),
-                            "experiment": exp,
-                            "seed": seed,
-                            "best_epoch": entry.get("best_epoch", 0),
-                            "test_loss": entry.get("test_loss", 0),
-                            "test_metric": entry.get("test_metric", 0),
-                            "metric_name": entry.get("metric_name", ""),
-                        })
-                # Single model: dict
-                else:
+                selected = _pick_best(train_rows, test_rows, higher_is_better)
+                for variant, d in selected.items():
                     results.append({
-                        "model": model,
+                        "model": variant if variant != "__single__" else model,
                         "experiment": exp,
                         "seed": seed,
-                        "best_epoch": data.get("best_epoch", 0),
-                        "test_loss": data.get("test_loss", 0),
-                        "test_metric": data.get("test_metric", 0),
-                        "metric_name": data.get("metric_name", ""),
+                        "best_epoch": d["best_epoch"],
+                        "valid_metric": d["valid_metric"],
+                        "test_loss": d["test_loss"],
+                        "test_metric": d["test_metric"],
                     })
 
     return results, timing
@@ -118,7 +171,7 @@ def _parse_utc(s):
 
 
 def compute_timing_stats(timing):
-    """Compute run-level timing stats from per-cell metadata."""
+    """Compute run-level timing stats."""
     starts, ends, durations = [], [], []
     for meta in timing.values():
         completed = meta.get("completed", meta.get("failed_at"))
@@ -141,7 +194,6 @@ def compute_timing_stats(timing):
 
 
 def _fmt_timedelta(td):
-    """Format a timedelta as e.g. '2d 11h 50m'."""
     total_sec = int(td.total_seconds())
     days = total_sec // 86400
     hours = (total_sec % 86400) // 3600
@@ -158,12 +210,7 @@ def _fmt_timedelta(td):
 
 # ── Table formatting ─────────────────────────────────────────────────
 
-CLASSIFICATION = {"har", "gesture", "occupancy", "smnist", "ozone_fixed", "person"}
-HIGHER_IS_BETTER = CLASSIFICATION  # accuracy & F1
-
-
 def _fmt_sigfigs(val, n=3):
-    """Format a float to n significant figures."""
     from math import log10, floor
     if val == 0:
         return "0"
@@ -173,30 +220,26 @@ def _fmt_sigfigs(val, n=3):
 
 
 def print_table(results, experiments, models):
-    """Print results as formatted table with mean +/- std across seeds."""
-    # Group by (model, experiment)
-    from collections import defaultdict
+    """Print mean +/- std test_metric across seeds."""
     grouped = defaultdict(list)
     for r in results:
-        grouped[(r["model"], r["experiment"])].append(r)
+        grouped[(r["model"], r["experiment"])].append(r["test_metric"])
 
     cw = 22
-    header = f"{'Model':<20}" + "".join(f"{exp:>{cw}}" for exp in experiments)
+    header = f"{'Model':<25}" + "".join(f"{exp:>{cw}}" for exp in experiments)
     print(header)
     print("-" * len(header))
 
     for model in models:
-        parts = [f"{model:<20}"]
+        parts = [f"{model:<25}"]
         for exp in experiments:
-            entries = grouped.get((model, exp), [])
-            if not entries:
+            vals = grouped.get((model, exp), [])
+            if not vals:
                 parts.append(f"{'--':>{cw}}")
                 continue
-            vals = [e["test_metric"] for e in entries]
             n = len(vals)
             mean = statistics.mean(vals)
             if exp in CLASSIFICATION:
-                # Show as percentage
                 if n > 1:
                     std = statistics.stdev(vals)
                     cell = f"{mean*100:.2f}% +/-{std*100:.2f}"
@@ -232,13 +275,12 @@ def main():
         print("No results found.")
         return
 
-    # Determine experiments and models present
     experiments = sorted(set(r["experiment"] for r in results))
     models = sorted(set(r["model"] for r in results))
 
-    print(f"Collected {len(results)} results ({len(models)} models x {len(experiments)} experiments)")
+    print(f"Collected {len(results)} results "
+          f"({len(models)} models x {len(experiments)} experiments)")
 
-    # Timing summary
     stats = compute_timing_stats(timing) if timing else None
     if stats:
         if stats["started"]:
@@ -251,13 +293,12 @@ def main():
     print()
     print_table(results, experiments, models)
 
-    # Save CSV if requested
     if args.csv:
         os.makedirs(os.path.dirname(args.csv) or ".", exist_ok=True)
         with open(args.csv, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=[
                 "model", "experiment", "seed", "best_epoch",
-                "test_loss", "test_metric", "metric_name",
+                "valid_metric", "test_loss", "test_metric",
             ])
             writer.writeheader()
             writer.writerows(results)

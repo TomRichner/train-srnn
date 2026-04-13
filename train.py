@@ -15,9 +15,9 @@ from train_srnn.data.transforms import wrap_eval_batch, wrap_train_batch
 from train_srnn.models.factory import build_batched_model, build_model
 from train_srnn.utils.checkpoint import (
     append_history_row,
+    append_test_history_row,
     save_checkpoint,
     write_progress,
-    write_test_results,
 )
 from train_srnn.utils.lr_schedule import WarmupHoldCosineSchedule
 from train_srnn.utils.trainable_ic import compute_burn_in
@@ -181,6 +181,49 @@ def resolve_device(device_str: str) -> torch.device:
     return torch.device(device_str)
 
 
+def eval_and_log_test(
+    model: nn.Module,
+    test_x: np.ndarray,
+    test_y: np.ndarray,
+    criterion: nn.Module,
+    cfg: DictConfig,
+    rng: np.random.RandomState,
+    device: torch.device,
+    epoch: int,
+    tag: str,
+    K: int | None,
+    ablation_names: list[str] | None,
+) -> None:
+    """Evaluate test set and append a row to test_history.csv."""
+    was_training = model.training
+    model.eval()
+    with torch.no_grad():
+        test_loss, test_metric = run_epoch(
+            model, test_x, test_y,
+            None, None, criterion,
+            cfg, rng, device, training=False, K=K,
+        )
+    if was_training:
+        model.train()
+    append_test_history_row(
+        cfg.output_dir, epoch, tag,
+        test_loss, test_metric,
+        K=K, ablation_names=ablation_names,
+    )
+    if K is not None:
+        log.info("Test [%s @ epoch %d]:", tag, epoch)
+        for k in range(K):
+            log.info(
+                "  [%s] test_loss=%.4f test_metric=%.4f",
+                ablation_names[k], test_loss[k], test_metric[k],
+            )
+    else:
+        log.info(
+            "Test [%s @ epoch %d]: loss=%.4f metric=%.4f",
+            tag, epoch, test_loss, test_metric,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -240,16 +283,12 @@ def main(cfg: DictConfig) -> None:
     # 9. Training loop --------------------------------------------------------
     rng = np.random.RandomState(cfg.seed)
 
-    # Save init checkpoint (before any training)
+    # Save init checkpoint + test eval (before any training)
     save_checkpoint(model, optimizer, scheduler, epoch=0, cfg=cfg, tag="init")
-
-    if K is not None:
-        best_metrics: list[float | None] = [None] * K
-        best_epochs = [0] * K
-        best_mean: float | None = None
-    else:
-        best_metric: float | None = None
-        best_epoch = 0
+    eval_and_log_test(
+        model, test_x, test_y, criterion, cfg, rng, device,
+        epoch=0, tag="init", K=K, ablation_names=ablation_names,
+    )
 
     for epoch in range(cfg.epochs):
         model.train()
@@ -291,35 +330,13 @@ def main(cfg: DictConfig) -> None:
                     valid_loss, valid_metric,
                 )
 
-        # Checkpointing
-        if K is not None:
-            # Checkpoint when mean validation metric improves
-            mean_valid = sum(valid_metric) / K
-            is_best = best_mean is None or mean_valid > best_mean
-            if is_best:
-                best_mean = mean_valid
-                save_checkpoint(
-                    model, optimizer, scheduler, epoch, cfg, "best",
-                    extra={"best_metric": best_mean},
-                )
-            # Track per-variant bests for reporting
-            for k in range(K):
-                if best_metrics[k] is None or valid_metric[k] > best_metrics[k]:
-                    best_metrics[k] = valid_metric[k]
-                    best_epochs[k] = epoch
-        else:
-            is_best = best_metric is None or valid_metric > best_metric
-            if is_best:
-                best_metric = valid_metric
-                best_epoch = epoch
-                save_checkpoint(
-                    model, optimizer, scheduler, epoch, cfg, "best",
-                    extra={"best_metric": best_metric},
-                )
-
+        # Periodic checkpoint + test eval
         if epoch % cfg.checkpoint_interval == 0:
-            save_checkpoint(
-                model, optimizer, scheduler, epoch, cfg, f"epoch_{epoch:03d}",
+            tag = f"epoch_{epoch:03d}"
+            save_checkpoint(model, optimizer, scheduler, epoch, cfg, tag)
+            eval_and_log_test(
+                model, test_x, test_y, criterion, cfg, rng, device,
+                epoch=epoch, tag=tag, K=K, ablation_names=ablation_names,
             )
 
         # Training history + progress
@@ -331,39 +348,14 @@ def main(cfg: DictConfig) -> None:
         )
         write_progress(cfg.output_dir, epoch, cfg.epochs)
 
-    # 10. Save last checkpoint --------------------------------------------------
+    # 10. Save last checkpoint + final test eval -------------------------------
+    last_epoch = cfg.epochs - 1
     save_checkpoint(
-        model, optimizer, scheduler, epoch=cfg.epochs - 1, cfg=cfg, tag="last",
+        model, optimizer, scheduler, epoch=last_epoch, cfg=cfg, tag="last",
     )
-
-    # 11. Final test evaluation -----------------------------------------------
-    model.eval()
-    with torch.no_grad():
-        test_loss, test_metric = run_epoch(
-            model, test_x, test_y,
-            None, None, criterion,
-            cfg, rng, device, training=False, K=K,
-        )
-
-    # 12. Logging + test results ----------------------------------------------
-    metric_name = "accuracy" if cfg.task.task_type == "classification" else "mae"
-    if K is not None:
-        log.info("Test results:")
-        for k in range(K):
-            log.info(
-                "  [%s] loss=%.4f metric=%.4f (best_epoch=%d)",
-                ablation_names[k], test_loss[k], test_metric[k], best_epochs[k],
-            )
-    else:
-        log.info(
-            "Test: loss=%.4f metric=%.4f (best_epoch=%d)",
-            test_loss, test_metric, best_epoch,
-        )
-
-    write_test_results(
-        cfg.output_dir, test_loss, test_metric,
-        best_epochs if K is not None else best_epoch,
-        metric_name, K=K, ablation_names=ablation_names,
+    eval_and_log_test(
+        model, test_x, test_y, criterion, cfg, rng, device,
+        epoch=last_epoch, tag="last", K=K, ablation_names=ablation_names,
     )
 
 
