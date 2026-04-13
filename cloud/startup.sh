@@ -137,8 +137,7 @@ python3 train.py \
     task=$EXPERIMENT \
     seed=$SEED \
     $TRAIN_ARGS \
-    output_dir=results/$EXPERIMENT/${MODEL}_\${size} \
-    2>&1 | tee -a "$LOG"
+    output_dir=results/$EXPERIMENT/${MODEL}_\${size}
 set +f
 
 echo "=== Training complete $(date -Iseconds) ==="
