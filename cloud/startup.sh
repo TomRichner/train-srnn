@@ -22,13 +22,24 @@ RESULTS_PREFIX="$BUCKET/results-pytorch/$RUN_NAME/$MODEL/$EXPERIMENT/seed$SEED"
 VM_NAME=$(hostname)
 
 WORKDIR="/tmp/workdir"
+WATCHER_PID=""
 
 echo "Run: $RUN_NAME | Experiment: $EXPERIMENT | Model: $MODEL | Seed: $SEED"
 
 # Cleanup handler
 cleanup() {
     local exit_code=$?
+    local end_time
+    end_time=$(date +%s)
+    local duration=$(( end_time - ${START_TIME:-$end_time} ))
+
     echo "=== Cleanup (exit=$exit_code) $(date -Iseconds) ==="
+
+    # Kill background upload watcher
+    if [ -n "$WATCHER_PID" ]; then
+        kill "$WATCHER_PID" 2>/dev/null || true
+        wait "$WATCHER_PID" 2>/dev/null || true
+    fi
 
     # Upload final results
     if [ -d "$WORKDIR/results" ]; then
@@ -38,15 +49,23 @@ cleanup() {
     # Upload log
     gcloud storage cp "$LOG" "$RESULTS_PREFIX/training_log.txt" 2>/dev/null || true
 
-    # Upload metadata
+    # Upload enriched metadata
     python3 -c "
 import json, time
-json.dump({
+meta = {
     'run_name': '$RUN_NAME', 'experiment': '$EXPERIMENT', 'model': '$MODEL',
     'seed': int('$SEED'), 'exit_code': $exit_code,
-    'vm_name': '$VM_NAME', 'completed': time.strftime('%Y-%m-%dT%H:%M:%SZ'),
-    'train_args': '$TRAIN_ARGS'
-}, open('/tmp/metadata.json', 'w'))
+    'vm_name': '$VM_NAME',
+    'start_time': '${START_TIME_ISO:-unknown}',
+    'completed': time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+    'duration_seconds': $duration,
+    'commit': '${GIT_COMMIT:-unknown}',
+    'train_args': '$TRAIN_ARGS',
+}
+if $exit_code != 0:
+    meta['failed_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ')
+    meta['error'] = True
+json.dump(meta, open('/tmp/metadata.json', 'w'), indent=2)
 " && gcloud storage cp /tmp/metadata.json "$RESULTS_PREFIX/run_metadata.json" 2>/dev/null || true
 
     # Self-delete
@@ -106,7 +125,12 @@ fi
 rm -f "$DEPLOY_KEY" "$SSH_DIR/config"
 
 cd "$WORKDIR"
-echo "Git commit: $(git rev-parse --short HEAD)"
+GIT_COMMIT=$(git rev-parse --short HEAD)
+echo "Git commit: $GIT_COMMIT"
+
+# Capture start time (used by cleanup for duration and metadata)
+START_TIME=$(date +%s)
+START_TIME_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Step 2: Download dataset (if needed)
 if [ "$EXPERIMENT" != "smnist" ]; then
@@ -130,6 +154,37 @@ mkdir -p results/$EXPERIMENT
 
 # Add parent dir to PYTHONPATH so `train_srnn` package is importable
 export PYTHONPATH="$WORKDIR:${PYTHONPATH:-}"
+
+# Background upload watcher: polls progress.json and uploads periodically
+EPOCHS=$(echo "$TRAIN_ARGS" | sed -n 's/.*epochs=\([0-9]*\).*/\1/p')
+EPOCHS=${EPOCHS:-200}
+if [ "$EPOCHS" -gt 50 ]; then
+    UPLOAD_INTERVAL=$(( EPOCHS / 10 ))
+else
+    UPLOAD_INTERVAL=5
+fi
+RESULTS_DIR="$WORKDIR/results"
+
+(
+    LAST_UPLOADED=0
+    while true; do
+        sleep 30
+        # Find progress.json anywhere under results dir
+        PROGRESS_FILE=$(find "$RESULTS_DIR" -name "progress.json" 2>/dev/null | head -1)
+        [ -z "$PROGRESS_FILE" ] && continue
+        CURRENT_EPOCH=$(python3 -c "import json; print(json.load(open('$PROGRESS_FILE'))['epoch'])" 2>/dev/null || echo "")
+        [ -z "$CURRENT_EPOCH" ] && continue
+
+        NEXT_UPLOAD=$(( LAST_UPLOADED + UPLOAD_INTERVAL ))
+        if [ "$CURRENT_EPOCH" -ge "$NEXT_UPLOAD" ]; then
+            echo "  [periodic-upload] Epoch $CURRENT_EPOCH: uploading to GCS..."
+            gcloud storage cp -r "$RESULTS_DIR/*" "$RESULTS_PREFIX/" 2>/dev/null || true
+            gcloud storage cp "$LOG" "$RESULTS_PREFIX/training_log.txt" 2>/dev/null || true
+            LAST_UPLOADED=$CURRENT_EPOCH
+        fi
+    done
+) &
+WATCHER_PID=$!
 
 set -f  # disable globbing so [a,b] in TRAIN_ARGS isn't expanded
 python3 train.py \

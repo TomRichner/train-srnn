@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import csv
 import logging
-import os
 
 import hydra
 import numpy as np
@@ -15,6 +13,12 @@ from omegaconf import DictConfig
 from train_srnn.data.datasets import load_dataset
 from train_srnn.data.transforms import wrap_eval_batch, wrap_train_batch
 from train_srnn.models.factory import build_batched_model, build_model
+from train_srnn.utils.checkpoint import (
+    append_history_row,
+    save_checkpoint,
+    write_progress,
+    write_test_results,
+)
 from train_srnn.utils.lr_schedule import WarmupHoldCosineSchedule
 from train_srnn.utils.trainable_ic import compute_burn_in
 
@@ -177,116 +181,6 @@ def resolve_device(device_str: str) -> torch.device:
     return torch.device(device_str)
 
 
-def save_checkpoint(
-    model: nn.Module,
-    optimizer: torch.optim.Optimizer | None,
-    epoch: int,
-    cfg: DictConfig,
-    tag: str,
-) -> None:
-    """Save a training checkpoint to ``cfg.output_dir``."""
-    path = os.path.join(cfg.output_dir, f"checkpoint_{tag}.pt")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    torch.save(
-        {
-            "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": (
-                optimizer.state_dict() if optimizer else None
-            ),
-        },
-        path,
-    )
-
-
-def save_results_csv(
-    cfg: DictConfig,
-    best_epoch: int,
-    train_loss: float,
-    train_metric: float,
-    valid_loss: float,
-    valid_metric: float,
-    test_loss: float,
-    test_metric: float,
-) -> None:
-    """Write a single-row results CSV next to the checkpoints."""
-    path = os.path.join(cfg.output_dir, f"{cfg.model.name}_{cfg.size}.csv")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    metric_name = (
-        "accuracy" if cfg.task.task_type == "classification" else "mae"
-    )
-    with open(path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            [
-                "best_epoch",
-                "train_loss",
-                f"train_{metric_name}",
-                "valid_loss",
-                f"valid_{metric_name}",
-                "test_loss",
-                f"test_{metric_name}",
-            ]
-        )
-        writer.writerow(
-            [
-                best_epoch,
-                f"{train_loss:.6f}",
-                f"{train_metric:.6f}",
-                f"{valid_loss:.6f}",
-                f"{valid_metric:.6f}",
-                f"{test_loss:.6f}",
-                f"{test_metric:.6f}",
-            ]
-        )
-
-
-def save_results_csv_batched(
-    cfg: DictConfig,
-    ablation_names: list[str],
-    best_epochs: list[int],
-    train_losses: list[float],
-    train_metrics: list[float],
-    valid_losses: list[float],
-    valid_metrics: list[float],
-    test_losses: list[float],
-    test_metrics: list[float],
-) -> None:
-    """Write a multi-row results CSV for batched ablations."""
-    path = os.path.join(cfg.output_dir, f"batched_ablations_{cfg.size}.csv")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    metric_name = (
-        "accuracy" if cfg.task.task_type == "classification" else "mae"
-    )
-    with open(path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            [
-                "variant",
-                "best_epoch",
-                "train_loss",
-                f"train_{metric_name}",
-                "valid_loss",
-                f"valid_{metric_name}",
-                "test_loss",
-                f"test_{metric_name}",
-            ]
-        )
-        for k, name in enumerate(ablation_names):
-            writer.writerow(
-                [
-                    name,
-                    best_epochs[k],
-                    f"{train_losses[k]:.6f}",
-                    f"{train_metrics[k]:.6f}",
-                    f"{valid_losses[k]:.6f}",
-                    f"{valid_metrics[k]:.6f}",
-                    f"{test_losses[k]:.6f}",
-                    f"{test_metrics[k]:.6f}",
-                ]
-            )
-
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -346,15 +240,13 @@ def main(cfg: DictConfig) -> None:
     # 9. Training loop --------------------------------------------------------
     rng = np.random.RandomState(cfg.seed)
 
+    # Save init checkpoint (before any training)
+    save_checkpoint(model, optimizer, scheduler, epoch=0, cfg=cfg, tag="init")
+
     if K is not None:
         best_metrics: list[float | None] = [None] * K
         best_epochs = [0] * K
         best_mean: float | None = None
-        # Track per-variant train/valid at best checkpoint for CSV
-        best_train_losses = [0.0] * K
-        best_train_metrics = [0.0] * K
-        best_valid_losses = [0.0] * K
-        best_valid_metrics = [0.0] * K
     else:
         best_metric: float | None = None
         best_epoch = 0
@@ -406,11 +298,10 @@ def main(cfg: DictConfig) -> None:
             is_best = best_mean is None or mean_valid > best_mean
             if is_best:
                 best_mean = mean_valid
-                save_checkpoint(model, optimizer, epoch, cfg, "best")
-                best_train_losses = list(train_loss)
-                best_train_metrics = list(train_metric)
-                best_valid_losses = list(valid_loss)
-                best_valid_metrics = list(valid_metric)
+                save_checkpoint(
+                    model, optimizer, scheduler, epoch, cfg, "best",
+                    extra={"best_metric": best_mean},
+                )
             # Track per-variant bests for reporting
             for k in range(K):
                 if best_metrics[k] is None or valid_metric[k] > best_metrics[k]:
@@ -421,12 +312,31 @@ def main(cfg: DictConfig) -> None:
             if is_best:
                 best_metric = valid_metric
                 best_epoch = epoch
-                save_checkpoint(model, optimizer, epoch, cfg, "best")
+                save_checkpoint(
+                    model, optimizer, scheduler, epoch, cfg, "best",
+                    extra={"best_metric": best_metric},
+                )
 
         if epoch % cfg.checkpoint_interval == 0:
-            save_checkpoint(model, optimizer, epoch, cfg, f"epoch{epoch}")
+            save_checkpoint(
+                model, optimizer, scheduler, epoch, cfg, f"epoch_{epoch:03d}",
+            )
 
-    # 10. Final test evaluation -----------------------------------------------
+        # Training history + progress
+        append_history_row(
+            cfg.output_dir, epoch,
+            train_loss, train_metric, valid_loss, valid_metric,
+            lr=scheduler.get_last_lr()[0],
+            K=K, ablation_names=ablation_names,
+        )
+        write_progress(cfg.output_dir, epoch, cfg.epochs)
+
+    # 10. Save last checkpoint --------------------------------------------------
+    save_checkpoint(
+        model, optimizer, scheduler, epoch=cfg.epochs - 1, cfg=cfg, tag="last",
+    )
+
+    # 11. Final test evaluation -----------------------------------------------
     model.eval()
     with torch.no_grad():
         test_loss, test_metric = run_epoch(
@@ -435,7 +345,8 @@ def main(cfg: DictConfig) -> None:
             cfg, rng, device, training=False, K=K,
         )
 
-    # 11. Logging + CSV -------------------------------------------------------
+    # 12. Logging + test results ----------------------------------------------
+    metric_name = "accuracy" if cfg.task.task_type == "classification" else "mae"
     if K is not None:
         log.info("Test results:")
         for k in range(K):
@@ -443,23 +354,17 @@ def main(cfg: DictConfig) -> None:
                 "  [%s] loss=%.4f metric=%.4f (best_epoch=%d)",
                 ablation_names[k], test_loss[k], test_metric[k], best_epochs[k],
             )
-        save_results_csv_batched(
-            cfg, ablation_names, best_epochs,
-            best_train_losses, best_train_metrics,
-            best_valid_losses, best_valid_metrics,
-            test_loss, test_metric,
-        )
     else:
         log.info(
             "Test: loss=%.4f metric=%.4f (best_epoch=%d)",
             test_loss, test_metric, best_epoch,
         )
-        save_results_csv(
-            cfg, best_epoch,
-            train_loss, train_metric,
-            valid_loss, valid_metric,
-            test_loss, test_metric,
-        )
+
+    write_test_results(
+        cfg.output_dir, test_loss, test_metric,
+        best_epochs if K is not None else best_epoch,
+        metric_name, K=K, ablation_names=ablation_names,
+    )
 
 
 if __name__ == "__main__":
