@@ -1097,8 +1097,8 @@ class BatchedSRNNCell(nn.Module):
         # br to (K*B, N, 1)
         br_exp = br.reshape(K * B, N, 1)
         # bmm: (K*B, N, N) @ (K*B, N, 1) -> (K*B, N, 1)
-        # We want br @ W.T, i.e. W.T @ br as column vector
-        Wbr = torch.bmm(W_exp.transpose(-2, -1), br_exp).squeeze(-1)  # (K*B, N)
+        # We want br @ W.T.  As column vectors: (br @ W.T)^T = W @ br_col.
+        Wbr = torch.bmm(W_exp, br_exp).squeeze(-1)  # (K*B, N)
         return Wbr.reshape(K, B, N)
 
     # ---- Batched input drive ----
