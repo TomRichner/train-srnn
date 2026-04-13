@@ -160,7 +160,7 @@ def build_batched_model(
 
     batched_cell = BatchedSRNNCell(configs, input_size, rmt_exports, W_in_mask=W_in_mask)
 
-    return SequenceModel(
+    model = SequenceModel(
         cell=batched_cell,
         input_size=input_size,
         output_size=cfg.task.output_size,
@@ -168,3 +168,5 @@ def build_batched_model(
         task_type=cfg.task.task_type,
         io_mask_seed=seed,
     )
+    model.ablation_names = list(ablation_names)
+    return model

@@ -36,15 +36,20 @@ def run_epoch(
     rng: np.random.RandomState,
     device: torch.device,
     training: bool = True,
-) -> tuple[float, float]:
+    K: int | None = None,
+) -> tuple[float | list[float], float | list[float]]:
     """Run one epoch of training or evaluation.
 
     Returns:
-        ``(avg_loss, avg_metric)`` where *metric* is accuracy for
-        classification or negative MAE for regression.
+        ``(avg_loss, avg_metric)`` — scalars for single models, or
+        lists of length K for batched ablation models.
     """
-    total_loss = 0.0
-    total_correct = 0.0
+    if K is not None:
+        total_loss_k = [0.0] * K
+        total_correct_k = [0.0] * K
+    else:
+        total_loss = 0.0
+        total_correct = 0.0
     total_samples = 0
     batch_size: int = cfg.batch_size
 
@@ -91,10 +96,21 @@ def run_epoch(
         # Forward -------------------------------------------------------------
         logits = model(batch_x_t, readout_idx=readout_idx, bptt_start_idx=bptt_start)
 
-        if cfg.task.task_type == "regression":
-            logits = logits.squeeze(-1)
-
-        loss = criterion(logits, batch_y_t)
+        # Loss ----------------------------------------------------------------
+        if K is not None:
+            # logits: (K, B, C) — compute K independent losses, sum for backward
+            losses = []
+            for k in range(K):
+                logits_k = logits[k]
+                if cfg.task.task_type == "regression":
+                    logits_k = logits_k.squeeze(-1)
+                losses.append(criterion(logits_k, batch_y_t))
+            loss = torch.stack(losses).sum()
+            per_k_loss = [l.item() for l in losses]
+        else:
+            if cfg.task.task_type == "regression":
+                logits = logits.squeeze(-1)
+            loss = criterion(logits, batch_y_t)
 
         # Backward + step -----------------------------------------------------
         if training:
@@ -106,25 +122,44 @@ def run_epoch(
 
         # Metrics -------------------------------------------------------------
         n = len(batch_idx)
-        total_loss += loss.item() * n
 
-        if cfg.task.task_type == "classification":
-            preds = logits.argmax(dim=-1)
-            total_correct += (preds == batch_y_t).sum().item()
+        if K is not None:
+            for k in range(K):
+                total_loss_k[k] += per_k_loss[k] * n
+                if cfg.task.task_type == "classification":
+                    preds_k = logits[k].argmax(dim=-1)
+                    total_correct_k[k] += (preds_k == batch_y_t).sum().item()
+                else:
+                    logits_k = logits[k].squeeze(-1)
+                    total_correct_k[k] += (
+                        -torch.mean(torch.abs(logits_k - batch_y_t)).item() * n
+                    )
         else:
-            # Accumulate negative MAE (higher is better, consistent with "best")
-            total_correct += (
-                -torch.mean(torch.abs(logits - batch_y_t)).item() * n
-            )
+            total_loss += loss.item() * n
+            if cfg.task.task_type == "classification":
+                preds = logits.argmax(dim=-1)
+                total_correct += (preds == batch_y_t).sum().item()
+            else:
+                total_correct += (
+                    -torch.mean(torch.abs(logits - batch_y_t)).item() * n
+                )
 
         total_samples += n
 
-    avg_loss = total_loss / total_samples
-    if cfg.task.task_type == "classification":
-        avg_metric = total_correct / total_samples
+    if K is not None:
+        avg_losses = [tl / total_samples for tl in total_loss_k]
+        if cfg.task.task_type == "classification":
+            avg_metrics = [tc / total_samples for tc in total_correct_k]
+        else:
+            avg_metrics = [-tc / total_samples for tc in total_correct_k]
+        return avg_losses, avg_metrics
     else:
-        avg_metric = -total_correct / total_samples  # positive MAE
-    return avg_loss, avg_metric
+        avg_loss = total_loss / total_samples
+        if cfg.task.task_type == "classification":
+            avg_metric = total_correct / total_samples
+        else:
+            avg_metric = -total_correct / total_samples  # positive MAE
+        return avg_loss, avg_metric
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +241,52 @@ def save_results_csv(
         )
 
 
+def save_results_csv_batched(
+    cfg: DictConfig,
+    ablation_names: list[str],
+    best_epochs: list[int],
+    train_losses: list[float],
+    train_metrics: list[float],
+    valid_losses: list[float],
+    valid_metrics: list[float],
+    test_losses: list[float],
+    test_metrics: list[float],
+) -> None:
+    """Write a multi-row results CSV for batched ablations."""
+    path = os.path.join(cfg.output_dir, f"batched_ablations_{cfg.size}.csv")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    metric_name = (
+        "accuracy" if cfg.task.task_type == "classification" else "mae"
+    )
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                "variant",
+                "best_epoch",
+                "train_loss",
+                f"train_{metric_name}",
+                "valid_loss",
+                f"valid_{metric_name}",
+                "test_loss",
+                f"test_{metric_name}",
+            ]
+        )
+        for k, name in enumerate(ablation_names):
+            writer.writerow(
+                [
+                    name,
+                    best_epochs[k],
+                    f"{train_losses[k]:.6f}",
+                    f"{train_metrics[k]:.6f}",
+                    f"{valid_losses[k]:.6f}",
+                    f"{valid_metrics[k]:.6f}",
+                    f"{test_losses[k]:.6f}",
+                    f"{test_metrics[k]:.6f}",
+                ]
+            )
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -234,6 +315,10 @@ def main(cfg: DictConfig) -> None:
     model = model.to(device)
     log.info("Model parameters: %d", sum(p.numel() for p in model.parameters()))
 
+    # Extract K and ablation names before possible torch.compile wrapping
+    K = getattr(model, "_K", None)
+    ablation_names = getattr(model, "ablation_names", None)
+
     # 5. Optional torch.compile -----------------------------------------------
     if cfg.compile and device.type == "cuda":
         model = torch.compile(model)
@@ -260,22 +345,26 @@ def main(cfg: DictConfig) -> None:
 
     # 9. Training loop --------------------------------------------------------
     rng = np.random.RandomState(cfg.seed)
-    best_metric: float | None = None
-    best_epoch = 0
+
+    if K is not None:
+        best_metrics: list[float | None] = [None] * K
+        best_epochs = [0] * K
+        best_mean: float | None = None
+        # Track per-variant train/valid at best checkpoint for CSV
+        best_train_losses = [0.0] * K
+        best_train_metrics = [0.0] * K
+        best_valid_losses = [0.0] * K
+        best_valid_metrics = [0.0] * K
+    else:
+        best_metric: float | None = None
+        best_epoch = 0
 
     for epoch in range(cfg.epochs):
         model.train()
         train_loss, train_metric = run_epoch(
-            model,
-            train_x,
-            train_y,
-            optimizer,
-            scheduler,
-            criterion,
-            cfg,
-            rng,
-            device,
-            training=True,
+            model, train_x, train_y,
+            optimizer, scheduler, criterion,
+            cfg, rng, device, training=True, K=K,
         )
 
         # Constrain parameters (e.g. LTC weight clipping)
@@ -285,36 +374,54 @@ def main(cfg: DictConfig) -> None:
         model.eval()
         with torch.no_grad():
             valid_loss, valid_metric = run_epoch(
-                model,
-                valid_x,
-                valid_y,
-                None,
-                None,
-                criterion,
-                cfg,
-                rng,
-                device,
-                training=False,
+                model, valid_x, valid_y,
+                None, None, criterion,
+                cfg, rng, device, training=False, K=K,
             )
 
         # Logging
         if epoch % cfg.log_interval == 0:
-            log.info(
-                "Epoch %d: train_loss=%.4f train_metric=%.4f "
-                "valid_loss=%.4f valid_metric=%.4f",
-                epoch,
-                train_loss,
-                train_metric,
-                valid_loss,
-                valid_metric,
-            )
+            if K is not None:
+                log.info("Epoch %d:", epoch)
+                for k in range(K):
+                    log.info(
+                        "  [%s] train_loss=%.4f train_metric=%.4f "
+                        "valid_loss=%.4f valid_metric=%.4f",
+                        ablation_names[k],
+                        train_loss[k], train_metric[k],
+                        valid_loss[k], valid_metric[k],
+                    )
+            else:
+                log.info(
+                    "Epoch %d: train_loss=%.4f train_metric=%.4f "
+                    "valid_loss=%.4f valid_metric=%.4f",
+                    epoch, train_loss, train_metric,
+                    valid_loss, valid_metric,
+                )
 
         # Checkpointing
-        is_best = best_metric is None or valid_metric > best_metric
-        if is_best:
-            best_metric = valid_metric
-            best_epoch = epoch
-            save_checkpoint(model, optimizer, epoch, cfg, "best")
+        if K is not None:
+            # Checkpoint when mean validation metric improves
+            mean_valid = sum(valid_metric) / K
+            is_best = best_mean is None or mean_valid > best_mean
+            if is_best:
+                best_mean = mean_valid
+                save_checkpoint(model, optimizer, epoch, cfg, "best")
+                best_train_losses = list(train_loss)
+                best_train_metrics = list(train_metric)
+                best_valid_losses = list(valid_loss)
+                best_valid_metrics = list(valid_metric)
+            # Track per-variant bests for reporting
+            for k in range(K):
+                if best_metrics[k] is None or valid_metric[k] > best_metrics[k]:
+                    best_metrics[k] = valid_metric[k]
+                    best_epochs[k] = epoch
+        else:
+            is_best = best_metric is None or valid_metric > best_metric
+            if is_best:
+                best_metric = valid_metric
+                best_epoch = epoch
+                save_checkpoint(model, optimizer, epoch, cfg, "best")
 
         if epoch % cfg.checkpoint_interval == 0:
             save_checkpoint(model, optimizer, epoch, cfg, f"epoch{epoch}")
@@ -323,36 +430,36 @@ def main(cfg: DictConfig) -> None:
     model.eval()
     with torch.no_grad():
         test_loss, test_metric = run_epoch(
-            model,
-            test_x,
-            test_y,
-            None,
-            None,
-            criterion,
-            cfg,
-            rng,
-            device,
-            training=False,
+            model, test_x, test_y,
+            None, None, criterion,
+            cfg, rng, device, training=False, K=K,
         )
 
-    log.info(
-        "Test: loss=%.4f metric=%.4f (best_epoch=%d)",
-        test_loss,
-        test_metric,
-        best_epoch,
-    )
-
-    # 11. Save results CSV ----------------------------------------------------
-    save_results_csv(
-        cfg,
-        best_epoch,
-        train_loss,
-        train_metric,
-        valid_loss,
-        valid_metric,
-        test_loss,
-        test_metric,
-    )
+    # 11. Logging + CSV -------------------------------------------------------
+    if K is not None:
+        log.info("Test results:")
+        for k in range(K):
+            log.info(
+                "  [%s] loss=%.4f metric=%.4f (best_epoch=%d)",
+                ablation_names[k], test_loss[k], test_metric[k], best_epochs[k],
+            )
+        save_results_csv_batched(
+            cfg, ablation_names, best_epochs,
+            best_train_losses, best_train_metrics,
+            best_valid_losses, best_valid_metrics,
+            test_loss, test_metric,
+        )
+    else:
+        log.info(
+            "Test: loss=%.4f metric=%.4f (best_epoch=%d)",
+            test_loss, test_metric, best_epoch,
+        )
+        save_results_csv(
+            cfg, best_epoch,
+            train_loss, train_metric,
+            valid_loss, valid_metric,
+            test_loss, test_metric,
+        )
 
 
 if __name__ == "__main__":

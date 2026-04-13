@@ -3,7 +3,12 @@
 Wraps any RNN cell into a full sequence-to-prediction model with
 time-step unrolling, optional I/O masking, readout head, trainable
 initial conditions, and truncated BPTT support.
+
+Supports both single-variant cells (output shape ``(B, N)``) and
+K-batched cells like ``BatchedSRNNCell`` (output shape ``(K, B, N)``).
 """
+
+import math
 
 import torch
 import torch.nn as nn
@@ -67,6 +72,9 @@ class SequenceModel(nn.Module):
         self.use_io_masks = use_io_masks
         self.task_type = task_type
 
+        # K-batched detection --------------------------------------------------
+        self._K = getattr(cell, "K", None)
+
         # I/O masks -----------------------------------------------------------
         effective_output_size = num_units
         if use_io_masks:
@@ -86,10 +94,22 @@ class SequenceModel(nn.Module):
         # Trainable initial conditions -----------------------------------------
         self.trainable_ic = trainable_ic
         if trainable_ic:
-            self.ic = TrainableIC(cell.state_size)
+            self.ic = TrainableIC(cell.state_size, K=self._K)
 
         # Readout head ---------------------------------------------------------
-        self.readout = nn.Linear(effective_output_size, output_size)
+        if self._K is not None:
+            # K independent readout heads stored as batched parameters for bmm
+            self.readout_weight = nn.Parameter(
+                torch.empty(self._K, output_size, effective_output_size)
+            )
+            self.readout_bias = nn.Parameter(
+                torch.zeros(self._K, 1, output_size)
+            )
+            for k in range(self._K):
+                nn.init.kaiming_uniform_(self.readout_weight[k], a=math.sqrt(5))
+            self.readout = None  # sentinel: use batched readout path
+        else:
+            self.readout = nn.Linear(effective_output_size, output_size)
 
     # ------------------------------------------------------------------
     def forward(
@@ -101,18 +121,23 @@ class SequenceModel(nn.Module):
         """Forward pass.
 
         Args:
-            x: ``(batch, seq_len, features)`` — batch-first input.
+            x: ``(batch, seq_len, features)`` -- batch-first input.
             readout_idx: Which timestep to read output from (``None`` = last).
             bptt_start_idx: Detach gradients before this index for truncated BPTT.
 
         Returns:
-            logits: ``(batch, output_size)``
+            logits: ``(batch, output_size)`` for single cells, or
+                    ``(K, batch, output_size)`` for K-batched cells.
         """
         batch_size, seq_len, _ = x.shape
 
         # Initial state --------------------------------------------------------
         if hasattr(self, "ic"):
             state = self.ic(batch_size)
+        elif self._K is not None:
+            state = torch.zeros(
+                self._K, batch_size, self.cell.state_size, device=x.device
+            )
         else:
             state = torch.zeros(
                 batch_size, self.cell.state_size, device=x.device
@@ -141,9 +166,18 @@ class SequenceModel(nn.Module):
         # Apply output mask ----------------------------------------------------
         if hasattr(self, "output_mask"):
             out = out * self.output_mask
-            out = out[:, self.output_mask.bool()]
+            # [..., mask] indexes last dim for both (B, N) and (K, B, N)
+            out = out[..., self.output_mask.bool()]
 
-        return self.readout(out)
+        # Readout head ---------------------------------------------------------
+        if self._K is not None:
+            # out: (K, B, E), weight: (K, O, E) -> bmm needs (K, B, E) @ (K, E, O)
+            logits = torch.bmm(
+                out, self.readout_weight.transpose(-1, -2)
+            ) + self.readout_bias
+            return logits  # (K, B, O)
+        else:
+            return self.readout(out)
 
     # ------------------------------------------------------------------
     def constrain_parameters(self):

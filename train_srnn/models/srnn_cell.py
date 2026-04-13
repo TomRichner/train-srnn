@@ -92,8 +92,8 @@ class SRNNConfig:
     per_neuron: bool = False
     echo: bool = False    # Reservoir mode (freeze W)
     solver: str = "semi_implicit"
-    h: float = 0.04
-    ode_unfolds: int = 6
+    h: float = 0.01
+    ode_unfolds: int = 4
     readout: str = "synaptic"
 
     @property
@@ -319,6 +319,11 @@ class SRNNCell(nn.Module):
     @property
     def state_size(self) -> int:
         return self.config.state_size
+
+    @property
+    def dt_per_step(self) -> float:
+        """Seconds of simulated time per forward call (used by burn-in)."""
+        return self.config.h
 
     def init_state(self, batch_size: int, device: torch.device = None) -> torch.Tensor:
         """Return an initialized flat state.
@@ -850,10 +855,15 @@ class BatchedSRNNCell(nn.Module):
         dales_mask = torch.tensor([float(c.dales) for c in configs]).reshape(self.K, 1, 1)
         self.register_buffer("dales_mask", dales_mask)
 
-        # Echo mask for freezing W gradients selectively -- handled via
-        # per-variant hook, but we store for reference.
+        # Echo mask for freezing W gradients selectively via backward hook.
         echo_flags = torch.tensor([float(c.echo) for c in configs]).reshape(self.K, 1, 1)
         self.register_buffer("echo_flags", echo_flags)
+
+        # Register gradient hook to zero W_raw gradients for echo variants
+        if any(c.echo for c in configs):
+            echo_grad_mask = 1.0 - echo_flags  # (K, 1, 1): 0 for echo, 1 for non-echo
+            self.register_buffer("_echo_grad_mask", echo_grad_mask)
+            self.W_raw.register_hook(lambda grad: grad * self._echo_grad_mask)
 
         # SFA masks: (K, 1, 1) -- broadcast-friendly
         if self.max_n_a_E > 0:
@@ -983,6 +993,11 @@ class BatchedSRNNCell(nn.Module):
     @property
     def state_size(self) -> int:
         return self.max_state_dim
+
+    @property
+    def dt_per_step(self) -> float:
+        """Seconds of simulated time per forward call (used by burn-in)."""
+        return self.h
 
     def init_state(self, batch_size: int, device: torch.device = None) -> torch.Tensor:
         """Return initialized state (K, batch, max_state_dim).

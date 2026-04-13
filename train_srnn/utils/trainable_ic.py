@@ -7,20 +7,30 @@ import torch.nn as nn
 class TrainableIC(nn.Module):
     """Trainable initial state for RNN cells.
 
-    Stores a learnable (state_dim,) parameter that gets tiled to
-    (batch, state_dim) at forward time.
+    For single-variant cells, stores a learnable (state_dim,) parameter
+    that gets tiled to (batch, state_dim) at forward time.
+
+    For K-batched cells (BatchedSRNNCell), stores (K, state_dim) and
+    returns (K, batch, state_dim).
     """
 
-    def __init__(self, state_dim: int):
+    def __init__(self, state_dim: int, K: int | None = None):
         super().__init__()
-        self.ic = nn.Parameter(torch.zeros(state_dim))
+        self.K = K
+        if K is not None:
+            self.ic = nn.Parameter(torch.zeros(K, state_dim))
+        else:
+            self.ic = nn.Parameter(torch.zeros(state_dim))
 
     def forward(self, batch_size: int) -> torch.Tensor:
         """Expand the learned IC to a full batch.
 
         Returns:
-            Tensor of shape (batch_size, state_dim).
+            (batch_size, state_dim) if non-batched, or
+            (K, batch_size, state_dim) if K-batched.
         """
+        if self.K is not None:
+            return self.ic.unsqueeze(1).expand(self.K, batch_size, -1)
         return self.ic.unsqueeze(0).expand(batch_size, -1)
 
 
@@ -39,13 +49,16 @@ def compute_burn_in(cell, input_size, burn_in_seconds=30.0, device="cpu"):
         device: Torch device to use.
 
     Returns:
-        A (state_dim,) tensor suitable for initialising a TrainableIC.
+        A (state_dim,) tensor for single cells, or (K, state_dim) for
+        batched cells, suitable for initialising a TrainableIC.
     """
     dt = getattr(cell, "dt_per_step", 0.04)
     n_steps = max(1, int(burn_in_seconds / dt))
 
     cell = cell.to(device)
     cell.eval()
+
+    batched = hasattr(cell, "K")
 
     with torch.no_grad():
         # Initialise state -- try cell's own method first, fall back to zeros.
@@ -61,4 +74,10 @@ def compute_burn_in(cell, input_size, burn_in_seconds=30.0, device="cpu"):
     # Squeeze out the batch dimension and return on CPU.
     if isinstance(state, tuple):
         state = state[0]
-    return state.squeeze(0).cpu()
+
+    if batched:
+        # state is (K, 1, state_dim) — squeeze batch dim
+        return state.squeeze(1).cpu()
+    else:
+        # state is (1, state_dim) — squeeze batch dim
+        return state.squeeze(0).cpu()
