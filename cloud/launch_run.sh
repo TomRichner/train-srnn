@@ -47,6 +47,11 @@ if [ "$GCP_USE_SPOT" = "true" ]; then
     SCHEDULING_ARGS="--provisioning-model=SPOT --instance-termination-action=STOP"
 fi
 
+# Write train-args to a temp file so commas in values (e.g. batched_ablations)
+# don't break gcloud's metadata comma-delimited parsing.
+TRAIN_ARGS_FILE=$(mktemp)
+echo "$EXTRA_ARGS" > "$TRAIN_ARGS_FILE"
+
 gcloud compute instances create "$VM_NAME" \
     --project="$GCP_PROJECT" \
     --zone="$GCP_ZONE" \
@@ -56,9 +61,11 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size="$BOOT_DISK_SIZE" \
     --boot-disk-type="$BOOT_DISK_TYPE" \
     --scopes=cloud-platform \
-    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,train-args=$EXTRA_ARGS" \
-    --metadata-from-file=startup-script="$SCRIPT_DIR/startup.sh" \
+    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET" \
+    --metadata-from-file="startup-script=$SCRIPT_DIR/startup.sh,train-args=$TRAIN_ARGS_FILE" \
     $SCHEDULING_ARGS \
     --quiet
+
+rm -f "$TRAIN_ARGS_FILE"
 
 echo "Created $VM_NAME"
