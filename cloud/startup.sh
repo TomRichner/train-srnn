@@ -192,7 +192,7 @@ python3 train.py \
     task=$EXPERIMENT \
     seed=$SEED \
     $TRAIN_ARGS \
-    output_dir=results/$EXPERIMENT/${MODEL}_\${size}
+    output_dir=results
 set +f
 
 echo "=== Training complete $(date -Iseconds) ==="
