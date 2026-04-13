@@ -9,7 +9,10 @@ array of labels (num_sequences, seq_len) for per-timestep tasks or
 Meta includes: input_size, output_size, task_type, seq_len.
 """
 
+import gzip
 import os
+import struct
+
 import numpy as np
 import pandas as pd
 
@@ -74,21 +77,39 @@ def _split_90_10(x, y, seed=893429):
 # 1. SMNIST (Sequential MNIST) - row-by-row
 # ---------------------------------------------------------------------------
 
+def _read_idx_gz(path):
+    """Read a gzipped IDX file (MNIST format) into a numpy array."""
+    with gzip.open(path, "rb") as f:
+        magic = struct.unpack(">I", f.read(4))[0]
+        dtype = {0x08: np.uint8, 0x09: np.int8}[(magic >> 8) & 0xFF]
+        ndim = magic & 0xFF
+        dims = [struct.unpack(">I", f.read(4))[0] for _ in range(ndim)]
+        return np.frombuffer(f.read(), dtype=dtype).reshape(dims)
+
+
 def load_smnist(data_dir=None):
     """Load Sequential MNIST (row-by-row, seq_len=28, features=28).
 
-    Uses torchvision to download/load MNIST.  Labels are single per sequence.
+    Reads raw IDX gz files if present in data_dir (cloud / pre-downloaded),
+    otherwise falls back to torchvision download for local dev convenience.
     """
-    from torchvision import datasets
+    data_dir = data_dir or "train_srnn/data/smnist"
+    train_images_path = os.path.join(data_dir, "train-images-idx3-ubyte.gz")
 
-    cache = os.path.join(data_dir, "mnist_cache") if data_dir else "/tmp/mnist_cache"
-    train_ds = datasets.MNIST(cache, train=True, download=True)
-    test_ds = datasets.MNIST(cache, train=False, download=True)
-
-    train_x = train_ds.data.numpy().astype(np.float32) / 255.0  # (60000, 28, 28)
-    train_y = train_ds.targets.numpy().astype(np.int64)
-    test_x = test_ds.data.numpy().astype(np.float32) / 255.0
-    test_y = test_ds.targets.numpy().astype(np.int64)
+    if os.path.isfile(train_images_path):
+        train_x = _read_idx_gz(train_images_path).astype(np.float32) / 255.0
+        train_y = _read_idx_gz(os.path.join(data_dir, "train-labels-idx1-ubyte.gz")).astype(np.int64)
+        test_x = _read_idx_gz(os.path.join(data_dir, "t10k-images-idx3-ubyte.gz")).astype(np.float32) / 255.0
+        test_y = _read_idx_gz(os.path.join(data_dir, "t10k-labels-idx1-ubyte.gz")).astype(np.int64)
+    else:
+        from torchvision import datasets
+        cache = os.path.join(data_dir, "mnist_cache")
+        train_ds = datasets.MNIST(cache, train=True, download=True)
+        test_ds = datasets.MNIST(cache, train=False, download=True)
+        train_x = train_ds.data.numpy().astype(np.float32) / 255.0
+        train_y = train_ds.targets.numpy().astype(np.int64)
+        test_x = test_ds.data.numpy().astype(np.float32) / 255.0
+        test_y = test_ds.targets.numpy().astype(np.int64)
 
     # 90/10 split of training set
     split = int(0.9 * len(train_x))

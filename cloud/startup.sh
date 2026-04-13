@@ -132,11 +132,9 @@ echo "Git commit: $GIT_COMMIT"
 START_TIME=$(date +%s)
 START_TIME_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# Step 2: Download dataset (if needed)
-if [ "$EXPERIMENT" != "smnist" ]; then
-    mkdir -p "train_srnn/data/$EXPERIMENT"
-    gcloud storage cp -r "$BUCKET/datasets/$EXPERIMENT/*" "train_srnn/data/$EXPERIMENT/" || true
-fi
+# Step 2: Download dataset from GCS
+mkdir -p "train_srnn/data/$EXPERIMENT"
+gcloud storage cp -r "$BUCKET/datasets/$EXPERIMENT/*" "train_srnn/data/$EXPERIMENT/" || true
 
 # Step 3: Setup Python environment
 if [ -d "/opt/python-venv" ]; then
