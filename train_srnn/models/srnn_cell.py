@@ -92,7 +92,7 @@ class SRNNConfig:
     per_neuron: bool = False
     echo: bool = False    # Reservoir mode (freeze W)
     solver: str = "semi_implicit"
-    h: float = 0.01
+    h: float = 0.02
     ode_unfolds: int = 4
     readout: str = "synaptic"
     tau_global_init: float = 1.0  # Initial value for global timescale multiplier
