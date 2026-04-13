@@ -134,6 +134,9 @@ bash cloud/build_image.sh
 # Launch a single run
 bash cloud/launch_run.sh my-experiment har srnn 1
 
+# Launch batched ablations in the cloud
+bash cloud/launch_run.sh my-run smnist srnn 1 "batched_ablations='[srnn-E-only,srnn-e-only-echo]' epochs=15"
+
 # Launch full matrix (all models x all tasks x 5 seeds)
 bash cloud/launch_all.sh full-run --seeds 5
 

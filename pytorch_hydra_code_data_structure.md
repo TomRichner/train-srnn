@@ -520,12 +520,13 @@ All cells receive `input_size` from the task config and `W_in_mask` from the fac
 
 ### `build_batched_model(cfg, ablation_names) -> SequenceModel`
 
-For running K SRNN ablation variants in parallel:
+For running K SRNN ablation variants in parallel with independent learning:
 
 1. Looks up each name in `SRNN_PRESETS` dictionary
 2. Verifies all share the same `solver`, `h`, `ode_unfolds`
-3. Constructs `BatchedSRNNCell` with K configs stacked
-4. Wraps in `SequenceModel`
+3. Constructs `BatchedSRNNCell` with K configs stacked (per-variant `log_tau_global`, echo gradient masking via backward hook)
+4. Wraps in `SequenceModel` (K-aware `TrainableIC`, K independent readout heads via bmm, fixed output mask indexing)
+5. Stores `ablation_names` on the model for per-variant logging and CSV output
 
 ### `_cfg_to_dataclass(model_cfg, dc_cls)`
 
@@ -843,7 +844,7 @@ The startup script runs automatically when a GCP VM boots. It reads experiment p
 | `model` | `srnn` | Model config name |
 | `seed` | `1` | Random seed |
 | `bucket` | `gs://liquidneuralnets-experiments` | GCS bucket |
-| `train-args` | `epochs=200 size=32` | Extra Hydra CLI overrides |
+| `train-args` | `epochs=200 size=32` | Extra Hydra CLI overrides (passed via `--metadata-from-file` to support commas in values like `batched_ablations=[a,b]`) |
 
 **Execution steps:**
 
@@ -855,8 +856,9 @@ The startup script runs automatically when a GCP VM boots. It reads experiment p
 6. Activate Python venv (`/opt/python-venv` if pre-built image, else create new)
 7. Install requirements (pip)
 8. Set `PYTHONPATH=$WORKDIR` for `train_srnn` package imports
-9. Run: `python3 train.py model=$MODEL task=$EXPERIMENT seed=$SEED $TRAIN_ARGS`
-10. On exit (success or failure):
+9. Disable shell globbing (`set -f`) so Hydra list syntax `[a,b]` in `$TRAIN_ARGS` isn't expanded
+10. Run: `python3 train.py model=$MODEL task=$EXPERIMENT seed=$SEED $TRAIN_ARGS`
+11. On exit (success or failure):
     - Upload results, logs, and metadata JSON to GCS
     - Self-delete VM via `gcloud compute instances delete`
 
@@ -893,8 +895,15 @@ Launches a single training VM:
 2. Checks if VM already exists (skip if so)
 3. Checks concurrency limit
 4. Loads experiment-specific overrides from `experiments/{experiment}.env`
-5. Creates VM with metadata tags and startup script
-6. Uses spot/preemptible instances if configured
+5. Strips single quotes from extra args (users need them locally for zsh, but metadata should contain clean Hydra syntax)
+6. Writes `train-args` to a temp file, passes via `--metadata-from-file` (avoids commas in values breaking gcloud's metadata delimiter)
+7. Creates VM with metadata tags and startup script
+8. Uses spot/preemptible instances if configured
+
+Batched ablations in the cloud:
+```bash
+bash cloud/launch_run.sh my-run smnist srnn 1 "batched_ablations='[srnn-E-only,srnn-e-only-echo]' epochs=15"
+```
 
 **`launch_all.sh <run_name> [--seeds N] [--models "m1 m2 ..."] [--dry-run]`**
 
