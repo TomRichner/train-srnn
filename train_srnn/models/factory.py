@@ -138,7 +138,13 @@ def build_batched_model(
                 f"Available: {list(SRNN_PRESETS.keys())}"
             )
         preset = SRNN_PRESETS[name]
-        configs.append(replace(preset, num_units=num_units))
+        configs.append(replace(
+            preset,
+            num_units=num_units,
+            solver=cfg.model.get("solver", preset.solver),
+            h=cfg.model.get("h", preset.h),
+            ode_unfolds=cfg.model.get("ode_unfolds", preset.ode_unfolds),
+        ))
 
     # Build ONE RMTMatrix (same seed → same W for all ablations)
     rmt = RMTMatrix(
