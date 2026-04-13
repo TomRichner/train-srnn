@@ -131,6 +131,7 @@ mkdir -p results/$EXPERIMENT
 # Add parent dir to PYTHONPATH so `train_srnn` package is importable
 export PYTHONPATH="$WORKDIR:${PYTHONPATH:-}"
 
+set -f  # disable globbing so [a,b] in TRAIN_ARGS isn't expanded
 python3 train.py \
     model=$MODEL \
     task=$EXPERIMENT \
@@ -138,6 +139,7 @@ python3 train.py \
     $TRAIN_ARGS \
     output_dir=results/$EXPERIMENT/${MODEL}_\${size} \
     2>&1 | tee -a "$LOG"
+set +f
 
 echo "=== Training complete $(date -Iseconds) ==="
 echo "SUCCESS" >> "$LOG"

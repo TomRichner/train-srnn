@@ -58,12 +58,19 @@ def collect(run_name, bucket, seeds=5, models=None, experiments=None):
                     continue
 
                 header = lines[0].split(",")
-                values = lines[1].split(",")
-                row = dict(zip(header, values))
-                row["model"] = model
-                row["experiment"] = exp
-                row["seed"] = seed
-                results.append(row)
+                # Batched ablation CSVs have multiple rows (one per variant);
+                # single-model CSVs have one data row. Handle both.
+                for data_line in lines[1:]:
+                    values = data_line.split(",")
+                    row = dict(zip(header, values))
+                    # For batched CSVs, "variant" column overrides model name
+                    if "variant" in row:
+                        row["model"] = row["variant"]
+                    else:
+                        row["model"] = model
+                    row["experiment"] = exp
+                    row["seed"] = seed
+                    results.append(row)
 
     return results
 

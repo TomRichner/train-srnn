@@ -12,6 +12,10 @@ MODEL="${3:?}"
 SEED="${4:?}"
 shift 4
 EXTRA_ARGS="$*"
+# Strip single quotes so Hydra list syntax [a,b] is stored clean in metadata.
+# Users type quotes locally (zsh needs them), but the metadata value should not
+# contain them — the VM's startup script handles globbing protection.
+EXTRA_ARGS="${EXTRA_ARGS//\'/}"
 
 VM_NAME="${RUN_NAME}-${MODEL}-${EXPERIMENT}-seed${SEED}"
 VM_NAME="${VM_NAME//_/-}"  # GCP doesn't allow underscores
