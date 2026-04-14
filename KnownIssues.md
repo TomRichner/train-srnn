@@ -104,3 +104,62 @@ Both touch `W_raw` only. No `requires_grad_(False)` calls and no grad hooks are 
 **Practical consequences.**
 - Do not cite results on the current `smnist` task as "sequential MNIST" without qualification — specify row-wise.
 - When benchmarking against external SSM/long-RNN papers, use `serial_smnist` (once added), not the current `smnist`.
+
+---
+
+## 4. `TrainableIC` receives no gradient when `bptt_start_idx > 0`
+
+**Summary.** The project has three independent "warmup"-adjacent mechanisms that interact in a non-obvious way. The `TrainableIC` parameter is initialised by an unforced burn-in at train start, but as soon as there is any forward-only prefix inside the per-batch window (i.e. `bptt_start_idx > 0`, which is the standard setting), the IC parameter receives **zero gradient** and is effectively frozen at its burn-in value for the rest of training.
+
+### The four concepts and how they interact
+
+All four operate at different scopes. Keep them distinct when reasoning about dynamics:
+
+| Mechanism | Scope | What it does | Governed by |
+|---|---|---|---|
+| **`compute_burn_in`** | once, at train start | runs the cell with zero input for `burn_in_seconds / dt_per_step` steps; copies the final state into `TrainableIC.ic` | `cfg.burn_in` (default 30.0 s), cell's `dt_per_step` |
+| **`TrainableIC`** | per batch, at `t=0` | every forward pass starts from `self.ic` (expanded to batch) instead of zeros | `SequenceModel.__init__(trainable_ic=True)` (default on) |
+| **Palindrome loop** | per batch, data-side | repeats the image fwd/bwd/fwd/bwd so the `window_len`-long sample has real content everywhere, not padding | `window_len`, `seq_len` (auto-sized inside `wrap_train_batch`) |
+| **Forward-only warmup (BPTT truncation)** | per batch, compute-graph-side | first `window_len - bptt_len` timesteps of the unroll run under `torch.no_grad()` so dynamics settle without a gradient graph | `cfg.window_len`, `cfg.bptt_len` |
+| **Random window offset + random readout idx** | per batch, data-side | `wrap_train_batch` picks a random offset into the palindrome-looped sequence and a random readout timestep within the last loop, adding stochasticity | `rng` in `wrap_train_batch` |
+
+### Why the IC freezes with forward-only warmup
+
+In `SequenceModel.forward`:
+
+```python
+state = self.ic(batch_size)                    # tensor is linked to self.ic via autograd
+for t in range(seq_len):
+    inp = x[:, t, :]
+    if bptt_start_idx is not None and t < bptt_start_idx:
+        with torch.no_grad():                  # ← breaks the graph
+            output, state = self.cell(inp, state)
+    else:
+        output, state = self.cell(inp, state)
+```
+
+Inside `torch.no_grad()`, the `state` tensor returned by the cell has `requires_grad=False`. The autograd link between that new `state` and `self.ic` is severed. When the BPTT region starts at `bptt_start_idx`, the state input to the cell is a plain tensor — gradients computed on the loss cannot propagate back through it to `self.ic`. Result: `self.ic.grad` is `None` every step and the optimizer never updates it.
+
+### Practical effect
+
+- `TrainableIC.ic` is *de facto* a frozen buffer set by `compute_burn_in`, not a learned parameter, whenever `window_len > bptt_len`.
+- For the current sMNIST setting (`window_len=112, bptt_len=56`), the IC is frozen at the unforced fixed point.
+- This is usually fine: after 56 timesteps of driven palindrome-cycle dynamics, the state has been largely "washed out" of its dependence on the initial condition, so the IC mostly doesn't matter past the warmup. The burn-in gave it a reasonable value; that's all it needs.
+- It does mean `trainable_ic=True` is behaviourally equivalent to `trainable_ic=False` + using the burn-in state directly, whenever `bptt_start_idx > 0`.
+
+### When to actually train the IC
+
+If you want the IC parameter to learn:
+- Set `bptt_len == window_len` (equivalent: `bptt_start_idx = 0`), so there is no forward-only prefix and gradients flow to the IC through every step.
+- This is only advisable for short-sequence / short-window settings where the full unroll fits in memory, and when the IC genuinely influences the readout (e.g. fast-decay dynamics or short windows where the initial state still matters at readout time).
+- At long `window_len` the IC signal would be numerically swamped by the recurrent dynamics anyway, so training it rarely helps.
+
+### When this actually matters for results
+
+- For a fair "does the model learn its IC?" ablation, compare `trainable_ic=True bptt_len=window_len` vs `trainable_ic=False bptt_len=window_len`. Comparing with truncated BPTT is not informative either way.
+- Plots of parameter statistics that include `ic.*` entries should be read with the understanding that `ic` drift over training is zero under the default settings — any observed "trained IC" is just the burn-in output.
+
+### Fix sketch if we ever want the IC to train under truncated BPTT
+
+- Replace `with torch.no_grad():` with an explicit `state = state.detach()` wrapper that only severs the gradient once, **after** the first no-grad cell call — still loses the IC connection.
+- A real fix would need either: (a) running the forward-only prefix with gradients on but using gradient checkpointing to control memory; (b) a separate gradient path where `self.ic`'s gradient is computed through a short fully-tracked prefix and then summed in; or (c) accepting that IC + truncated BPTT is incompatible and exposing this in docs + removing `trainable_ic` from the default when `bptt_len < window_len`.

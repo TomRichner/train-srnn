@@ -8,7 +8,7 @@ import hydra
 import numpy as np
 import torch
 import torch.nn as nn
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from train_srnn.data.datasets import load_dataset
 from train_srnn.data.transforms import wrap_eval_batch, wrap_train_batch
@@ -75,6 +75,7 @@ def run_epoch(
                 cfg.window_len,
                 cfg.bptt_len,
                 cfg.task.per_timestep_labels,
+                no_augment=cfg.get("no_augment", False),
             )
             # Extract label at readout timestep for per-timestep tasks
             if cfg.task.per_timestep_labels:
@@ -85,6 +86,7 @@ def run_epoch(
                 batch_y,
                 cfg.window_len,
                 cfg.task.per_timestep_labels,
+                no_augment=cfg.get("no_augment", False),
             )
             # wrap_eval_batch already extracts labels_at_readout
             bptt_start = None
@@ -238,10 +240,28 @@ def main(cfg: DictConfig) -> None:
     log.info("Using device: %s", device)
 
     # 3. Load data ------------------------------------------------------------
-    dataset = load_dataset(cfg.task.name, cfg.task.data_dir)
+    # Forward any extra task-level loader kwargs (used by seeg for
+    # subject_id/block/sleep/cond/decimate/seq_len/stride).
+    _loader_reserved = {"name", "data_dir", "input_size", "output_size",
+                        "task_type", "per_timestep_labels", "batch_size"}
+    loader_kwargs = {
+        k: v for k, v in OmegaConf.to_container(cfg.task, resolve=True).items()
+        if k not in _loader_reserved
+    }
+    dataset = load_dataset(cfg.task.name, cfg.task.data_dir, **loader_kwargs)
     train_x, train_y = dataset["train"]
     valid_x, valid_y = dataset["valid"]
     test_x, test_y = dataset["test"]
+
+    # Assert channel count (loaders that report input_size in meta) matches
+    # task YAML so the model builds against the right feature count.
+    meta = dataset.get("meta", {})
+    meta_in = meta.get("input_size")
+    if meta_in is not None and meta_in != cfg.task.input_size:
+        raise ValueError(
+            f"Dataset input_size={meta_in} does not match task YAML "
+            f"input_size={cfg.task.input_size}. Override with "
+            f"task.input_size={meta_in} task.output_size={meta_in}.")
 
     # 4. Build model ----------------------------------------------------------
     if cfg.batched_ablations:
