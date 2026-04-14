@@ -322,7 +322,8 @@ def wrap_train_batch(batch_x, batch_y, rng,
                      stretch_lo=1.0, stretch_hi=1.0,
                      window_len=1024, bptt_len=512,
                      per_timestep_labels=True,
-                     no_augment=False):
+                     no_augment=False,
+                     loss_over_bptt=False):
     """Full training augmentation: stretch -> loop -> fixed-length window.
 
     Produces a fixed output length regardless of stretch factor, so
@@ -353,7 +354,12 @@ def wrap_train_batch(batch_x, batch_y, rng,
                 f"no_augment=True requires batch seq_len == window_len, "
                 f"got seq_len={batch_x.shape[1]} window_len={window_len}")
         bptt_start_idx = max(0, window_len - bptt_len)
-        readout_idx = rng.randint(window_len - bptt_len, window_len)
+        if loss_over_bptt:
+            # Slice over the whole grad region so loss sees every timestep
+            # (teacher-forced 1-step-ahead at each step).
+            readout_idx = slice(bptt_start_idx, window_len)
+        else:
+            readout_idx = rng.randint(window_len - bptt_len, window_len)
         return batch_x, batch_y, readout_idx, bptt_start_idx
 
     # 1. Time stretch (vectorized) — 1 RNG call
@@ -394,7 +400,9 @@ def wrap_train_batch(batch_x, batch_y, rng,
 def wrap_eval_batch(batch_x, batch_y,
                     window_len=1024,
                     per_timestep_labels=True,
-                    no_augment=False):
+                    no_augment=False,
+                    loss_over_bptt=False,
+                    bptt_len=512):
     """Eval augmentation: palindrome loop + fixed-length window (no stretch).
 
     Produces (batch, window_len, F) for shape parity with wrap_train_batch.
@@ -417,11 +425,19 @@ def wrap_eval_batch(batch_x, batch_y,
             raise ValueError(
                 f"no_augment=True requires batch seq_len == window_len, "
                 f"got seq_len={batch_x.shape[1]} window_len={window_len}")
-        readout_idx = window_len - 1
-        if per_timestep_labels:
-            labels_at_readout = batch_y[:, readout_idx]
+        if loss_over_bptt:
+            bptt_start_idx = max(0, window_len - bptt_len)
+            readout_idx = slice(bptt_start_idx, window_len)
+            if per_timestep_labels:
+                labels_at_readout = batch_y[:, readout_idx]
+            else:
+                labels_at_readout = batch_y
         else:
-            labels_at_readout = batch_y
+            readout_idx = window_len - 1
+            if per_timestep_labels:
+                labels_at_readout = batch_y[:, readout_idx]
+            else:
+                labels_at_readout = batch_y
         return batch_x, labels_at_readout, readout_idx
 
     seq_len = batch_x.shape[1]

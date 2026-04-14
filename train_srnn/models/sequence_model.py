@@ -115,19 +115,31 @@ class SequenceModel(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        readout_idx: int | None = None,
+        readout_idx: int | slice | None = None,
         bptt_start_idx: int | None = None,
+        bptt_chunk_len: int | None = None,
     ) -> torch.Tensor:
         """Forward pass.
 
         Args:
             x: ``(batch, seq_len, features)`` -- batch-first input.
-            readout_idx: Which timestep to read output from (``None`` = last).
-            bptt_start_idx: Detach gradients before this index for truncated BPTT.
+            readout_idx: Which timestep(s) to read output from. ``int`` selects
+                one timestep (classic single-readout behavior); ``slice`` stacks
+                outputs over that range along a new time axis so multi-step
+                loss can be computed; ``None`` = last timestep.
+            bptt_start_idx: Detach gradients before this index (truncated BPTT
+                warmup: steps < bptt_start_idx run under ``torch.no_grad()``).
+            bptt_chunk_len: If set, call ``state.detach()`` every this many
+                steps inside the grad region so each loss term's backward path
+                is capped to at most ``bptt_chunk_len`` cell applications.
+                ``None`` = one contiguous graph over the grad region.
 
         Returns:
             logits: ``(batch, output_size)`` for single cells, or
-                    ``(K, batch, output_size)`` for K-batched cells.
+                    ``(K, batch, output_size)`` for K-batched cells. When
+                    ``readout_idx`` is a slice, an extra time axis is inserted
+                    before the output axis: ``(batch, T, output_size)`` or
+                    ``(K, batch, T, output_size)``.
         """
         batch_size, seq_len, _ = x.shape
 
@@ -145,6 +157,7 @@ class SequenceModel(nn.Module):
 
         # Unroll ---------------------------------------------------------------
         outputs: list[torch.Tensor] = []
+        steps_in_chunk = 0
         for t in range(seq_len):
             inp = x[:, t, :]
 
@@ -154,11 +167,21 @@ class SequenceModel(nn.Module):
                 state = state.detach()
             else:
                 output, state = self.cell(inp, state)
+                steps_in_chunk += 1
+                if (bptt_chunk_len is not None
+                        and steps_in_chunk >= bptt_chunk_len
+                        and t < seq_len - 1):
+                    state = state.detach()
+                    steps_in_chunk = 0
 
             outputs.append(output)
 
-        # Select readout timestep ----------------------------------------------
-        if readout_idx is not None:
+        # Select readout timestep(s) -------------------------------------------
+        if isinstance(readout_idx, slice):
+            # Stack along a new time axis just before the feature axis so the
+            # shape is (B, T, E) for single cells and (K, B, T, E) for batched.
+            out = torch.stack(outputs[readout_idx], dim=-2)
+        elif readout_idx is not None:
             out = outputs[readout_idx]
         else:
             out = outputs[-1]
@@ -166,17 +189,24 @@ class SequenceModel(nn.Module):
         # Apply output mask ----------------------------------------------------
         if hasattr(self, "output_mask"):
             out = out * self.output_mask
-            # [..., mask] indexes last dim for both (B, N) and (K, B, N)
+            # [..., mask] indexes last dim for any leading shape.
             out = out[..., self.output_mask.bool()]
 
         # Readout head ---------------------------------------------------------
         if self._K is not None:
-            # out: (K, B, E), weight: (K, O, E) -> bmm needs (K, B, E) @ (K, E, O)
-            logits = torch.bmm(
-                out, self.readout_weight.transpose(-1, -2)
-            ) + self.readout_bias
-            return logits  # (K, B, O)
+            # einsum handles both (K, B, E) and (K, B, T, E) uniformly.
+            # readout_weight: (K, O, E); readout_bias: (K, 1, O).
+            logits = torch.einsum(
+                "k...e,koe->k...o", out, self.readout_weight
+            )
+            if logits.ndim == 4:
+                # (K, B, T, O) needs (K, 1, 1, O) bias for broadcasting.
+                logits = logits + self.readout_bias.unsqueeze(1)
+            else:
+                logits = logits + self.readout_bias
+            return logits
         else:
+            # nn.Linear broadcasts over leading dims: (B, E) or (B, T, E).
             return self.readout(out)
 
     # ------------------------------------------------------------------

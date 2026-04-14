@@ -76,8 +76,10 @@ def run_epoch(
                 cfg.bptt_len,
                 cfg.task.per_timestep_labels,
                 no_augment=cfg.get("no_augment", False),
+                loss_over_bptt=cfg.get("loss_over_bptt", False),
             )
-            # Extract label at readout timestep for per-timestep tasks
+            # Extract label at readout timestep(s) for per-timestep tasks.
+            # readout_idx is int (shape -> (B, F)) or slice (shape -> (B, T, F)).
             if cfg.task.per_timestep_labels:
                 batch_y = batch_y[:, readout_idx]
         else:
@@ -87,6 +89,8 @@ def run_epoch(
                 cfg.window_len,
                 cfg.task.per_timestep_labels,
                 no_augment=cfg.get("no_augment", False),
+                loss_over_bptt=cfg.get("loss_over_bptt", False),
+                bptt_len=cfg.bptt_len,
             )
             # wrap_eval_batch already extracts labels_at_readout
             bptt_start = None
@@ -99,7 +103,12 @@ def run_epoch(
             batch_y_t = torch.tensor(batch_y, dtype=torch.float32, device=device)
 
         # Forward -------------------------------------------------------------
-        logits = model(batch_x_t, readout_idx=readout_idx, bptt_start_idx=bptt_start)
+        logits = model(
+            batch_x_t,
+            readout_idx=readout_idx,
+            bptt_start_idx=bptt_start,
+            bptt_chunk_len=cfg.get("bptt_chunk_len", None),
+        )
 
         # Loss ----------------------------------------------------------------
         if K is not None:
