@@ -157,6 +157,24 @@ The `freeze_ic_after_burnin` config flag (default **true** in `conf/config.yaml`
 
 Set `freeze_ic_after_burnin=false` only when deliberately training the IC under full-window BPTT (`bptt_len == window_len`) — that is the only configuration where the flag's value matters in practice.
 
+### Fixed IC drifts from the fixed point as training proceeds
+
+`compute_burn_in` at train start finds the unforced fixed point of the **initial** network. As `W_raw`, time constants, thresholds, adaptation weights, etc. update, the *current* network's fixed point moves — but the frozen IC stays at the initial location. After many epochs, the IC can be far from any stable attractor of the current network.
+
+How much this matters depends on whether the per-batch forward-only warmup (`window_len - bptt_len` steps) is long enough to let the current network's dynamics settle from the stale IC into a meaningful regime before BPTT begins. For fast-decaying LSTM/CTRNN dynamics this is usually fine. For SRNN/LTC with multi-second SFA or depression timescales and a short warmup, it can matter.
+
+**Remedy: `burn_in_every` config flag.** Re-runs `compute_burn_in` at the start of every N epochs (skipping epoch 0, which is handled by the init burn-in). Each call overwrites `model.ic.ic.data` with the current network's unforced fixed point. This happens outside autograd, so `freeze_ic_after_burnin` is unaffected — the IC is still a non-learned buffer, just one that gets refreshed periodically.
+
+Defaults:
+
+```yaml
+burn_in: 30.0            # seconds of simulated time per burn-in call
+burn_in_every: 1         # refresh every N epochs; 0 = only at init
+freeze_ic_after_burnin: true
+```
+
+Cost per refresh for SRNN (`h=0.02`, batch=1): 1500 zero-input cell calls. At `burn_in_every: 1` over 50 epochs that adds ~10–30 s × 50 ≈ 10–25 extra minutes on CPU, depending on cell speed. For cheaper tracking, set `burn_in_every: 10` to align with `checkpoint_interval` and pay roughly 1/10th the cost.
+
 ### When to actually train the IC
 
 If you want the IC parameter to learn:

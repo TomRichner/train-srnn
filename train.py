@@ -296,17 +296,26 @@ def main(cfg: DictConfig) -> None:
         criterion = nn.MSELoss()
 
     # 8. Optional burn-in for IC ----------------------------------------------
-    if cfg.burn_in > 0 and hasattr(model, "ic"):
+    def _refresh_ic_from_burn_in():
+        """Re-run compute_burn_in and copy the resulting state into model.ic.ic.
+
+        Safe to call at any training epoch; the copy bypasses autograd and does
+        not depend on whether the IC parameter is currently frozen.
+        """
         burn_in_state = compute_burn_in(
             model.cell, cfg.task.input_size, cfg.burn_in, device
         )
         model.ic.ic.data.copy_(burn_in_state)
+
+    if cfg.burn_in > 0 and hasattr(model, "ic"):
+        _refresh_ic_from_burn_in()
         if cfg.get("freeze_ic_after_burnin", True):
             model.ic.ic.requires_grad_(False)
             log.info("TrainableIC frozen after burn-in (freeze_ic_after_burnin=True)")
 
     # 9. Training loop --------------------------------------------------------
     rng = np.random.RandomState(cfg.seed)
+    burn_in_every = cfg.get("burn_in_every", 0)
 
     # Save init checkpoint + test eval (before any training)
     save_checkpoint(model, optimizer, scheduler, epoch=0, cfg=cfg, tag="init")
@@ -316,6 +325,14 @@ def main(cfg: DictConfig) -> None:
     )
 
     for epoch in range(cfg.epochs):
+        # Periodic re-burn-in: track the moving unforced fixed point as
+        # network parameters drift during training. Skip epoch 0 since we
+        # already ran burn-in at init. See KnownIssues §4.
+        if (burn_in_every and burn_in_every > 0 and epoch > 0
+                and epoch % burn_in_every == 0
+                and cfg.burn_in > 0 and hasattr(model, "ic")):
+            _refresh_ic_from_burn_in()
+
         model.train()
         train_loss, train_metric = run_epoch(
             model, train_x, train_y,

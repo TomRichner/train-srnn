@@ -16,6 +16,7 @@ stretch_hi: 1.2
 window_len: 1024    # fixed seq_len fed to model (samples) — stable for torch.compile
 bptt_len: 512       # BPTT horizon in samples; grads flow through last bptt_len steps
 burn_in: 30.0
+burn_in_every: 1              # re-run burn-in every N epochs to track moving fixed point; 0 = only at init
 freeze_ic_after_burnin: true  # freeze TrainableIC.ic after burn-in (matches truncated-BPTT reality where IC gets no grad; see KnownIssues §4)
 no_augment: false   # when true, bypass stretch+palindrome (requires task.seq_len == window_len)
 
