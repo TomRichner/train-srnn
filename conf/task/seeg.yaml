@@ -1,0 +1,21 @@
+name: seeg
+data_dir: train_srnn/data/seeg
+
+# File selector — override on CLI to switch condition/block/subject
+subject_id: "939"
+block: 4
+sleep: awake         # awake | asleep
+cond: baseline       # baseline | stim
+
+# Preprocessing
+decimate: 2          # 500 Hz -> 250 Hz via pair-average
+seq_len: 3750        # 5 s warmup + 10 s predict at 250 Hz
+stride: 1250         # 5 s stride (consecutive predict regions overlap 50%)
+
+# SRNN IO — must match detected channel count (asserted in train.py).
+# Subject 939 has 89 channels; override for other subjects.
+input_size: 89
+output_size: 89
+task_type: regression
+per_timestep_labels: true
+batch_size: 16

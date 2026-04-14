@@ -121,6 +121,9 @@ def run_epoch(
         if training:
             optimizer.zero_grad()
             loss.backward()
+            grad_clip = cfg.get("grad_clip", 0.0)
+            if grad_clip and grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
             optimizer.step()
             if scheduler is not None:
                 scheduler.step()

@@ -7,6 +7,7 @@ seed: 1
 epochs: 200
 batch_size: 128
 lr: 5e-4
+grad_clip: 1.0  # gradient norm clip; 0 or null disables
 size: 32  # model hidden size
 
 # Sequence augmentation

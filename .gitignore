@@ -9,6 +9,9 @@ __pycache__/
 outputs/
 results/
 
+# Scratch/working files (not checked in)
+tmp/
+
 # Downloaded datasets
 train_srnn/data/*/
 

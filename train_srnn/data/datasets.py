@@ -15,6 +15,7 @@ import struct
 
 import numpy as np
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +624,92 @@ def load_cheetah(data_dir="data/cheetah"):
 
 
 # ---------------------------------------------------------------------------
+# 10. SEEG (autoregressive on v7.3 .mat HDF5 traces)
+# ---------------------------------------------------------------------------
+
+def load_seeg(data_dir="train_srnn/data/seeg",
+              subject_id="939", block=4, sleep="awake", cond="baseline",
+              decimate=2, seq_len=1375, stride=125):
+    """Load one SEEG recording as an autoregressive task.
+
+    Filename convention matches `run_srnn_export.m`:
+        seeg_{subject_id}_b{block}_{awake|asleep}_{baseline|stim}.mat
+
+    Each .mat is v7.3 HDF5 containing `data_filt` (n_chan, n_samples stored
+    in HDF5 order → transposed to (T, C)) and scalar `SR`.
+
+    Pipeline:
+      1. Read + transpose + cast float32.
+      2. Decimate by summing consecutive samples (boxcar average).
+      3. Time-ordered 75/10/15 split of the continuous trace.
+      4. Per-channel z-score using TRAIN stats only.
+      5. Autoregressive targets: x = trace[:-1], y = trace[1:].
+      6. Windowed via sliding_window_view with given stride (views, no copy).
+         `run_epoch` fancy-indexes with a batch → only per-batch memory cost.
+    """
+    import h5py
+
+    fname = f"seeg_{subject_id}_b{block}_{sleep}_{cond}.mat"
+    path = os.path.join(data_dir, fname)
+    with h5py.File(path, "r") as f:
+        data = np.array(f["data_filt"]).T.astype(np.float32)  # (T, C)
+        sr = float(np.array(f["SR"]).squeeze())
+
+    if decimate > 1:
+        T = (data.shape[0] // decimate) * decimate
+        data = data[:T].reshape(-1, decimate, data.shape[1]).sum(axis=1) / decimate
+        sr /= decimate
+
+    n_samples, n_chan = data.shape
+    print(f"[seeg] {fname}: n_chan={n_chan}, n_samples={n_samples}, "
+          f"sr={sr} Hz, duration={n_samples/sr:.1f}s")
+
+    t1 = int(0.75 * n_samples)
+    t2 = int(0.85 * n_samples)
+    train_trace = data[:t1]
+    valid_trace = data[t1:t2]
+    test_trace = data[t2:]
+
+    mu = train_trace.mean(axis=0, keepdims=True)
+    sd = train_trace.std(axis=0, keepdims=True)
+    sd[sd < 1e-8] = 1.0
+    train_trace = (train_trace - mu) / sd
+    valid_trace = (valid_trace - mu) / sd
+    test_trace = (test_trace - mu) / sd
+
+    def _window(trace):
+        # Autoregressive: x[t] predicts y[t] = trace[t+1].
+        if trace.shape[0] < seq_len + 1:
+            raise ValueError(
+                f"Trace split has {trace.shape[0]} samples but seq_len={seq_len}+1 required")
+        x_src = trace[:-1]       # (T-1, C)
+        y_src = trace[1:]        # (T-1, C)
+        # sliding_window_view with window=(seq_len, n_chan) returns shape
+        # (T-seq_len, 1, seq_len, n_chan). Collapse the 1-axis then stride.
+        xw = sliding_window_view(x_src, (seq_len, n_chan))[:, 0, :, :][::stride]
+        yw = sliding_window_view(y_src, (seq_len, n_chan))[:, 0, :, :][::stride]
+        return xw, yw  # strided views — memory stays O(trace size)
+
+    tr_x, tr_y = _window(train_trace)
+    va_x, va_y = _window(valid_trace)
+    te_x, te_y = _window(test_trace)
+
+    return {
+        "train": (tr_x, tr_y),
+        "valid": (va_x, va_y),
+        "test": (te_x, te_y),
+        "meta": {
+            "input_size": n_chan,
+            "output_size": n_chan,
+            "task_type": "regression",
+            "seq_len": seq_len,
+            "per_timestep_labels": True,
+            "sr_hz": sr,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -636,17 +723,19 @@ _LOADERS = {
     "ozone": load_ozone,
     "person": load_person,
     "cheetah": load_cheetah,
+    "seeg": load_seeg,
 }
 
 
-def load_dataset(task_name, data_dir=None):
+def load_dataset(task_name, data_dir=None, **kwargs):
     """Load a dataset by name.
 
     Args:
         task_name: One of 'smnist', 'har', 'gesture', 'occupancy',
-            'traffic', 'power', 'ozone', 'person', 'cheetah'.
+            'traffic', 'power', 'ozone', 'person', 'cheetah', 'seeg'.
         data_dir: Optional base data directory. If None, uses the default
             path for each loader (e.g. 'data/har').
+        **kwargs: Extra per-loader kwargs (e.g. seeg's subject_id/block/...).
 
     Returns:
         Dict with keys 'train', 'valid', 'test', 'meta'.
@@ -656,5 +745,5 @@ def load_dataset(task_name, data_dir=None):
             f"Unknown task '{task_name}'. Available: {list(_LOADERS.keys())}")
     loader = _LOADERS[task_name]
     if data_dir is not None:
-        return loader(data_dir=data_dir)
-    return loader()
+        return loader(data_dir=data_dir, **kwargs)
+    return loader(**kwargs)

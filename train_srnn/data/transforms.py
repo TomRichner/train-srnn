@@ -321,7 +321,8 @@ def random_window(x_looped, y_looped, loop_len, rng,
 def wrap_train_batch(batch_x, batch_y, rng,
                      stretch_lo=1.0, stretch_hi=1.0,
                      window_len=1024, bptt_len=512,
-                     per_timestep_labels=True):
+                     per_timestep_labels=True,
+                     no_augment=False):
     """Full training augmentation: stretch -> loop -> fixed-length window.
 
     Produces a fixed output length regardless of stretch factor, so
@@ -346,6 +347,15 @@ def wrap_train_batch(batch_x, batch_y, rng,
         readout_idx: int -- timestep index for readout.
         bptt_start_idx: int -- where BPTT should begin (constant = window_len - bptt_len).
     """
+    if no_augment:
+        if batch_x.shape[1] != window_len:
+            raise ValueError(
+                f"no_augment=True requires batch seq_len == window_len, "
+                f"got seq_len={batch_x.shape[1]} window_len={window_len}")
+        bptt_start_idx = max(0, window_len - bptt_len)
+        readout_idx = rng.randint(window_len - bptt_len, window_len)
+        return batch_x, batch_y, readout_idx, bptt_start_idx
+
     # 1. Time stretch (vectorized) — 1 RNG call
     do_stretch = (abs(stretch_lo - stretch_hi) > 1e-6 or
                   abs(stretch_lo - 1.0) > 1e-6)
@@ -383,7 +393,8 @@ def wrap_train_batch(batch_x, batch_y, rng,
 
 def wrap_eval_batch(batch_x, batch_y,
                     window_len=1024,
-                    per_timestep_labels=True):
+                    per_timestep_labels=True,
+                    no_augment=False):
     """Eval augmentation: palindrome loop + fixed-length window (no stretch).
 
     Produces (batch, window_len, F) for shape parity with wrap_train_batch.
@@ -401,6 +412,18 @@ def wrap_eval_batch(batch_x, batch_y,
         labels_at_readout: (batch,) or (batch, label_dim) -- label at readout.
         readout_idx: int -- last timestep (window_len - 1).
     """
+    if no_augment:
+        if batch_x.shape[1] != window_len:
+            raise ValueError(
+                f"no_augment=True requires batch seq_len == window_len, "
+                f"got seq_len={batch_x.shape[1]} window_len={window_len}")
+        readout_idx = window_len - 1
+        if per_timestep_labels:
+            labels_at_readout = batch_y[:, readout_idx]
+        else:
+            labels_at_readout = batch_y
+        return batch_x, labels_at_readout, readout_idx
+
     seq_len = batch_x.shape[1]
     loop_len = 2 * seq_len
     n_loops = max(1, math.ceil(window_len / loop_len))

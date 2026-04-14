@@ -54,3 +54,15 @@ There is no separate lint/test runner — `smoke_test.sh` is the integration che
 - Don't add cells without also adding a model YAML in `conf/model/` and a dispatch branch in `train_srnn/models/factory.py:build_cell`.
 - SRNN ablation variants are defined both as YAML configs (`conf/model/srnn_*.yaml`) and as entries in `SRNN_PRESETS` in `train_srnn/models/srnn_cell.py` — keep the two in sync when editing.
 - Per-timestep vs sequence-level labels is set by `task.per_timestep_labels` in the task YAML; getting this wrong silently produces shape errors at loss time (recent fix: 47795bf).
+
+## IDE integration
+
+The user runs Antigravity (a VS Code fork). Both `code` and `agy` resolve to the Antigravity CLI with identical VS Code flags. Before editing a file the user may not have open, pre-open it in their active window so the inline diff renders where they can see it:
+
+```bash
+code -r <path>           # open in current window (--reuse-window)
+code -g <path>:<line>    # jump to a specific line
+code -d <fileA> <fileB>  # side-by-side diff view
+```
+
+Call `code -r` just before an `Edit`/`Write` on a file that isn't already open. No-op if the file is already open. Not needed when the user already has the file visible (system-reminders flag open files).
