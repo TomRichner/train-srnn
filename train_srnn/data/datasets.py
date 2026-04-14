@@ -736,14 +736,25 @@ def load_dataset(task_name, data_dir=None, **kwargs):
         data_dir: Optional base data directory. If None, uses the default
             path for each loader (e.g. 'data/har').
         **kwargs: Extra per-loader kwargs (e.g. seeg's subject_id/block/...).
+            Kwargs that the chosen loader does not accept are silently
+            dropped so task YAMLs can carry common fields (``seq_len`` etc.)
+            without every loader having to accept them.
 
     Returns:
         Dict with keys 'train', 'valid', 'test', 'meta'.
     """
+    import inspect
     if task_name not in _LOADERS:
         raise ValueError(
             f"Unknown task '{task_name}'. Available: {list(_LOADERS.keys())}")
     loader = _LOADERS[task_name]
+    sig = inspect.signature(loader)
+    accepts_var_kw = any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+    )
+    if not accepts_var_kw:
+        allowed = set(sig.parameters.keys())
+        kwargs = {k: v for k, v in kwargs.items() if k in allowed}
     if data_dir is not None:
         return loader(data_dir=data_dir, **kwargs)
     return loader(**kwargs)
