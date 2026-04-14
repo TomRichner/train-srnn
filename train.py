@@ -72,8 +72,8 @@ def run_epoch(
                 rng,
                 cfg.stretch_lo,
                 cfg.stretch_hi,
-                cfg.min_loops,
-                cfg.min_loop_len,
+                cfg.window_len,
+                cfg.bptt_len,
                 cfg.task.per_timestep_labels,
             )
             # Extract label at readout timestep for per-timestep tasks
@@ -83,8 +83,7 @@ def run_epoch(
             batch_x, batch_y, readout_idx = wrap_eval_batch(
                 batch_x,
                 batch_y,
-                cfg.min_loops,
-                cfg.min_loop_len,
+                cfg.window_len,
                 cfg.task.per_timestep_labels,
             )
             # wrap_eval_batch already extracts labels_at_readout

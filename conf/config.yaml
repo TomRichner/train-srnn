@@ -12,8 +12,8 @@ size: 32  # model hidden size
 # Sequence augmentation
 stretch_lo: 0.8
 stretch_hi: 1.2
-min_loops: 5
-min_loop_len: 500
+window_len: 1024    # fixed seq_len fed to model (samples) — stable for torch.compile
+bptt_len: 512       # BPTT horizon in samples; grads flow through last bptt_len steps
 burn_in: 30.0
 
 # Training

@@ -320,9 +320,12 @@ def random_window(x_looped, y_looped, loop_len, rng,
 
 def wrap_train_batch(batch_x, batch_y, rng,
                      stretch_lo=1.0, stretch_hi=1.0,
-                     min_loops=5, min_loop_len=500,
+                     window_len=1024, bptt_len=512,
                      per_timestep_labels=True):
-    """Full training augmentation: stretch -> loop -> random window.
+    """Full training augmentation: stretch -> loop -> fixed-length window.
+
+    Produces a fixed output length regardless of stretch factor, so
+    torch.compile doesn't retrace on each batch's sequence length.
 
     All operations are vectorized over the batch dimension — no per-sample
     Python loops.
@@ -333,15 +336,15 @@ def wrap_train_batch(batch_x, batch_y, rng,
         rng: numpy RandomState.
         stretch_lo: Minimum stretch factor (1.0 = no stretch).
         stretch_hi: Maximum stretch factor.
-        min_loops: Min palindrome loop pairs.
-        min_loop_len: Min total looped sequence length.
+        window_len: Fixed output length in timesteps.
+        bptt_len: BPTT horizon in timesteps (last bptt_len steps get grads).
         per_timestep_labels: Whether labels are per-timestep.
 
     Returns:
-        aug_x: (batch, win_len, features) numpy array.
-        aug_y: (batch, win_len) or (batch,) numpy array.
+        aug_x: (batch, window_len, features) numpy array.
+        aug_y: (batch, window_len) or (batch,) numpy array.
         readout_idx: int -- timestep index for readout.
-        bptt_start_idx: int -- where BPTT should begin.
+        bptt_start_idx: int -- where BPTT should begin (constant = window_len - bptt_len).
     """
     # 1. Time stretch (vectorized) — 1 RNG call
     do_stretch = (abs(stretch_lo - stretch_hi) > 1e-6 or
@@ -351,68 +354,69 @@ def wrap_train_batch(batch_x, batch_y, rng,
         batch_x, batch_y = time_stretch_batch(
             batch_x, batch_y, factor, per_timestep_labels)
 
-    # 2. Palindrome loop (vectorized, no per-sample loop)
+    # 2. Palindrome loop enough to have >= window_len + loop_len timesteps
+    #    (extra loop_len gives room to randomize the offset)
     seq_len = batch_x.shape[1]
-    n_loops = compute_n_loops(seq_len, min_loop_len, min_loops)
     loop_len = 2 * seq_len
+    n_loops = max(1, math.ceil((window_len + loop_len) / loop_len))
     looped_x, looped_y = palindrome_loop_batch(
         batch_x, batch_y, n_loops, per_timestep_labels)
 
-    # 3. Random window (vectorized numpy slice) — 2 RNG calls
+    # 3. Fixed-length window
     T_total = looped_x.shape[1]
-    n_total_loops = T_total // loop_len
-
-    if n_total_loops < 2:
-        readout_idx = T_total - 1
-        if per_timestep_labels:
-            return looped_x, looped_y, readout_idx, 0
-        return looped_x, batch_y, readout_idx, 0
-
-    offset = rng.randint(0, loop_len)
-    end = T_total - (loop_len - offset)
-    win_len = end - offset  # = (n_total_loops - 1) * loop_len
-
-    aug_x = looped_x[:, offset:end]
+    max_offset = T_total - window_len
+    offset = rng.randint(0, max_offset + 1) if max_offset > 0 else 0
+    aug_x = looped_x[:, offset:offset + window_len]
     if per_timestep_labels:
-        aug_y = looped_y[:, offset:end]
+        aug_y = looped_y[:, offset:offset + window_len]
     else:
         aug_y = batch_y
 
-    last_loop_start = win_len - loop_len
-    readout_idx = rng.randint(last_loop_start, win_len)
-    bptt_start_idx = max(0, win_len - 2 * loop_len)
+    # 4. Readout: random within the last min(loop_len, bptt_len) timesteps.
+    #    BPTT: fixed horizon — bptt_start_idx is constant across batches.
+    last_window = min(loop_len, bptt_len)
+    readout_idx = rng.randint(window_len - last_window, window_len)
+    bptt_start_idx = max(0, window_len - bptt_len)
 
     return aug_x, aug_y, readout_idx, bptt_start_idx
 
 
 def wrap_eval_batch(batch_x, batch_y,
-                    min_loops=5, min_loop_len=500,
+                    window_len=1024,
                     per_timestep_labels=True):
-    """Eval augmentation: palindrome loop (no stretch, deterministic window).
+    """Eval augmentation: palindrome loop + fixed-length window (no stretch).
+
+    Produces (batch, window_len, F) for shape parity with wrap_train_batch.
+    Takes the last window_len timesteps of the palindrome-looped array so
+    readout happens on the most "settled" dynamics.
 
     Args:
         batch_x: (batch, seq_len, features) numpy array.
         batch_y: (batch, seq_len) or (batch,) numpy array.
-        min_loops: Min palindrome loop pairs.
-        min_loop_len: Min total looped sequence length.
+        window_len: Fixed output length in timesteps.
         per_timestep_labels: Whether labels are per-timestep.
 
     Returns:
-        looped_x: (batch, T_looped, features) numpy array.
+        eval_x: (batch, window_len, features) numpy array.
         labels_at_readout: (batch,) or (batch, label_dim) -- label at readout.
-        readout_idx: int -- last timestep of the looped sequence.
+        readout_idx: int -- last timestep (window_len - 1).
     """
     seq_len = batch_x.shape[1]
-    n_loops = compute_n_loops(seq_len, min_loop_len, min_loops)
+    loop_len = 2 * seq_len
+    n_loops = max(1, math.ceil(window_len / loop_len))
 
     looped_x, looped_y = palindrome_loop_batch(
         batch_x, batch_y, n_loops, per_timestep_labels)
 
-    readout_idx = looped_x.shape[1] - 1
+    T_total = looped_x.shape[1]
+    start = max(0, T_total - window_len)
+    eval_x = looped_x[:, start:start + window_len]
+
+    readout_idx = window_len - 1
 
     if per_timestep_labels:
-        labels_at_readout = looped_y[:, readout_idx]
+        labels_at_readout = looped_y[:, start + readout_idx]
     else:
         labels_at_readout = batch_y
 
-    return looped_x, labels_at_readout, readout_idx
+    return eval_x, labels_at_readout, readout_idx
