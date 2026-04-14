@@ -147,6 +147,16 @@ Inside `torch.no_grad()`, the `state` tensor returned by the cell has `requires_
 - This is usually fine: after 56 timesteps of driven palindrome-cycle dynamics, the state has been largely "washed out" of its dependence on the initial condition, so the IC mostly doesn't matter past the warmup. The burn-in gave it a reasonable value; that's all it needs.
 - It does mean `trainable_ic=True` is behaviourally equivalent to `trainable_ic=False` + using the burn-in state directly, whenever `bptt_start_idx > 0`.
 
+### Remedy in use
+
+The `freeze_ic_after_burnin` config flag (default **true** in `conf/config.yaml`) calls `model.ic.ic.requires_grad_(False)` after `compute_burn_in` copies the fixed-point state into the parameter. This makes the frozen-IC behaviour explicit rather than implicit, so:
+
+- `param_count` reporting no longer includes a trainable parameter that in fact never updates.
+- Anyone reading the code or checkpoints can see at a glance that the IC is a fixed, burn-in-derived starting state, not a learned one.
+- Optimizer state (Adam moments) isn't tracked for a parameter whose gradient is always `None`.
+
+Set `freeze_ic_after_burnin=false` only when deliberately training the IC under full-window BPTT (`bptt_len == window_len`) — that is the only configuration where the flag's value matters in practice.
+
 ### When to actually train the IC
 
 If you want the IC parameter to learn:

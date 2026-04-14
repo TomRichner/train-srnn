@@ -301,6 +301,9 @@ def main(cfg: DictConfig) -> None:
             model.cell, cfg.task.input_size, cfg.burn_in, device
         )
         model.ic.ic.data.copy_(burn_in_state)
+        if cfg.get("freeze_ic_after_burnin", True):
+            model.ic.ic.requires_grad_(False)
+            log.info("TrainableIC frozen after burn-in (freeze_ic_after_burnin=True)")
 
     # 9. Training loop --------------------------------------------------------
     rng = np.random.RandomState(cfg.seed)
