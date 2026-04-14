@@ -117,7 +117,7 @@ All four operate at different scopes. Keep them distinct when reasoning about dy
 
 | Mechanism | Scope | What it does | Governed by |
 |---|---|---|---|
-| **`compute_burn_in`** | once, at train start | runs the cell with zero input for `burn_in_seconds / dt_per_step` steps; copies the final state into `TrainableIC.ic` | `cfg.burn_in` (default 30.0 s), cell's `dt_per_step` |
+| **`compute_burn_in`** | once, at train start | runs the cell with zero input for `burn_in_seconds / dt_per_step` steps; copies the final state into `TrainableIC.ic` | `cfg.burn_in` (default 10.0 s), cell's `dt_per_step` |
 | **`TrainableIC`** | per batch, at `t=0` | every forward pass starts from `self.ic` (expanded to batch) instead of zeros | `SequenceModel.__init__(trainable_ic=True)` (default on) |
 | **Palindrome loop** | per batch, data-side | repeats the image fwd/bwd/fwd/bwd so the `window_len`-long sample has real content everywhere, not padding | `window_len`, `seq_len` (auto-sized inside `wrap_train_batch`) |
 | **Forward-only warmup (BPTT truncation)** | per batch, compute-graph-side | first `window_len - bptt_len` timesteps of the unroll run under `torch.no_grad()` so dynamics settle without a gradient graph | `cfg.window_len`, `cfg.bptt_len` |
@@ -168,12 +168,12 @@ How much this matters depends on whether the per-batch forward-only warmup (`win
 Defaults:
 
 ```yaml
-burn_in: 30.0            # seconds of simulated time per burn-in call
+burn_in: 10.0            # seconds of simulated time per burn-in call
 burn_in_every: 1         # refresh every N epochs; 0 = only at init
 freeze_ic_after_burnin: true
 ```
 
-Cost per refresh for SRNN (`h=0.02`, batch=1): 1500 zero-input cell calls. At `burn_in_every: 1` over 50 epochs that adds ~10–30 s × 50 ≈ 10–25 extra minutes on CPU, depending on cell speed. For cheaper tracking, set `burn_in_every: 10` to align with `checkpoint_interval` and pay roughly 1/10th the cost.
+Cost per refresh for SRNN (`h=0.02`, batch=1): 500 zero-input cell calls. At `burn_in_every: 1` over 50 epochs that adds a few minutes on CPU. For cheaper tracking, set `burn_in_every: 10` to align with `checkpoint_interval` and pay roughly 1/10th the cost.
 
 ### When to actually train the IC
 
