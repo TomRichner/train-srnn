@@ -6,9 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PyTorch 2.2+ / Hydra reimplementation of liquid time-constant and spiking RNN experiments (originally TF 1.x). Trains RNN cells (LSTM, LTC, CTRNN, NODE, CTGRU, SRNN + ablations) on 9 sequence tasks (HAR, sMNIST, gesture, occupancy, ozone, person, power, traffic, cheetah).
 
-Two companion docs in the repo are authoritative deep references — read them when working on non-trivial changes:
+Companion docs in the repo are authoritative deep references — read them when working on non-trivial changes:
 - `README.md` — model/task tables, CLI usage
 - `pytorch_hydra_code_data_structure.md` — exhaustive structure, tensor shapes, SRNN state layout, cloud infra
+- `KnownIssues.md` — tracked limitations and bugs; check before making assumptions about SRNN/batched behavior
 
 ## Common commands
 
@@ -43,7 +44,7 @@ There is no separate lint/test runner — `smoke_test.sh` is the integration che
 
 **Training loop** (`train.py`) is a single `@hydra.main`-decorated function: seed → device autodetect (cuda > mps > cpu) → load data → build model → optional `torch.compile` (CUDA only) → Adam + `WarmupHoldCosineSchedule` (per-step, 20% warmup / 70% hold / cosine decay) → optional burn-in → epoch loop calling `run_epoch` for train/valid, then `model.constrain_parameters()` after each optimizer step → final test → single-row CSV in `output_dir`.
 
-**SRNN specifics.** Dale's law applied via `_effective_W` (softplus + sparsity_mask, inhibitory columns negated). Multi-timescale SFA: when `n_a_E >= 2`, learnable `log_tau_a_E_lo`/`hi` endpoints are interpolated linearly across `n_a_E` timescales at runtime. `per_neuron=True` switches adaptation params from shape `(1,)` to `(n_E,)`/`(n_I,)`. `echo=True` freezes recurrent W (reservoir mode). Activation is `piecewise_sigmoid` with 5 regions.
+**SRNN specifics.** Dale's law applied via `_effective_W` (softplus + sparsity_mask, inhibitory columns negated). Multi-timescale SFA: when `n_a_E >= 2`, learnable `log_tau_a_E_lo`/`hi` endpoints are interpolated linearly across `n_a_E` timescales at runtime. `per_neuron=True` switches adaptation params from shape `(1,)` to `(n_E,)`/`(n_I,)` in `SRNNCell` — but note that `BatchedSRNNCell` always stores per-neuron regardless of the flag (see `KnownIssues.md §1`). `echo=True` freezes recurrent W (reservoir mode). Activation is `piecewise_sigmoid` with 5 regions.
 
 **Cloud (`cloud/`).** GCP VM-per-run model: `launch_run.sh` / `launch_all.sh` create VMs (scoped `cloud-platform`) whose `startup.sh` fetches an SSH deploy key from GCP Secret Manager (`train-srnn-deploy-key` in project `liquidneuralnets`), clones the private `train-srnn` repo via SSH, downloads the dataset from GCS, runs `train.py`, uploads results, and self-deletes. The deploy key is scrubbed from disk after clone. `monitor.sh` shows a model×task completion matrix; `collect_results.py` aggregates seed CSVs from GCS (handles both single-row and multi-row batched ablation CSVs). Per-task overrides live in `cloud/experiments/<task>.env`. Defaults in `cloud/config.env` (project, bucket, machine type — n4d requires hyperdisk-balanced). Cloud batched ablations: `bash cloud/launch_run.sh my-run smnist srnn 1 "batched_ablations='[srnn-E-only,srnn-e-only-echo]' epochs=15"` — `launch_run.sh` strips quotes and passes `train-args` via `--metadata-from-file` to avoid gcloud comma-delimiter issues; `startup.sh` uses `set -f` to prevent shell globbing of `[...]`.
 
