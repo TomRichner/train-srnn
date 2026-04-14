@@ -20,4 +20,5 @@ train_srnn/data/*/
 id_ed25519*
 deploy_key*
 train-srnn-deploy*
+.claude/*
 
