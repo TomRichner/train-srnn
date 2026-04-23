@@ -4,40 +4,54 @@ Tracked limitations and bugs. When working in these areas, either avoid the pitf
 
 ---
 
-## 1. `per_neuron=False` is not enforced in `BatchedSRNNCell`
+## 1. `per_neuron=False` is not enforced in `BatchedSRNNCell` — **FIXED**
 
-**Summary.** Every variant trained through `BatchedSRNNCell` (i.e. anything using `batched_ablations=...` via `build_batched_model`) effectively runs as **per_neuron=True**, regardless of each variant's `SRNNConfig.per_neuron` flag. The `per_neuron=False` presets (`srnn`, `srnn-echo`, `srnn-no-adapt`, etc.) all silently learn per-neuron time constants in batched mode.
+**Status.** Fixed via a scalar+vector+mask decomposition in `BatchedSRNNCell` (commit following this doc update). Historical description kept below for context.
 
-**Why this happens.** In the single-cell `SRNNCell` (`train_srnn/models/srnn_cell.py:194, 199, 212, 224, 236, 248, 257`), the time-constant parameters have shape `(1,)` when `per_neuron=False` and `(n_E,)` / `(n_I,)` / `(N,)` when `True`. Shape `(1,)` structurally forces all neurons to share the parameter, so "non-per-neuron" is enforced by construction.
+**How it's fixed.** Every previously per-neuron-shaped parameter is split into two learnable components plus a per-variant gradient mask:
 
-In `BatchedSRNNCell` (same file, constructor from line 729), **all** time-constant parameters are stored at per-neuron shape unconditionally:
+- `<name>_vec` — same per-neuron shape as before `(K, N)` / `(K, n_E, max_n_a_E)` etc.
+- `<name>_gain` (softplus'd params) or `<name>_scalar` (direct params) — shape `(K,)`.
+- `_install_vec_mask(...)` in `BatchedSRNNCell.__init__` registers a buffer `_<name>_vec_mask` of shape `(K, 1, ...)` derived from each preset's `per_neuron` flag, and installs a `Tensor.register_hook` on `<name>_vec` that multiplies incoming gradients by the mask (same idiom as the existing echo `W_raw` freeze).
 
-- `log_tau_d`: `(K, N)` (line 805)
-- `log_tau_a_E`, `log_c_E`, `c_0_E`: `(K, n_E, max_n_a_E)` (lines 809–825)
+Effective values are computed in helper methods:
+
+- Softplus'd positive params (log-space): `tau = exp(log_gain) · softplus(vec)` — a multiplicative log-gain outside `softplus`.
+  - Helpers: `_tau_d()`, `_tau_a_E()`, `_tau_a_I()`, `_tau_b_rec_E()`, `_tau_b_rel_E()`, `_tau_b_rec_I()`, `_tau_b_rel_I()`, `_c_E()`, `_c_I()`.
+- Direct params (`a_0`, `c_0_E`, `c_0_I`): `effective = vec + scalar` — a shared additive shift across neurons.
+  - Helpers: `_a_0()`, `_c_0_E()`, `_c_0_I()`.
+
+Semantics per preset:
+
+- `per_neuron=False` → `_vec` gradient masked to zero → vec stays frozen at its (identical-across-neurons) init; only the shared `_gain`/`_scalar` moves. **True cross-neuron linking.**
+- `per_neuron=True`  → both components train; the scalar captures shared direction, vec captures per-neuron deviations. Strictly richer than the original per_neuron=True (which only had `(N,)` per-neuron parameters).
+
+Init values preserve exact pre-fix behavior: `log_gain=0` → multiplicative identity, `scalar=0` → additive identity. An untrained model produces bit-identical outputs to pre-fix for any preset.
+
+**New W gains (bonus).** Alongside the fix, two per-variant scalar gains are added — `W_raw_gain` and `W_in_gain`, shape `(K,)`, init 1.0. They multiply the full `W_eff` and the full `W_in` matrix respectively. Pooled optimization directions (classical Echo-State-Network spectral-radius / input-gain knobs, made differentiable). Always trainable for all variants including `echo=True` — the reservoir *structure* is frozen by the existing `W_raw` hook, but its overall *gain* is learnable. Equivalent `W_raw_gain`/`W_in_gain` scalars are also added to single-cell `SRNNCell`.
+
+**Implications.**
+- Batched `per_neuron=False` variants now genuinely share their 12 linkable parameters across neurons; ablations between `srnn` (shared) and `srnn-per-neuron` (per-neuron) are now meaningful.
+- Prior batched-ablation results where non-per-neuron variants were included should be re-interpreted: those "srnn" baselines were effectively `srnn-per-neuron`.
+- The `factory.build_batched_model` API is unchanged; `build_model` (single-cell) is unaffected aside from adding the two new W gains.
+
+---
+
+### Historical description (kept for context)
+
+Every variant trained through `BatchedSRNNCell` effectively ran as per_neuron=True, regardless of each variant's `SRNNConfig.per_neuron` flag. The `per_neuron=False` presets all silently learned per-neuron time constants.
+
+The root cause was that in `BatchedSRNNCell.__init__`, all time-constant parameters were stored at per-neuron shape unconditionally:
+
+- `log_tau_d`: `(K, N)`
+- `log_tau_a_E`, `log_c_E`, `c_0_E`: `(K, n_E, max_n_a_E)`
 - `log_tau_a_I`, `log_c_I`, `c_0_I`: `(K, n_I, max_n_a_I)`
 - `log_tau_b_rec_E`, `log_tau_b_rel_E`: `(K, n_E)`
 - `log_tau_b_rec_I`, `log_tau_b_rel_I`: `(K, n_I)`
 
-There is no mechanism (no post-step tying, no mean broadcast, no frozen-shared parameter) that keeps a non-per-neuron variant's neurons tied together during training. At init the `torch.full(...)` calls set all N entries identically, but the optimizer pushes them apart from the first gradient step.
+Plus `a_0` at `(K, N)` which was *always* per-neuron in both cells (not just batched).
 
-**Grepping `per_neuron` in `srnn_cell.py`** confirms the flag is referenced only inside `SRNNCell` and the preset dictionary. It never appears inside `BatchedSRNNCell`.
-
-**What this means for mixing.** Nothing special — the behavior is the same whether:
-- All variants in the batch are `per_neuron=True` (works as intended),
-- All variants are `per_neuron=False` (each trains as per-neuron — wrong),
-- The batch mixes the two (per-neuron ones work, non-per-neuron ones train as per-neuron).
-
-Mixing per-neuron and non-per-neuron presets in a batch is not a new bug; the non-per-neuron ones were already running as per-neuron.
-
-**Practical consequences.**
-- Running `srnn-per-neuron` side-by-side with `srnn` in a batched ablation is redundant — both will end up training as per-neuron.
-- A rigorous `per_neuron=True` vs `per_neuron=False` comparison **must** use two separate single-cell training runs (`build_model`, not `build_batched_model`).
-- Results from prior batched ablation runs that included non-per-neuron variants should be interpreted with this in mind: the "srnn" etc. baselines in those runs are effectively `srnn-per-neuron`.
-
-**If/when a fix is attempted,** options include:
-- Register a post-step hook per variant that averages the per-neuron values and broadcasts the mean back for `per_neuron=False` variants.
-- Add a buffer that masks gradients for non-per-neuron variants so only a shared component updates.
-- Accept the current behavior as "batched ablations are per-neuron by nature" and update docs/presets to reflect it (drop non-per-neuron presets from the batched catalog).
+At init the `torch.full(...)` calls set all N entries identically, but the optimizer pushed them apart from the first gradient step. The single-cell `SRNNCell` avoided this by using shape `(1,)` for `per_neuron=False`, which structurally forced all neurons to share the parameter.
 
 ---
 
