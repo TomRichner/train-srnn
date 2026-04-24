@@ -144,6 +144,17 @@ gcloud storage cp -r "$BUCKET/datasets/$EXPERIMENT/*" "train_srnn/data/$EXPERIME
 echo "Installing Hydra stack into system Python..."
 sudo pip3 install --quiet hydra-core omegaconf h5py scipy pandas
 
+# Wait for NVIDIA driver to finish installing (DLVM installs it on first boot,
+# can take several minutes). Poll nvidia-smi until it succeeds or we time out.
+echo "Waiting for NVIDIA driver..."
+for i in $(seq 1 60); do
+    if nvidia-smi >/dev/null 2>&1; then
+        echo "  driver ready after ${i}0s"
+        break
+    fi
+    sleep 10
+done
+
 # GPU sanity check — fail fast if CUDA is not available
 echo "GPU sanity check:"
 python3 -c "
