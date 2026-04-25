@@ -18,11 +18,17 @@ MODEL=$(curl -sf -H "$META_HEADER" "$META_URL/model")
 SEED=$(curl -sf -H "$META_HEADER" "$META_URL/seed")
 TRAIN_ARGS=$(curl -sf -H "$META_HEADER" "$META_URL/train-args" || echo "")
 BUCKET=$(curl -sf -H "$META_HEADER" "$META_URL/bucket")
+KEEP_ALIVE=$(curl -sf -H "$META_HEADER" "$META_URL/keep-alive" || echo "0")
 
 RESULTS_PREFIX="$BUCKET/results-pytorch/$RUN_NAME/$MODEL/$EXPERIMENT/seed$SEED"
 VM_NAME=$(hostname)
 
-WORKDIR="/tmp/workdir"
+if [ "$KEEP_ALIVE" = "1" ]; then
+    WORKDIR="/opt/train-srnn"
+    sudo mkdir -p /opt && sudo chown "$(id -u):$(id -g)" /opt 2>/dev/null || true
+else
+    WORKDIR="/tmp/workdir"
+fi
 WATCHER_PID=""
 
 echo "Run: $RUN_NAME | Experiment: $EXPERIMENT | Model: $MODEL | Seed: $SEED"
@@ -70,8 +76,12 @@ if $exit_code != 0:
 json.dump(meta, open('/tmp/metadata.json', 'w'), indent=2)
 " && gcloud storage cp /tmp/metadata.json "$RESULTS_PREFIX/run_metadata.json" 2>/dev/null || true
 
-    # Self-delete
-    gcloud compute instances delete "$VM_NAME" --zone="$GCP_ZONE" --quiet 2>/dev/null || true
+    # Self-delete (skipped in keep-alive mode for dev iteration)
+    if [ "$KEEP_ALIVE" != "1" ]; then
+        gcloud compute instances delete "$VM_NAME" --zone="$GCP_ZONE" --quiet 2>/dev/null || true
+    else
+        echo "keep-alive set; VM left running. Re-run via cloud/run_on_vm.sh"
+    fi
 }
 trap cleanup EXIT
 
@@ -108,19 +118,25 @@ Host github.com
 SSHEOF
 chmod 600 "$SSH_DIR/config"
 
-# Clone with retry
-for attempt in 1 2 3; do
-    if git clone --depth 1 "$REPO_URL" "$WORKDIR" 2>&1; then
-        break
-    fi
-    echo "Clone attempt $attempt failed, retrying in 30s..."
-    sleep 30
-done
+# Clone with retry — or git pull if /opt/train-srnn already exists from a
+# previous keep-alive boot.
+if [ -d "$WORKDIR/.git" ]; then
+    echo "Existing repo at $WORKDIR; refreshing via git fetch + reset"
+    ( cd "$WORKDIR" && git fetch --depth 1 origin main && git reset --hard origin/main )
+else
+    for attempt in 1 2 3; do
+        if git clone --depth 1 "$REPO_URL" "$WORKDIR" 2>&1; then
+            break
+        fi
+        echo "Clone attempt $attempt failed, retrying in 30s..."
+        sleep 30
+    done
 
-# Verify clone succeeded
-if [ ! -d "$WORKDIR/.git" ]; then
-    echo "FATAL: Git clone failed after 3 attempts"
-    exit 1
+    # Verify clone succeeded
+    if [ ! -d "$WORKDIR/.git" ]; then
+        echo "FATAL: Git clone failed after 3 attempts"
+        exit 1
+    fi
 fi
 
 # Scrub deploy key from disk

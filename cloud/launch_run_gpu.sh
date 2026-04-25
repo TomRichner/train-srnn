@@ -6,7 +6,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/config.gpu.env"
 
-RUN_NAME="${1:?Usage: $0 <run_name> <experiment> <model> <seed> [args...]}"
+KEEP_ALIVE=0
+if [ "${1:-}" = "--keep-alive" ]; then
+    KEEP_ALIVE=1
+    shift
+fi
+
+RUN_NAME="${1:?Usage: $0 [--keep-alive] <run_name> <experiment> <model> <seed> [args...]}"
 EXPERIMENT="${2:?}"
 MODEL="${3:?}"
 SEED="${4:?}"
@@ -70,7 +76,7 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size="$BOOT_DISK_SIZE" \
     --boot-disk-type="$BOOT_DISK_TYPE" \
     --scopes=cloud-platform \
-    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,install-nvidia-driver=True" \
+    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,keep-alive=$KEEP_ALIVE,install-nvidia-driver=True" \
     --metadata-from-file="startup-script=$SCRIPT_DIR/startup_gpu.sh,train-args=$TRAIN_ARGS_FILE" \
     $SCHEDULING_ARGS \
     --quiet
@@ -78,3 +84,8 @@ gcloud compute instances create "$VM_NAME" \
 rm -f "$TRAIN_ARGS_FILE"
 
 echo "Created $VM_NAME"
+if [ "$KEEP_ALIVE" = "1" ]; then
+    echo "keep-alive: VM will not self-delete. Re-run with:"
+    echo "  cloud/run_on_vm.sh $VM_NAME <run_name> $EXPERIMENT $MODEL <seed> [args...]"
+    echo "Stop/start: cloud/stop_vm.sh $VM_NAME  /  cloud/start_vm.sh $VM_NAME"
+fi
