@@ -949,8 +949,10 @@ class BatchedSRNNCell(nn.Module):
             mask_shape = (self.K,) + (1,) * trailing_ones
             mask = per_neuron_flags.view(*mask_shape).contiguous()
             self.register_buffer(name, mask)
-            buf = getattr(self, name)
-            param.register_hook(lambda grad, b=buf: grad * b)
+            # Look up the buffer attribute at hook time, not at registration —
+            # otherwise the closure pins the original CPU tensor and breaks
+            # after model.to(cuda).
+            param.register_hook(lambda grad, n=name: grad * getattr(self, n))
 
         # a_0 (2-D: K, N) -> mask (K, 1)
         _install_vec_mask(self.a_0_vec, "_a_0_vec_mask", trailing_ones=1)
