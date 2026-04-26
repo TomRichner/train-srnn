@@ -6,13 +6,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/config.gpu.env"
 
-KEEP_ALIVE=0
-if [ "${1:-}" = "--keep-alive" ]; then
-    KEEP_ALIVE=1
+CLEANUP="delete"
+if [[ "${1:-}" == --cleanup=* ]]; then
+    CLEANUP="${1#--cleanup=}"
     shift
+elif [ "${1:-}" = "--cleanup" ]; then
+    CLEANUP="${2:?--cleanup needs a value}"
+    shift 2
 fi
+case "$CLEANUP" in
+    delete|stop|keep) ;;
+    *) echo "FATAL: --cleanup must be delete|stop|keep, got '$CLEANUP'" >&2; exit 1 ;;
+esac
 
-RUN_NAME="${1:?Usage: $0 [--keep-alive] <run_name> <experiment> <model> <seed> [args...]}"
+RUN_NAME="${1:?Usage: $0 [--cleanup=delete|stop|keep] <run_name> <experiment> <model> <seed> [args...]}"
 EXPERIMENT="${2:?}"
 MODEL="${3:?}"
 SEED="${4:?}"
@@ -76,16 +83,16 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size="$BOOT_DISK_SIZE" \
     --boot-disk-type="$BOOT_DISK_TYPE" \
     --scopes=cloud-platform \
-    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,keep-alive=$KEEP_ALIVE,install-nvidia-driver=True" \
+    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,cleanup=$CLEANUP,skip-refresh=0,install-nvidia-driver=True" \
     --metadata-from-file="startup-script=$SCRIPT_DIR/startup_gpu.sh,train-args=$TRAIN_ARGS_FILE" \
     $SCHEDULING_ARGS \
     --quiet
 
 rm -f "$TRAIN_ARGS_FILE"
 
-echo "Created $VM_NAME"
-if [ "$KEEP_ALIVE" = "1" ]; then
-    echo "keep-alive: VM will not self-delete. Re-run with:"
-    echo "  cloud/run_on_vm.sh $VM_NAME <run_name> $EXPERIMENT $MODEL <seed> [args...]"
-    echo "Stop/start: cloud/stop_vm.sh $VM_NAME  /  cloud/start_vm.sh $VM_NAME"
+echo "Created $VM_NAME (cleanup=$CLEANUP)"
+if [ "$CLEANUP" != "delete" ]; then
+    echo "Subsequent dispatches:"
+    echo "  cloud/submit.sh $VM_NAME <run_name> $EXPERIMENT $MODEL <seed> [--cleanup=...] [--skip-refresh] [args...]"
+    echo "Manual lifecycle: cloud/stop_vm.sh $VM_NAME  /  cloud/start_vm.sh $VM_NAME"
 fi

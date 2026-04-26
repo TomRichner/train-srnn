@@ -4,9 +4,6 @@
 # with torch + CUDA pre-installed in system Python.
 set -euo pipefail
 
-LOG="/var/log/training.log"
-exec > >(tee -a "$LOG") 2>&1
-
 echo "=== Startup $(date -Iseconds) (GPU pipeline) ==="
 
 # Read metadata
@@ -18,20 +15,31 @@ MODEL=$(curl -sf -H "$META_HEADER" "$META_URL/model")
 SEED=$(curl -sf -H "$META_HEADER" "$META_URL/seed")
 TRAIN_ARGS=$(curl -sf -H "$META_HEADER" "$META_URL/train-args" || echo "")
 BUCKET=$(curl -sf -H "$META_HEADER" "$META_URL/bucket")
-KEEP_ALIVE=$(curl -sf -H "$META_HEADER" "$META_URL/keep-alive" || echo "0")
+CLEANUP=$(curl -sf -H "$META_HEADER" "$META_URL/cleanup" || echo "delete")
+case "$CLEANUP" in
+    delete|stop|keep) ;;
+    *) echo "WARN: unknown cleanup=$CLEANUP, defaulting to delete"; CLEANUP="delete" ;;
+esac
+SKIP_REFRESH=$(curl -sf -H "$META_HEADER" "$META_URL/skip-refresh" || echo "0")
+
+# Per-run log path so re-dispatches don't accumulate into one file.
+LOG="/var/log/training-${RUN_NAME}-${SEED}.log"
+exec > >(tee -a "$LOG") 2>&1
 
 RESULTS_PREFIX="$BUCKET/results-pytorch/$RUN_NAME/$MODEL/$EXPERIMENT/seed$SEED"
 VM_NAME=$(hostname)
 
-if [ "$KEEP_ALIVE" = "1" ]; then
+# WORKDIR persists for stop/keep so re-dispatches reuse the on-disk repo.
+if [ "$CLEANUP" = "delete" ]; then
+    WORKDIR="/tmp/workdir"
+else
     WORKDIR="/opt/train-srnn"
     sudo mkdir -p /opt && sudo chown "$(id -u):$(id -g)" /opt 2>/dev/null || true
-else
-    WORKDIR="/tmp/workdir"
 fi
 WATCHER_PID=""
 
 echo "Run: $RUN_NAME | Experiment: $EXPERIMENT | Model: $MODEL | Seed: $SEED"
+echo "Cleanup: $CLEANUP | Skip-refresh: $SKIP_REFRESH | Workdir: $WORKDIR"
 
 # Cleanup handler
 cleanup() {
@@ -48,9 +56,10 @@ cleanup() {
         wait "$WATCHER_PID" 2>/dev/null || true
     fi
 
-    # Upload final results
-    if [ -d "$WORKDIR/results" ]; then
-        gcloud storage cp -r "$WORKDIR/results/*" "$RESULTS_PREFIX/" 2>/dev/null || true
+    # Upload final results (only this run's output dir; per-run scoping
+    # avoids re-uploading stale artifacts from prior runs on the same VM).
+    if [ -n "${RUN_OUTPUT:-}" ] && [ -d "$WORKDIR/$RUN_OUTPUT" ]; then
+        gcloud storage cp -r "$WORKDIR/$RUN_OUTPUT/*" "$RESULTS_PREFIX/" 2>/dev/null || true
     fi
 
     # Upload log
@@ -67,8 +76,10 @@ meta = {
     'start_time': '${START_TIME_ISO:-unknown}',
     'completed': time.strftime('%Y-%m-%dT%H:%M:%SZ'),
     'duration_seconds': $duration,
-    'commit': '${GIT_COMMIT:-unknown}',
+    'commit': '${GIT_COMMIT_FULL:-unknown}',
     'train_args': '$TRAIN_ARGS',
+    'cleanup_mode': '$CLEANUP',
+    'skip_refresh': $SKIP_REFRESH,
 }
 if $exit_code != 0:
     meta['failed_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -76,89 +87,108 @@ if $exit_code != 0:
 json.dump(meta, open('/tmp/metadata.json', 'w'), indent=2)
 " && gcloud storage cp /tmp/metadata.json "$RESULTS_PREFIX/run_metadata.json" 2>/dev/null || true
 
-    # Self-delete (skipped in keep-alive mode for dev iteration)
-    if [ "$KEEP_ALIVE" != "1" ]; then
-        gcloud compute instances delete "$VM_NAME" --zone="$GCP_ZONE" --quiet 2>/dev/null || true
-    else
-        echo "keep-alive set; VM left running. Re-run via cloud/run_on_vm.sh"
-    fi
+    # Lifecycle dispatch based on per-run cleanup metadata.
+    case "$CLEANUP" in
+        delete)
+            echo "cleanup=delete; deleting VM"
+            gcloud compute instances delete "$VM_NAME" --zone="$GCP_ZONE" --quiet 2>/dev/null || true
+            ;;
+        stop)
+            echo "cleanup=stop; stopping VM (disk persists, ~\$0.02/hr)"
+            gcloud compute instances stop "$VM_NAME" --zone="$GCP_ZONE" --quiet 2>/dev/null || true
+            ;;
+        keep)
+            echo "cleanup=keep; VM stays running. Dispatch next job via cloud/submit.sh"
+            ;;
+    esac
 }
 trap cleanup EXIT
 
-# Step 1: Clone private repo via deploy key from Secret Manager
+# Step 1: Clone or refresh the private repo. Gated by skip-refresh.
 GCP_ZONE=$(curl -sf -H "$META_HEADER" "http://metadata.google.internal/computeMetadata/v1/instance/zone" | rev | cut -d/ -f1 | rev)
 GCP_PROJECT=$(curl -sf -H "$META_HEADER" "http://metadata.google.internal/computeMetadata/v1/project/project-id")
 REPO_URL="git@github.com:TomRichner/train-srnn.git"
 
-# Fetch deploy key from Secret Manager
-SSH_DIR="/root/.ssh"
-DEPLOY_KEY="$SSH_DIR/deploy_key"
-mkdir -p "$SSH_DIR"
-chmod 700 "$SSH_DIR"
+if [ "$SKIP_REFRESH" = "1" ] && [ -d "$WORKDIR/.git" ]; then
+    echo "skip-refresh=1; using existing $WORKDIR (no git fetch)"
+else
+    # Fetch deploy key from Secret Manager
+    SSH_DIR="/root/.ssh"
+    DEPLOY_KEY="$SSH_DIR/deploy_key"
+    mkdir -p "$SSH_DIR"
+    chmod 700 "$SSH_DIR"
 
-echo "Fetching deploy key from Secret Manager..."
-if ! gcloud secrets versions access latest \
-    --secret="train-srnn-deploy-key" \
-    --project="$GCP_PROJECT" > "$DEPLOY_KEY" 2>/dev/null; then
-    echo "FATAL: Could not fetch deploy key from Secret Manager"
-    echo "Check: (1) secret 'train-srnn-deploy-key' exists in project '$GCP_PROJECT'"
-    echo "       (2) VM service account has secretmanager.secretAccessor role"
-    echo "       (3) VM was launched with cloud-platform scope"
-    exit 1
-fi
-chmod 600 "$DEPLOY_KEY"
+    echo "Fetching deploy key from Secret Manager..."
+    if ! gcloud secrets versions access latest \
+        --secret="train-srnn-deploy-key" \
+        --project="$GCP_PROJECT" > "$DEPLOY_KEY" 2>/dev/null; then
+        echo "FATAL: Could not fetch deploy key from Secret Manager"
+        echo "Check: (1) secret 'train-srnn-deploy-key' exists in project '$GCP_PROJECT'"
+        echo "       (2) VM service account has secretmanager.secretAccessor role"
+        echo "       (3) VM was launched with cloud-platform scope"
+        exit 1
+    fi
+    chmod 600 "$DEPLOY_KEY"
 
-# Configure SSH for GitHub
-ssh-keyscan -t ed25519 github.com >> "$SSH_DIR/known_hosts" 2>/dev/null
-cat > "$SSH_DIR/config" <<SSHEOF
+    # Configure SSH for GitHub
+    ssh-keyscan -t ed25519 github.com >> "$SSH_DIR/known_hosts" 2>/dev/null
+    cat > "$SSH_DIR/config" <<SSHEOF
 Host github.com
     IdentityFile $DEPLOY_KEY
     StrictHostKeyChecking yes
     IdentitiesOnly yes
 SSHEOF
-chmod 600 "$SSH_DIR/config"
+    chmod 600 "$SSH_DIR/config"
 
-# Clone with retry — or git pull if /opt/train-srnn already exists from a
-# previous keep-alive boot.
-if [ -d "$WORKDIR/.git" ]; then
-    echo "Existing repo at $WORKDIR; refreshing via git fetch + reset"
-    ( cd "$WORKDIR" && git fetch --depth 1 origin main && git reset --hard origin/main )
-else
-    for attempt in 1 2 3; do
-        if git clone --depth 1 "$REPO_URL" "$WORKDIR" 2>&1; then
-            break
+    # Clone with retry — or git fetch + reset if a checkout already exists.
+    if [ -d "$WORKDIR/.git" ]; then
+        echo "Existing repo at $WORKDIR; refreshing via git fetch + reset"
+        ( cd "$WORKDIR" && git fetch --depth 1 origin main && git reset --hard origin/main )
+    else
+        for attempt in 1 2 3; do
+            if git clone --depth 1 "$REPO_URL" "$WORKDIR" 2>&1; then
+                break
+            fi
+            echo "Clone attempt $attempt failed, retrying in 30s..."
+            sleep 30
+        done
+
+        if [ ! -d "$WORKDIR/.git" ]; then
+            echo "FATAL: Git clone failed after 3 attempts"
+            exit 1
         fi
-        echo "Clone attempt $attempt failed, retrying in 30s..."
-        sleep 30
-    done
-
-    # Verify clone succeeded
-    if [ ! -d "$WORKDIR/.git" ]; then
-        echo "FATAL: Git clone failed after 3 attempts"
-        exit 1
     fi
-fi
 
-# Scrub deploy key from disk
-rm -f "$DEPLOY_KEY" "$SSH_DIR/config"
+    # Scrub deploy key from disk
+    rm -f "$DEPLOY_KEY" "$SSH_DIR/config"
+fi
 
 cd "$WORKDIR"
 GIT_COMMIT=$(git rev-parse --short HEAD)
-echo "Git commit: $GIT_COMMIT"
+GIT_COMMIT_FULL=$(git rev-parse HEAD)
+echo "Git commit: $GIT_COMMIT  (full: $GIT_COMMIT_FULL)"
 
 # Capture start time (used by cleanup for duration and metadata)
 START_TIME=$(date +%s)
 START_TIME_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# Step 2: Download dataset from GCS
-mkdir -p "train_srnn/data/$EXPERIMENT"
-gcloud storage cp -r "$BUCKET/datasets/$EXPERIMENT/*" "train_srnn/data/$EXPERIMENT/" || true
+# Step 2: Download dataset from GCS (skipped on skip-refresh — reuse on-disk copy)
+if [ "$SKIP_REFRESH" = "1" ] && [ -d "train_srnn/data/$EXPERIMENT" ]; then
+    echo "skip-refresh=1; reusing on-disk dataset at train_srnn/data/$EXPERIMENT"
+else
+    mkdir -p "train_srnn/data/$EXPERIMENT"
+    gcloud storage cp -r "$BUCKET/datasets/$EXPERIMENT/*" "train_srnn/data/$EXPERIMENT/" || true
+fi
 
-# Step 3: Python dependencies
+# Step 3: Python dependencies (skipped on skip-refresh — assume already installed)
 # DLVM base ships torch 2.7.1+cu128 in system Python. A venv would shadow the
 # CUDA-matched torch, so install the Hydra stack directly into system Python.
-echo "Installing Hydra stack into system Python..."
-sudo pip3 install --quiet hydra-core omegaconf h5py scipy pandas
+if [ "$SKIP_REFRESH" = "1" ]; then
+    echo "skip-refresh=1; skipping pip install (assuming Hydra stack present)"
+else
+    echo "Installing Hydra stack into system Python..."
+    sudo pip3 install --quiet hydra-core omegaconf h5py scipy pandas
+fi
 
 # Wait for NVIDIA driver to finish installing (DLVM installs it on first boot,
 # can take several minutes). Poll nvidia-smi until it succeeds or we time out.
@@ -183,7 +213,11 @@ print(f'  GPU:   {torch.cuda.get_device_name(0)}  ({torch.cuda.get_device_proper
 
 # Step 4: Run training
 echo "=== Training start $(date -Iseconds) ==="
-mkdir -p results/$EXPERIMENT
+
+# Per-run output dir keeps re-dispatches isolated on disk so the GCS upload
+# only ships *this run's* artifacts, not stale ones from prior runs.
+RUN_OUTPUT="results/$EXPERIMENT/${RUN_NAME}_seed${SEED}"
+mkdir -p "$RUN_OUTPUT"
 
 # Add parent dir to PYTHONPATH so `train_srnn` package is importable
 export PYTHONPATH="$WORKDIR:${PYTHONPATH:-}"
@@ -197,13 +231,13 @@ if [ "$EPOCHS" -gt 50 ]; then
 else
     UPLOAD_INTERVAL=5
 fi
-RESULTS_DIR="$WORKDIR/results"
+RESULTS_DIR="$WORKDIR/$RUN_OUTPUT"
 
 (
     LAST_UPLOADED=0
     while true; do
         sleep 30
-        # Find progress.json anywhere under results dir
+        # Find progress.json under this run's output dir
         PROGRESS_FILE=$(find "$RESULTS_DIR" -name "progress.json" 2>/dev/null | head -1)
         [ -z "$PROGRESS_FILE" ] && continue
         CURRENT_EPOCH=$(python3 -c "import json; print(json.load(open('$PROGRESS_FILE'))['epoch'])" 2>/dev/null || echo "")
@@ -226,7 +260,7 @@ python3 train.py \
     task=$EXPERIMENT \
     seed=$SEED \
     $TRAIN_ARGS \
-    output_dir=results
+    output_dir="$RUN_OUTPUT"
 set +f
 
 echo "=== Training complete $(date -Iseconds) ==="
