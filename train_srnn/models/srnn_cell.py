@@ -91,6 +91,7 @@ class SRNNConfig:
     n_b_I: int = 1       # STD for I
     per_neuron: bool = False
     echo: bool = False    # Reservoir mode (freeze W)
+    skip: bool = False    # Add residual y = readout(state) + x at output (autoregressive only)
     solver: str = "semi_implicit"
     h: float = 0.02
     ode_unfolds: int = 4
@@ -132,6 +133,9 @@ SRNN_PRESETS: dict[str, SRNNConfig] = {
     "srnn-E-only": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0),
     "srnn-e-only-echo": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, echo=True),
     "srnn-e-only-per-neuron": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, per_neuron=True),
+    "srnn-e-only-skip": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, skip=True),
+    "srnn-e-only-skip-per-neuron": SRNNConfig(
+        n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, per_neuron=True, skip=True),
     "srnn-multi-sfa": SRNNConfig(n_a_E=2, n_a_I=2),
     "srnn-multi-sfa-E": SRNNConfig(n_a_E=2, n_a_I=0, n_b_E=1, n_b_I=0),
     "srnn-no-dales": SRNNConfig(dales=False),
@@ -924,6 +928,12 @@ class BatchedSRNNCell(nn.Module):
         # Echo mask for freezing W gradients selectively via backward hook.
         echo_flags = torch.tensor([float(c.echo) for c in configs]).reshape(self.K, 1, 1)
         self.register_buffer("echo_flags", echo_flags)
+
+        # Skip-connection flag: SequenceModel adds (skip_flag * x_at_readout)
+        # to the post-readout logits for autoregressive variants.
+        skip_flags = torch.tensor([float(c.skip) for c in configs], dtype=torch.float32)
+        self.register_buffer("skip_flags", skip_flags)
+        self.any_skip = bool(skip_flags.any().item())
 
         # Register gradient hook to zero W_raw gradients for echo variants
         if any(c.echo for c in configs):

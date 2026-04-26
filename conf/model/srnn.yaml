@@ -8,6 +8,7 @@ n_b_E: 1
 n_b_I: 1
 per_neuron: false
 echo: false
+skip: false
 solver: semi_implicit
 h: 0.02
 ode_unfolds: 4

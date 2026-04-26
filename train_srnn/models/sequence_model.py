@@ -75,6 +75,26 @@ class SequenceModel(nn.Module):
         # K-batched detection --------------------------------------------------
         self._K = getattr(cell, "K", None)
 
+        # Skip-connection: per-variant residual y = readout(state) + α_k · x.
+        # Only supported in batched mode for v1. The flag tensor lives on the
+        # cell as `cell.skip_flags` (registered buffer), so it follows
+        # model.to(device) automatically; forward views it on the fly.
+        self._has_skip = bool(
+            self._K is not None and getattr(cell, "any_skip", False)
+        )
+        if self._has_skip:
+            if input_size != output_size:
+                raise ValueError(
+                    f"skip variants require input_size == output_size, got "
+                    f"{input_size} != {output_size}"
+                )
+        elif self._K is None:
+            cfg = getattr(cell, "config", None)
+            if cfg is not None and getattr(cfg, "skip", False):
+                raise NotImplementedError(
+                    "skip is currently only supported in batched_ablations mode"
+                )
+
         # I/O masks -----------------------------------------------------------
         effective_output_size = num_units
         if use_io_masks:
@@ -204,6 +224,22 @@ class SequenceModel(nn.Module):
                 logits = logits + self.readout_bias.unsqueeze(1)
             else:
                 logits = logits + self.readout_bias
+
+            # Skip / residual term: y_pred += α_k · x_at_readout. α_k is 0 for
+            # non-skip variants, so this adds exactly zero for them. Skip is
+            # added in output-space (post-readout), so the input-feature dim F
+            # must equal output dim O — checked at __init__.
+            if self._has_skip:
+                skip_flags = self.cell.skip_flags.view(self._K, 1, 1)  # (K, 1, 1)
+                if isinstance(readout_idx, slice):
+                    x_at_readout = x[:, readout_idx, :]               # (B, T, F)
+                    logits = logits + skip_flags.unsqueeze(-2) * x_at_readout
+                elif readout_idx is not None:
+                    x_at_readout = x[:, readout_idx, :]               # (B, F)
+                    logits = logits + skip_flags * x_at_readout
+                else:
+                    x_at_readout = x[:, -1, :]                         # (B, F)
+                    logits = logits + skip_flags * x_at_readout
             return logits
         else:
             # nn.Linear broadcasts over leading dims: (B, E) or (B, T, E).
