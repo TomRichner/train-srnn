@@ -77,6 +77,7 @@ python3 -c "import torch; assert torch.cuda.is_available()" || {
 
 cd "$WORKDIR"
 export PYTHONPATH="$WORKDIR:${PYTHONPATH:-}"
+export PYTHONUNBUFFERED=1   # flush logs in real time (stdout is piped via tee)
 RUN_OUTPUT="results/$EXPERIMENT/${RUN_NAME}_seed${SEED}"
 mkdir -p "$RUN_OUTPUT"
 

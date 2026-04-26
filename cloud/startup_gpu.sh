@@ -187,6 +187,7 @@ mkdir -p results/$EXPERIMENT
 
 # Add parent dir to PYTHONPATH so `train_srnn` package is importable
 export PYTHONPATH="$WORKDIR:${PYTHONPATH:-}"
+export PYTHONUNBUFFERED=1   # flush logs in real time (stdout is piped via tee)
 
 # Background upload watcher: polls progress.json and uploads periodically
 EPOCHS=$(echo "$TRAIN_ARGS" | sed -n 's/.*epochs=\([0-9]*\).*/\1/p')

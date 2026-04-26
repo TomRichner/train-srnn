@@ -54,7 +54,12 @@ gcloud compute scp --zone="$VM_ZONE" --project="$GCP_PROJECT" \
 rm -f "$TRAIN_ARGS_FILE"
 
 echo "Running $RUN_NAME on $VM_NAME..."
+# SSH keepalive flags: long quiet runs (e.g. 1 epoch of seeg can take 50+ min)
+# get killed by intermediate NAT/firewall idle timeouts without these.
 gcloud compute ssh "$VM_NAME" --zone="$VM_ZONE" --project="$GCP_PROJECT" \
+    --ssh-flag="-o ServerAliveInterval=60" \
+    --ssh-flag="-o ServerAliveCountMax=10" \
+    --ssh-flag="-o TCPKeepAlive=yes" \
     --command="sudo bash /tmp/run_on_vm_remote.sh '$RUN_NAME' '$EXPERIMENT' '$MODEL' '$SEED' '$GCP_BUCKET' '/tmp/$REMOTE_ARGS_NAME'"
 
 echo "Done. Results: $GCP_BUCKET/results-pytorch/$RUN_NAME/$MODEL/$EXPERIMENT/seed$SEED/"
