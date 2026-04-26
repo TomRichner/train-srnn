@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 import hydra
@@ -23,6 +24,27 @@ from train_srnn.utils.lr_schedule import WarmupHoldCosineSchedule
 from train_srnn.utils.trainable_ic import compute_burn_in
 
 log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# AMP / autocast
+# ---------------------------------------------------------------------------
+
+def amp_autocast(cfg: DictConfig):
+    """Context manager that enables AMP autocast per cfg.amp.
+
+    `off` -> no-op nullcontext (bit-identical to pre-AMP code path).
+    `bf16` -> `torch.autocast(device_type='cuda', dtype=torch.bfloat16)`.
+
+    Capability + device validation happens once at startup in main();
+    this helper is fast-path only.
+    """
+    amp = cfg.get("amp", "off")
+    if amp == "off":
+        return contextlib.nullcontext()
+    if amp == "bf16":
+        return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    raise ValueError(f"Unknown amp mode: {amp!r}. Expected 'off' or 'bf16'.")
 
 
 # ---------------------------------------------------------------------------
@@ -102,29 +124,29 @@ def run_epoch(
         else:
             batch_y_t = torch.tensor(batch_y, dtype=torch.float32, device=device)
 
-        # Forward -------------------------------------------------------------
-        logits = model(
-            batch_x_t,
-            readout_idx=readout_idx,
-            bptt_start_idx=bptt_start,
-            bptt_chunk_len=cfg.get("bptt_chunk_len", None),
-        )
+        # Forward + loss (under AMP autocast when cfg.amp != off) -------------
+        with amp_autocast(cfg):
+            logits = model(
+                batch_x_t,
+                readout_idx=readout_idx,
+                bptt_start_idx=bptt_start,
+                bptt_chunk_len=cfg.get("bptt_chunk_len", None),
+            )
 
-        # Loss ----------------------------------------------------------------
-        if K is not None:
-            # logits: (K, B, C) — compute K independent losses, sum for backward
-            losses = []
-            for k in range(K):
-                logits_k = logits[k]
+            if K is not None:
+                # logits: (K, B, C) — compute K independent losses, sum for backward
+                losses = []
+                for k in range(K):
+                    logits_k = logits[k]
+                    if cfg.task.task_type == "regression":
+                        logits_k = logits_k.squeeze(-1)
+                    losses.append(criterion(logits_k, batch_y_t))
+                loss = torch.stack(losses).sum()
+                per_k_loss = [l.item() for l in losses]
+            else:
                 if cfg.task.task_type == "regression":
-                    logits_k = logits_k.squeeze(-1)
-                losses.append(criterion(logits_k, batch_y_t))
-            loss = torch.stack(losses).sum()
-            per_k_loss = [l.item() for l in losses]
-        else:
-            if cfg.task.task_type == "regression":
-                logits = logits.squeeze(-1)
-            loss = criterion(logits, batch_y_t)
+                    logits = logits.squeeze(-1)
+                loss = criterion(logits, batch_y_t)
 
         # Backward + step -----------------------------------------------------
         if training:
@@ -251,6 +273,26 @@ def main(cfg: DictConfig) -> None:
     device = resolve_device(cfg.device)
     log.info("Using device: %s", device)
 
+    # AMP capability check (fail fast at startup, not mid-training).
+    amp = cfg.get("amp", "off")
+    if amp != "off":
+        if amp != "bf16":
+            raise ValueError(f"Unknown amp mode: {amp!r}. Expected 'off' or 'bf16'.")
+        if device.type != "cuda":
+            raise RuntimeError(
+                f"amp=bf16 requires a CUDA device, got device={device}. "
+                f"Set amp=off or run on a GPU."
+            )
+        if not torch.cuda.is_bf16_supported():
+            cap = torch.cuda.get_device_capability(0)
+            name = torch.cuda.get_device_name(0)
+            raise RuntimeError(
+                f"amp=bf16 requires an Ampere+ GPU (compute capability >= 8.0). "
+                f"Detected: {name} (cap {cap}). "
+                f"Use L4, A100, H100, RTX 30/40 series, or set amp=off."
+            )
+        log.info("AMP enabled: bf16 (autocast dtype=torch.bfloat16)")
+
     # 3. Load data ------------------------------------------------------------
     # Forward any extra task-level loader kwargs (used by seeg for
     # subject_id/block/sleep/cond/decimate/seq_len/stride).
@@ -311,9 +353,10 @@ def main(cfg: DictConfig) -> None:
         Safe to call at any training epoch; the copy bypasses autograd and does
         not depend on whether the IC parameter is currently frozen.
         """
-        burn_in_state = compute_burn_in(
-            model.cell, cfg.task.input_size, cfg.burn_in, device
-        )
+        with amp_autocast(cfg):
+            burn_in_state = compute_burn_in(
+                model.cell, cfg.task.input_size, cfg.burn_in, device
+            )
         model.ic.ic.data.copy_(burn_in_state)
 
     if cfg.burn_in > 0 and hasattr(model, "ic"):

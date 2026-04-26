@@ -27,6 +27,7 @@ log_interval: 1  # log every N epochs
 checkpoint_interval: 10
 device: auto  # auto, cpu, cuda, mps
 compile: true  # use torch.compile
+amp: off       # off | bf16. bf16 requires Ampere+ GPU (L4, A100, H100, RTX 30/40).
 
 # Ablation batching
 batched_ablations: null  # list of model variant names to run in parallel via bmm
