@@ -12,6 +12,7 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.utils.checkpoint
 
 from train_srnn.utils.io_masks import (
     generate_neuron_partition,
@@ -132,12 +133,28 @@ class SequenceModel(nn.Module):
             self.readout = nn.Linear(effective_output_size, output_size)
 
     # ------------------------------------------------------------------
+    def _run_segment(self, x_seg: torch.Tensor, state: torch.Tensor):
+        """Run the cell over a contiguous time slice.
+
+        Returns a stacked outputs tensor with a time axis inserted just
+        before the feature axis: ``(B, T_seg, E)`` for single cells,
+        ``(K, B, T_seg, E)`` for K-batched cells.
+        """
+        outputs = []
+        for t in range(x_seg.shape[1]):
+            out, state = self.cell(x_seg[:, t, :], state)
+            outputs.append(out)
+        return torch.stack(outputs, dim=-2), state
+
+    # ------------------------------------------------------------------
     def forward(
         self,
         x: torch.Tensor,
         readout_idx: int | slice | None = None,
         bptt_start_idx: int | None = None,
         bptt_chunk_len: int | None = None,
+        grad_checkpoint: bool = False,
+        grad_checkpoint_segment_len: int | None = None,
     ) -> torch.Tensor:
         """Forward pass.
 
@@ -153,6 +170,14 @@ class SequenceModel(nn.Module):
                 steps inside the grad region so each loss term's backward path
                 is capped to at most ``bptt_chunk_len`` cell applications.
                 ``None`` = one contiguous graph over the grad region.
+            grad_checkpoint: If True, wrap each segment of the grad region in
+                ``torch.utils.checkpoint.checkpoint`` so its forward
+                intermediates are *recomputed* during backward instead of
+                saved. Trades ~30-50% wall-clock for 5-10x activation memory.
+            grad_checkpoint_segment_len: Length of each checkpoint segment
+                within the grad region. Only consulted when
+                ``grad_checkpoint=True``. ``None`` defaults to
+                ``bptt_chunk_len`` (one checkpoint per detach-chunk).
 
         Returns:
             logits: ``(batch, output_size)`` for single cells, or
@@ -175,36 +200,65 @@ class SequenceModel(nn.Module):
                 batch_size, self.cell.state_size, device=x.device
             )
 
-        # Unroll ---------------------------------------------------------------
-        outputs: list[torch.Tensor] = []
-        steps_in_chunk = 0
-        for t in range(seq_len):
-            inp = x[:, t, :]
+        # Segmented unroll -----------------------------------------------------
+        # Runs the warmup region (no_grad) as one segment, then the grad region
+        # in segments of size `seg_len`, optionally wrapped in checkpoint().
+        all_outputs: list[torch.Tensor] = []
 
-            if bptt_start_idx is not None and t < bptt_start_idx:
-                with torch.no_grad():
-                    output, state = self.cell(inp, state)
-                state = state.detach()
+        # 1. Warmup region (no_grad) — never needs checkpointing.
+        grad_start = bptt_start_idx if bptt_start_idx is not None else 0
+        if grad_start > 0:
+            with torch.no_grad():
+                outs, state = self._run_segment(x[:, :grad_start, :], state)
+            all_outputs.append(outs)
+            state = state.detach()
+
+        # 2. Grad region.
+        if grad_checkpoint:
+            seg_len = (grad_checkpoint_segment_len
+                       if grad_checkpoint_segment_len is not None
+                       else (bptt_chunk_len or (seq_len - grad_start)))
+        else:
+            seg_len = bptt_chunk_len or (seq_len - grad_start)
+        seg_len = max(1, seg_len)
+
+        t = grad_start
+        steps_since_detach = 0
+        while t < seq_len:
+            end = min(t + seg_len, seq_len)
+            x_seg = x[:, t:end, :]
+
+            if grad_checkpoint:
+                outs, state = torch.utils.checkpoint.checkpoint(
+                    self._run_segment, x_seg, state, use_reentrant=False
+                )
             else:
-                output, state = self.cell(inp, state)
-                steps_in_chunk += 1
-                if (bptt_chunk_len is not None
-                        and steps_in_chunk >= bptt_chunk_len
-                        and t < seq_len - 1):
-                    state = state.detach()
-                    steps_in_chunk = 0
+                outs, state = self._run_segment(x_seg, state)
 
-            outputs.append(output)
+            all_outputs.append(outs)
+            steps_since_detach += (end - t)
+            t = end
+
+            # Detach at chunk boundary (existing semantics): cap the grad
+            # horizon to bptt_chunk_len cell applications.
+            if (bptt_chunk_len is not None
+                    and steps_since_detach >= bptt_chunk_len
+                    and t < seq_len):
+                state = state.detach()
+                steps_since_detach = 0
+
+        # Concatenate along the time axis (-2). full_outputs shape:
+        #   single:  (B, T, E)
+        #   batched: (K, B, T, E)
+        full_outputs = torch.cat(all_outputs, dim=-2)
 
         # Select readout timestep(s) -------------------------------------------
         if isinstance(readout_idx, slice):
-            # Stack along a new time axis just before the feature axis so the
-            # shape is (B, T, E) for single cells and (K, B, T, E) for batched.
-            out = torch.stack(outputs[readout_idx], dim=-2)
+            out = full_outputs[..., readout_idx, :]
         elif readout_idx is not None:
-            out = outputs[readout_idx]
+            out = full_outputs[..., readout_idx, :]
         else:
-            out = outputs[-1]
+            out = full_outputs[..., -1, :]
 
         # Apply output mask ----------------------------------------------------
         if hasattr(self, "output_mask"):

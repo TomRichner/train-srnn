@@ -131,6 +131,8 @@ def run_epoch(
                 readout_idx=readout_idx,
                 bptt_start_idx=bptt_start,
                 bptt_chunk_len=cfg.get("bptt_chunk_len", None),
+                grad_checkpoint=cfg.get("grad_checkpoint", False),
+                grad_checkpoint_segment_len=cfg.get("grad_checkpoint_segment_len", None),
             )
 
             if K is not None:

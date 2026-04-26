@@ -17,6 +17,8 @@ window_len: 1024    # fixed seq_len fed to model (samples) — stable for torch.
 bptt_len: 512       # BPTT horizon in samples; grads flow through last bptt_len steps
 bptt_chunk_len: null  # TBPTT chunk: state.detach() every N steps in grad region; null = single graph
 loss_over_bptt: false # when true + no_augment, compute loss at every step in grad region (teacher-forced)
+grad_checkpoint: false              # wrap grad-region segments in torch.utils.checkpoint for ~5-10x activation memory savings (~30-50% wall-clock cost)
+grad_checkpoint_segment_len: null   # checkpoint segment length within grad region; null defaults to bptt_chunk_len
 burn_in: 10.0
 burn_in_every: 1              # re-run burn-in every N epochs to track moving fixed point; 0 = only at init
 freeze_ic_after_burnin: true  # freeze TrainableIC.ic after burn-in (matches truncated-BPTT reality where IC gets no grad; see KnownIssues §4)
