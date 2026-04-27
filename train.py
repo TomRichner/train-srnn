@@ -337,9 +337,13 @@ def main(cfg: DictConfig) -> None:
 
     # 6. Optimizer + LR schedule ----------------------------------------------
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
-    total_steps = cfg.epochs * (len(train_x) // cfg.batch_size + 1)
+    steps_per_epoch = len(train_x) // cfg.batch_size + 1
+    total_steps = cfg.epochs * steps_per_epoch
+    # Warmup over min(2 epochs, 20% of training), whichever is shorter.
+    warmup_frac = min(2 * steps_per_epoch / max(1, total_steps), 0.2)
     scheduler = WarmupHoldCosineSchedule(
-        optimizer, total_steps, max_lr=cfg.lr
+        optimizer, total_steps, max_lr=cfg.lr, warmup_frac=warmup_frac,
+        cosine_decay=cfg.get("cosine_decay", False),
     )
 
     # 7. Loss function --------------------------------------------------------

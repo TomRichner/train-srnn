@@ -33,8 +33,10 @@ class WarmupHoldCosineSchedule(torch.optim.lr_scheduler._LRScheduler):
         end_lr=None,
         warmup_frac=0.2,
         hold_frac=0.7,
+        cosine_decay=True,
         last_epoch=-1,
     ):
+        self.cosine_decay = cosine_decay
         self.total_steps = total_steps
         self.max_lr = max_lr
         self.start_lr = start_lr
@@ -53,8 +55,8 @@ class WarmupHoldCosineSchedule(torch.optim.lr_scheduler._LRScheduler):
             # Phase 1: linear warmup
             t = step / max(1, warmup_end)
             lr = self.start_lr + (self.max_lr - self.start_lr) * t
-        elif step < hold_end:
-            # Phase 2: hold at max_lr
+        elif step < hold_end or not self.cosine_decay:
+            # Phase 2: hold at max_lr (also used when cosine_decay disabled)
             lr = self.max_lr
         else:
             # Phase 3: cosine decay

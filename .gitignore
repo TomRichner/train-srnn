@@ -10,7 +10,8 @@ outputs/
 results/
 
 # Scratch/working files (not checked in)
-tmp/
+*.pt
+*.png
 
 # Downloaded datasets
 train_srnn/data/*/

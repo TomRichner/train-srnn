@@ -50,6 +50,15 @@ There is no separate lint/test runner — `smoke_test.sh` is the integration che
 
 **GPU dispatch (`cloud/launch_run_gpu.sh` + `cloud/submit.sh`).** Same VM-native model with three lifecycle modes set per-run via the `cleanup` metadata key: `delete` (one-shot, default), `stop` (self-stop after upload, ~$0.02/hr disk-only), `keep` (stay RUNNING for active dev). First launch: `bash cloud/launch_run_gpu.sh [--cleanup=delete|stop|keep] <run> <task> <model> <seed> [args]`. Subsequent dispatches to a stopped/running VM: `bash cloud/submit.sh <vm> <run> <task> <model> <seed> [--cleanup=...] [--skip-refresh] [args]` — writes per-run knobs via `gcloud compute instances add-metadata`, then `start` (if stopped) or `reset` (if running) to re-trigger `startup_gpu.sh`. No SSH tether to the local laptop; the laptop can sleep mid-run. `--skip-refresh` bypasses git fetch + dataset re-copy + pip check when iterating different ablations on the same code. Per-run output dir is `results/<task>/<run>_seed<seed>` so re-dispatches don't cross-contaminate. The exact full commit sha lands in `run_metadata.json.commit`.
 
+## Analysis & plotting
+
+Standalone analysis scripts live in `scripts/`. Plotting helpers (curves, tau overlays, val-acc comparisons, LSTM curves) are grouped under `scripts/plots/`:
+- `plot_all_taus.py`, `plot_tau_global.py`, `plot_effective_taus_overlay.py` — SRNN time-constant inspection
+- `plot_cmp_val_acc.py` — multi-run validation accuracy comparison
+- `plot_lstm_curves.py` — LSTM training-curve plot
+
+Generated artifacts (`*.png`, `*.pt`) are gitignored. `tmp/` is NOT gitignored — it's the working scratch dir for downloaded GCS run bundles and ad-hoc analysis output. Keep heavy binaries out of commits; small CSVs are fine.
+
 ## Conventions worth knowing
 
 - Tensors are batch-first `(B, T, F)` everywhere (TF 1.x version was time-major).
