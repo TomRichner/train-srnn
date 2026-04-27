@@ -1,0 +1,10 @@
+defaults:
+  - srnn
+
+name: srnn_e_only_skip_echo
+n_a_E: 3
+n_a_I: 0
+n_b_E: 1
+n_b_I: 0
+echo: true
+skip: true

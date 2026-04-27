@@ -138,6 +138,16 @@ SRNN_PRESETS: dict[str, SRNNConfig] = {
     "srnn-e-only-skip": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, skip=True),
     "srnn-e-only-skip-per-neuron": SRNNConfig(
         n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, per_neuron=True, skip=True),
+    "srnn-e-only-skip-echo": SRNNConfig(
+        n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, echo=True, skip=True),
+    "srnn-skip": SRNNConfig(skip=True),
+    "srnn-no-dales-skip": SRNNConfig(dales=False, skip=True),
+    "srnn-no-adapt-no-dales-skip": SRNNConfig(
+        dales=False, n_a_E=0, n_a_I=0, n_b_E=0, n_b_I=0, skip=True),
+    "srnn-sfa-e-only-skip": SRNNConfig(
+        n_a_E=3, n_a_I=0, n_b_E=0, n_b_I=0, skip=True),
+    "srnn-std-e-only-skip": SRNNConfig(
+        n_a_E=0, n_a_I=0, n_b_E=1, n_b_I=0, skip=True),
     "srnn-multi-sfa": SRNNConfig(n_a_E=2, n_a_I=2),
     "srnn-multi-sfa-E": SRNNConfig(n_a_E=2, n_a_I=0, n_b_E=1, n_b_I=0),
     "srnn-no-dales": SRNNConfig(dales=False),
