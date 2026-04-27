@@ -1,0 +1,939 @@
+Run: overnight9h | Experiment: seeg | Model: srnn | Seed: 1
+Cleanup: keep | Skip-refresh: 1 | Workdir: /opt/train-srnn
+skip-refresh=1; using existing /opt/train-srnn (no git fetch)
+Git commit: 95f3019  (full: 95f30199c37d6828b26af70f4ed5a04d42b40153)
+skip-refresh=1; reusing on-disk dataset at train_srnn/data/seeg
+skip-refresh=1; skipping pip install (assuming Hydra stack present)
+Waiting for NVIDIA driver...
+  driver ready after 10s
+GPU sanity check:
+  torch: 2.9.1+cu129
+  CUDA:  12.9
+  GPU:   NVIDIA L4  (22 GB)
+=== Training start 2026-04-27T02:59:35+00:00 ===
+[2026-04-27 02:59:38,956][__main__][INFO] - Using device: cuda
+[2026-04-27 02:59:38,978][__main__][INFO] - AMP enabled: bf16 (autocast dtype=torch.bfloat16)
+[seeg] seeg_939_b4_awake_baseline.mat: n_chan=89, n_samples=240000, sr=250.0 Hz, duration=960.0s
+[2026-04-27 02:59:41,665][__main__][INFO] - Model parameters: 1031032
+[2026-04-27 02:59:51,503][__main__][INFO] - TrainableIC frozen after burn-in (freeze_ic_after_burnin=True)
+[2026-04-27 03:00:15,369][__main__][INFO] - Test [init @ epoch 0]:
+[2026-04-27 03:00:15,369][__main__][INFO] -   [srnn-e-only-skip] test_loss=0.0791 test_metric=0.2107
+[2026-04-27 03:00:15,369][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0791 test_metric=0.2109
+[2026-04-27 03:00:15,369][__main__][INFO] -   [srnn-e-only-skip-echo] test_loss=0.0794 test_metric=0.2115
+[2026-04-27 03:00:15,369][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0799 test_metric=0.2121
+[2026-04-27 03:00:15,369][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.1005 test_metric=0.2419
+[2026-04-27 03:00:15,369][__main__][INFO] -   [srnn-skip] test_loss=0.0798 test_metric=0.2118
+[2026-04-27 03:00:15,369][__main__][INFO] -   [srnn-sfa-e-only-skip] test_loss=0.0915 test_metric=0.2298
+[2026-04-27 03:00:15,369][__main__][INFO] -   [srnn-std-e-only-skip] test_loss=0.0796 test_metric=0.2116
+[2026-04-27 03:05:30,700][__main__][INFO] - Epoch 0:
+[2026-04-27 03:05:30,704][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0817 train_metric=0.2141 valid_loss=0.0802 valid_metric=0.2117
+[2026-04-27 03:05:30,704][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0818 train_metric=0.2144 valid_loss=0.0801 valid_metric=0.2117
+[2026-04-27 03:05:30,704][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0820 train_metric=0.2148 valid_loss=0.0805 valid_metric=0.2123
+[2026-04-27 03:05:30,704][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0826 train_metric=0.2156 valid_loss=0.0810 valid_metric=0.2131
+[2026-04-27 03:05:30,704][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.1035 train_metric=0.2455 valid_loss=0.1022 valid_metric=0.2437
+[2026-04-27 03:05:30,704][__main__][INFO] -   [srnn-skip] train_loss=0.0824 train_metric=0.2152 valid_loss=0.0809 valid_metric=0.2128
+[2026-04-27 03:05:30,704][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0945 train_metric=0.2336 valid_loss=0.0923 valid_metric=0.2305
+[2026-04-27 03:05:30,704][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0822 train_metric=0.2150 valid_loss=0.0805 valid_metric=0.2124
+[2026-04-27 03:05:54,889][__main__][INFO] - Test [epoch_000 @ epoch 0]:
+[2026-04-27 03:05:54,889][__main__][INFO] -   [srnn-e-only-skip] test_loss=0.0791 test_metric=0.2107
+[2026-04-27 03:05:54,889][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0791 test_metric=0.2108
+[2026-04-27 03:05:54,889][__main__][INFO] -   [srnn-e-only-skip-echo] test_loss=0.0794 test_metric=0.2114
+[2026-04-27 03:05:54,889][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0799 test_metric=0.2120
+[2026-04-27 03:05:54,889][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0999 test_metric=0.2412
+[2026-04-27 03:05:54,889][__main__][INFO] -   [srnn-skip] test_loss=0.0798 test_metric=0.2117
+[2026-04-27 03:05:54,889][__main__][INFO] -   [srnn-sfa-e-only-skip] test_loss=0.0914 test_metric=0.2297
+[2026-04-27 03:05:54,889][__main__][INFO] -   [srnn-std-e-only-skip] test_loss=0.0795 test_metric=0.2115
+[2026-04-27 03:11:18,903][__main__][INFO] - Epoch 1:
+[2026-04-27 03:11:18,905][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0817 train_metric=0.2141 valid_loss=0.0801 valid_metric=0.2116
+[2026-04-27 03:11:18,905][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0817 train_metric=0.2143 valid_loss=0.0801 valid_metric=0.2116
+[2026-04-27 03:11:18,905][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0820 train_metric=0.2148 valid_loss=0.0804 valid_metric=0.2122
+[2026-04-27 03:11:18,905][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0825 train_metric=0.2155 valid_loss=0.0809 valid_metric=0.2128
+[2026-04-27 03:11:18,905][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.1020 train_metric=0.2434 valid_loss=0.0993 valid_metric=0.2398
+[2026-04-27 03:11:18,905][__main__][INFO] -   [srnn-skip] train_loss=0.0823 train_metric=0.2151 valid_loss=0.0808 valid_metric=0.2127
+[2026-04-27 03:11:18,905][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0940 train_metric=0.2329 valid_loss=0.0916 valid_metric=0.2294
+[2026-04-27 03:11:18,905][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0821 train_metric=0.2149 valid_loss=0.0805 valid_metric=0.2123
+[2026-04-27 03:16:41,973][__main__][INFO] - Epoch 2:
+[2026-04-27 03:16:41,974][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0816 train_metric=0.2140 valid_loss=0.0801 valid_metric=0.2115
+[2026-04-27 03:16:41,974][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0816 train_metric=0.2142 valid_loss=0.0800 valid_metric=0.2115
+[2026-04-27 03:16:41,974][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0819 train_metric=0.2147 valid_loss=0.0803 valid_metric=0.2121
+[2026-04-27 03:16:41,974][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0823 train_metric=0.2152 valid_loss=0.0807 valid_metric=0.2125
+[2026-04-27 03:16:41,974][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0990 train_metric=0.2395 valid_loss=0.0955 valid_metric=0.2347
+[2026-04-27 03:16:41,974][__main__][INFO] -   [srnn-skip] train_loss=0.0822 train_metric=0.2150 valid_loss=0.0807 valid_metric=0.2125
+[2026-04-27 03:16:41,974][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0930 train_metric=0.2314 valid_loss=0.0904 valid_metric=0.2277
+[2026-04-27 03:16:41,974][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0820 train_metric=0.2148 valid_loss=0.0804 valid_metric=0.2121
+[2026-04-27 03:22:05,253][__main__][INFO] - Epoch 3:
+[2026-04-27 03:22:05,254][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0815 train_metric=0.2139 valid_loss=0.0800 valid_metric=0.2114
+[2026-04-27 03:22:05,254][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0815 train_metric=0.2140 valid_loss=0.0799 valid_metric=0.2113
+[2026-04-27 03:22:05,254][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0818 train_metric=0.2145 valid_loss=0.0802 valid_metric=0.2119
+[2026-04-27 03:22:05,254][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0821 train_metric=0.2148 valid_loss=0.0804 valid_metric=0.2121
+[2026-04-27 03:22:05,254][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0953 train_metric=0.2343 valid_loss=0.0911 valid_metric=0.2284
+[2026-04-27 03:22:05,254][__main__][INFO] -   [srnn-skip] train_loss=0.0821 train_metric=0.2148 valid_loss=0.0805 valid_metric=0.2122
+[2026-04-27 03:22:05,254][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0916 train_metric=0.2293 valid_loss=0.0892 valid_metric=0.2258
+[2026-04-27 03:22:05,254][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0819 train_metric=0.2146 valid_loss=0.0803 valid_metric=0.2119
+[2026-04-27 03:27:28,047][__main__][INFO] - Epoch 4:
+[2026-04-27 03:27:28,048][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0814 train_metric=0.2138 valid_loss=0.0799 valid_metric=0.2112
+[2026-04-27 03:27:28,048][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0814 train_metric=0.2138 valid_loss=0.0798 valid_metric=0.2111
+[2026-04-27 03:27:28,048][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0817 train_metric=0.2143 valid_loss=0.0801 valid_metric=0.2117
+[2026-04-27 03:27:28,049][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0818 train_metric=0.2144 valid_loss=0.0802 valid_metric=0.2117
+[2026-04-27 03:27:28,049][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0912 train_metric=0.2286 valid_loss=0.0880 valid_metric=0.2238
+[2026-04-27 03:27:28,049][__main__][INFO] -   [srnn-skip] train_loss=0.0819 train_metric=0.2145 valid_loss=0.0804 valid_metric=0.2120
+[2026-04-27 03:27:28,049][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0901 train_metric=0.2272 valid_loss=0.0875 valid_metric=0.2233
+[2026-04-27 03:27:28,049][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0818 train_metric=0.2144 valid_loss=0.0801 valid_metric=0.2117
+[2026-04-27 03:32:50,074][__main__][INFO] - Epoch 5:
+[2026-04-27 03:32:50,075][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0813 train_metric=0.2136 valid_loss=0.0798 valid_metric=0.2111
+[2026-04-27 03:32:50,076][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0813 train_metric=0.2136 valid_loss=0.0797 valid_metric=0.2109
+[2026-04-27 03:32:50,076][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0816 train_metric=0.2141 valid_loss=0.0800 valid_metric=0.2115
+[2026-04-27 03:32:50,076][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0816 train_metric=0.2141 valid_loss=0.0800 valid_metric=0.2114
+[2026-04-27 03:32:50,076][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0880 train_metric=0.2239 valid_loss=0.0851 valid_metric=0.2196
+[2026-04-27 03:32:50,076][__main__][INFO] -   [srnn-skip] train_loss=0.0818 train_metric=0.2143 valid_loss=0.0802 valid_metric=0.2117
+[2026-04-27 03:32:50,076][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0886 train_metric=0.2250 valid_loss=0.0859 valid_metric=0.2209
+[2026-04-27 03:32:50,076][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0816 train_metric=0.2142 valid_loss=0.0800 valid_metric=0.2115
+[2026-04-27 03:38:11,424][__main__][INFO] - Epoch 6:
+[2026-04-27 03:38:11,425][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0813 train_metric=0.2135 valid_loss=0.0797 valid_metric=0.2109
+[2026-04-27 03:38:11,425][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0812 train_metric=0.2134 valid_loss=0.0796 valid_metric=0.2108
+[2026-04-27 03:38:11,425][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0815 train_metric=0.2139 valid_loss=0.0799 valid_metric=0.2113
+[2026-04-27 03:38:11,426][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0814 train_metric=0.2138 valid_loss=0.0798 valid_metric=0.2111
+[2026-04-27 03:38:11,426][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0859 train_metric=0.2207 valid_loss=0.0833 valid_metric=0.2169
+[2026-04-27 03:38:11,426][__main__][INFO] -   [srnn-skip] train_loss=0.0816 train_metric=0.2140 valid_loss=0.0800 valid_metric=0.2115
+[2026-04-27 03:38:11,426][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0872 train_metric=0.2229 valid_loss=0.0846 valid_metric=0.2189
+[2026-04-27 03:38:11,426][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0815 train_metric=0.2139 valid_loss=0.0799 valid_metric=0.2113
+[2026-04-27 03:43:34,870][__main__][INFO] - Epoch 7:
+[2026-04-27 03:43:34,871][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0812 train_metric=0.2133 valid_loss=0.0796 valid_metric=0.2108
+[2026-04-27 03:43:34,871][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0811 train_metric=0.2133 valid_loss=0.0795 valid_metric=0.2106
+[2026-04-27 03:43:34,872][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0814 train_metric=0.2137 valid_loss=0.0798 valid_metric=0.2112
+[2026-04-27 03:43:34,872][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0813 train_metric=0.2135 valid_loss=0.0797 valid_metric=0.2109
+[2026-04-27 03:43:34,872][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0844 train_metric=0.2185 valid_loss=0.0823 valid_metric=0.2152
+[2026-04-27 03:43:34,872][__main__][INFO] -   [srnn-skip] train_loss=0.0815 train_metric=0.2138 valid_loss=0.0799 valid_metric=0.2113
+[2026-04-27 03:43:34,872][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0859 train_metric=0.2209 valid_loss=0.0836 valid_metric=0.2173
+[2026-04-27 03:43:34,872][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0814 train_metric=0.2137 valid_loss=0.0798 valid_metric=0.2111
+[2026-04-27 03:49:00,169][__main__][INFO] - Epoch 8:
+[2026-04-27 03:49:00,170][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0811 train_metric=0.2132 valid_loss=0.0795 valid_metric=0.2107
+[2026-04-27 03:49:00,170][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0810 train_metric=0.2131 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 03:49:00,170][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0813 train_metric=0.2136 valid_loss=0.0797 valid_metric=0.2110
+[2026-04-27 03:49:00,170][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0812 train_metric=0.2133 valid_loss=0.0796 valid_metric=0.2108
+[2026-04-27 03:49:00,170][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0835 train_metric=0.2171 valid_loss=0.0816 valid_metric=0.2141
+[2026-04-27 03:49:00,170][__main__][INFO] -   [srnn-skip] train_loss=0.0813 train_metric=0.2136 valid_loss=0.0798 valid_metric=0.2111
+[2026-04-27 03:49:00,170][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0849 train_metric=0.2194 valid_loss=0.0829 valid_metric=0.2162
+[2026-04-27 03:49:00,170][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0813 train_metric=0.2136 valid_loss=0.0797 valid_metric=0.2109
+[2026-04-27 03:54:25,212][__main__][INFO] - Epoch 9:
+[2026-04-27 03:54:25,214][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0810 train_metric=0.2131 valid_loss=0.0795 valid_metric=0.2106
+[2026-04-27 03:54:25,214][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0810 train_metric=0.2130 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 03:54:25,214][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0812 train_metric=0.2134 valid_loss=0.0796 valid_metric=0.2109
+[2026-04-27 03:54:25,214][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0811 train_metric=0.2132 valid_loss=0.0795 valid_metric=0.2107
+[2026-04-27 03:54:25,214][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0829 train_metric=0.2161 valid_loss=0.0811 valid_metric=0.2133
+[2026-04-27 03:54:25,214][__main__][INFO] -   [srnn-skip] train_loss=0.0813 train_metric=0.2135 valid_loss=0.0797 valid_metric=0.2110
+[2026-04-27 03:54:25,214][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0841 train_metric=0.2182 valid_loss=0.0823 valid_metric=0.2153
+[2026-04-27 03:54:25,214][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0812 train_metric=0.2134 valid_loss=0.0796 valid_metric=0.2108
+  [periodic-upload] Epoch 9: uploading to GCS...
+[2026-04-27 03:59:51,254][__main__][INFO] - Epoch 10:
+[2026-04-27 03:59:51,255][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0810 train_metric=0.2130 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 03:59:51,255][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0793 valid_metric=0.2104
+[2026-04-27 03:59:51,255][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0811 train_metric=0.2133 valid_loss=0.0796 valid_metric=0.2108
+[2026-04-27 03:59:51,255][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0810 train_metric=0.2131 valid_loss=0.0795 valid_metric=0.2106
+[2026-04-27 03:59:51,255][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0824 train_metric=0.2154 valid_loss=0.0808 valid_metric=0.2128
+[2026-04-27 03:59:51,255][__main__][INFO] -   [srnn-skip] train_loss=0.0812 train_metric=0.2133 valid_loss=0.0796 valid_metric=0.2109
+[2026-04-27 03:59:51,255][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0835 train_metric=0.2172 valid_loss=0.0818 valid_metric=0.2145
+[2026-04-27 03:59:51,255][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0811 train_metric=0.2133 valid_loss=0.0796 valid_metric=0.2107
+[2026-04-27 04:00:15,552][__main__][INFO] - Test [epoch_010 @ epoch 10]:
+[2026-04-27 04:00:15,552][__main__][INFO] -   [srnn-e-only-skip] test_loss=0.0784 test_metric=0.2096
+[2026-04-27 04:00:15,552][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0783 test_metric=0.2094
+[2026-04-27 04:00:15,553][__main__][INFO] -   [srnn-e-only-skip-echo] test_loss=0.0785 test_metric=0.2098
+[2026-04-27 04:00:15,553][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0784 test_metric=0.2096
+[2026-04-27 04:00:15,553][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0796 test_metric=0.2117
+[2026-04-27 04:00:15,553][__main__][INFO] -   [srnn-skip] test_loss=0.0785 test_metric=0.2098
+[2026-04-27 04:00:15,553][__main__][INFO] -   [srnn-sfa-e-only-skip] test_loss=0.0808 test_metric=0.2135
+[2026-04-27 04:00:15,553][__main__][INFO] -   [srnn-std-e-only-skip] test_loss=0.0785 test_metric=0.2098
+[2026-04-27 04:05:38,740][__main__][INFO] - Epoch 11:
+[2026-04-27 04:05:38,741][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0809 train_metric=0.2130 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 04:05:38,741][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:05:38,741][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0810 train_metric=0.2132 valid_loss=0.0795 valid_metric=0.2107
+[2026-04-27 04:05:38,742][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0810 train_metric=0.2130 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 04:05:38,742][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0821 train_metric=0.2149 valid_loss=0.0805 valid_metric=0.2123
+[2026-04-27 04:05:38,742][__main__][INFO] -   [srnn-skip] train_loss=0.0811 train_metric=0.2132 valid_loss=0.0796 valid_metric=0.2108
+[2026-04-27 04:05:38,742][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0830 train_metric=0.2163 valid_loss=0.0813 valid_metric=0.2136
+[2026-04-27 04:05:38,742][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0810 train_metric=0.2132 valid_loss=0.0795 valid_metric=0.2106
+[2026-04-27 04:11:01,513][__main__][INFO] - Epoch 12:
+[2026-04-27 04:11:01,515][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 04:11:01,515][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:11:01,515][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0810 train_metric=0.2131 valid_loss=0.0795 valid_metric=0.2106
+[2026-04-27 04:11:01,515][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0809 train_metric=0.2130 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 04:11:01,515][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0819 train_metric=0.2145 valid_loss=0.0803 valid_metric=0.2120
+[2026-04-27 04:11:01,515][__main__][INFO] -   [srnn-skip] train_loss=0.0810 train_metric=0.2132 valid_loss=0.0795 valid_metric=0.2107
+[2026-04-27 04:11:01,515][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0826 train_metric=0.2157 valid_loss=0.0810 valid_metric=0.2131
+[2026-04-27 04:11:01,515][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0810 train_metric=0.2131 valid_loss=0.0795 valid_metric=0.2105
+[2026-04-27 04:16:24,396][__main__][INFO] - Epoch 13:
+[2026-04-27 04:16:24,397][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:16:24,397][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 04:16:24,397][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0809 train_metric=0.2130 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 04:16:24,397][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 04:16:24,397][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0817 train_metric=0.2142 valid_loss=0.0801 valid_metric=0.2117
+[2026-04-27 04:16:24,397][__main__][INFO] -   [srnn-skip] train_loss=0.0810 train_metric=0.2131 valid_loss=0.0795 valid_metric=0.2106
+[2026-04-27 04:16:24,398][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0823 train_metric=0.2152 valid_loss=0.0807 valid_metric=0.2127
+[2026-04-27 04:16:24,398][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0809 train_metric=0.2130 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 04:21:47,017][__main__][INFO] - Epoch 14:
+[2026-04-27 04:21:47,018][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:21:47,018][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 04:21:47,018][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 04:21:47,018][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0793 valid_metric=0.2104
+[2026-04-27 04:21:47,018][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0816 train_metric=0.2140 valid_loss=0.0800 valid_metric=0.2115
+[2026-04-27 04:21:47,018][__main__][INFO] -   [srnn-skip] train_loss=0.0810 train_metric=0.2130 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 04:21:47,018][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0820 train_metric=0.2147 valid_loss=0.0805 valid_metric=0.2123
+[2026-04-27 04:21:47,018][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 04:27:11,956][__main__][INFO] - Epoch 15:
+[2026-04-27 04:27:11,958][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:27:11,958][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 04:27:11,958][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 04:27:11,958][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:27:11,958][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0814 train_metric=0.2138 valid_loss=0.0799 valid_metric=0.2113
+[2026-04-27 04:27:11,958][__main__][INFO] -   [srnn-skip] train_loss=0.0809 train_metric=0.2130 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 04:27:11,958][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0818 train_metric=0.2144 valid_loss=0.0803 valid_metric=0.2119
+[2026-04-27 04:27:11,958][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 04:32:35,511][__main__][INFO] - Epoch 16:
+[2026-04-27 04:32:35,512][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 04:32:35,512][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 04:32:35,512][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:32:35,513][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:32:35,513][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0813 train_metric=0.2136 valid_loss=0.0798 valid_metric=0.2111
+[2026-04-27 04:32:35,513][__main__][INFO] -   [srnn-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 04:32:35,513][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0816 train_metric=0.2141 valid_loss=0.0801 valid_metric=0.2117
+[2026-04-27 04:32:35,513][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:37:58,957][__main__][INFO] - Epoch 17:
+[2026-04-27 04:37:58,958][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 04:37:58,958][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 04:37:58,958][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:37:58,958][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:37:58,958][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0813 train_metric=0.2135 valid_loss=0.0797 valid_metric=0.2110
+[2026-04-27 04:37:58,958][__main__][INFO] -   [srnn-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 04:37:58,958][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0815 train_metric=0.2139 valid_loss=0.0800 valid_metric=0.2115
+[2026-04-27 04:37:58,958][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:43:21,654][__main__][INFO] - Epoch 18:
+[2026-04-27 04:43:21,655][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 04:43:21,655][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 04:43:21,655][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:43:21,655][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 04:43:21,655][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0812 train_metric=0.2134 valid_loss=0.0797 valid_metric=0.2109
+[2026-04-27 04:43:21,655][__main__][INFO] -   [srnn-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:43:21,655][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0814 train_metric=0.2137 valid_loss=0.0799 valid_metric=0.2113
+[2026-04-27 04:43:21,655][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+  [periodic-upload] Epoch 18: uploading to GCS...
+[2026-04-27 04:48:44,680][__main__][INFO] - Epoch 19:
+[2026-04-27 04:48:44,681][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 04:48:44,683][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 04:48:44,683][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 04:48:44,683][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 04:48:44,683][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0811 train_metric=0.2133 valid_loss=0.0796 valid_metric=0.2108
+[2026-04-27 04:48:44,683][__main__][INFO] -   [srnn-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:48:44,683][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0813 train_metric=0.2136 valid_loss=0.0798 valid_metric=0.2112
+[2026-04-27 04:48:44,683][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:54:06,808][__main__][INFO] - Epoch 20:
+[2026-04-27 04:54:06,810][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 04:54:06,810][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 04:54:06,810][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 04:54:06,810][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 04:54:06,810][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0811 train_metric=0.2132 valid_loss=0.0796 valid_metric=0.2107
+[2026-04-27 04:54:06,810][__main__][INFO] -   [srnn-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:54:06,810][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0812 train_metric=0.2135 valid_loss=0.0798 valid_metric=0.2111
+[2026-04-27 04:54:06,810][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 04:54:30,916][__main__][INFO] - Test [epoch_020 @ epoch 20]:
+[2026-04-27 04:54:30,916][__main__][INFO] -   [srnn-e-only-skip] test_loss=0.0782 test_metric=0.2092
+[2026-04-27 04:54:30,916][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0781 test_metric=0.2091
+[2026-04-27 04:54:30,916][__main__][INFO] -   [srnn-e-only-skip-echo] test_loss=0.0782 test_metric=0.2092
+[2026-04-27 04:54:30,916][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0782 test_metric=0.2092
+[2026-04-27 04:54:30,916][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0785 test_metric=0.2098
+[2026-04-27 04:54:30,916][__main__][INFO] -   [srnn-skip] test_loss=0.0782 test_metric=0.2093
+[2026-04-27 04:54:30,916][__main__][INFO] -   [srnn-sfa-e-only-skip] test_loss=0.0787 test_metric=0.2101
+[2026-04-27 04:54:30,916][__main__][INFO] -   [srnn-std-e-only-skip] test_loss=0.0782 test_metric=0.2093
+[2026-04-27 04:59:54,417][__main__][INFO] - Epoch 21:
+[2026-04-27 04:59:54,418][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 04:59:54,418][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 04:59:54,418][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 04:59:54,418][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 04:59:54,418][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0811 train_metric=0.2132 valid_loss=0.0795 valid_metric=0.2107
+[2026-04-27 04:59:54,418][__main__][INFO] -   [srnn-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 04:59:54,418][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0812 train_metric=0.2134 valid_loss=0.0797 valid_metric=0.2110
+[2026-04-27 04:59:54,419][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 05:05:18,308][__main__][INFO] - Epoch 22:
+[2026-04-27 05:05:18,310][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:05:18,310][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:05:18,310][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 05:05:18,310][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 05:05:18,310][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0810 train_metric=0.2131 valid_loss=0.0795 valid_metric=0.2106
+[2026-04-27 05:05:18,310][__main__][INFO] -   [srnn-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 05:05:18,310][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0811 train_metric=0.2133 valid_loss=0.0797 valid_metric=0.2109
+[2026-04-27 05:05:18,310][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 05:10:41,990][__main__][INFO] - Epoch 23:
+[2026-04-27 05:10:41,991][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:10:41,991][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:10:41,991][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 05:10:41,991][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 05:10:41,991][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0810 train_metric=0.2131 valid_loss=0.0795 valid_metric=0.2106
+[2026-04-27 05:10:41,991][__main__][INFO] -   [srnn-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 05:10:41,991][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0811 train_metric=0.2132 valid_loss=0.0796 valid_metric=0.2109
+[2026-04-27 05:10:41,991][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 05:16:04,728][__main__][INFO] - Epoch 24:
+[2026-04-27 05:16:04,729][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:16:04,729][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:16:04,729][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:16:04,729][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:16:04,729][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0810 train_metric=0.2130 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 05:16:04,729][__main__][INFO] -   [srnn-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 05:16:04,729][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0811 train_metric=0.2132 valid_loss=0.0796 valid_metric=0.2108
+[2026-04-27 05:16:04,729][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 05:21:27,951][__main__][INFO] - Epoch 25:
+[2026-04-27 05:21:27,952][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:21:27,952][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:21:27,952][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:21:27,953][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:21:27,953][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0809 train_metric=0.2130 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 05:21:27,953][__main__][INFO] -   [srnn-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 05:21:27,953][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0810 train_metric=0.2131 valid_loss=0.0796 valid_metric=0.2107
+[2026-04-27 05:21:27,953][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 05:26:49,555][__main__][INFO] - Epoch 26:
+[2026-04-27 05:26:49,557][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:26:49,557][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2100
+[2026-04-27 05:26:49,557][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:26:49,557][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:26:49,557][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0809 train_metric=0.2130 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 05:26:49,557][__main__][INFO] -   [srnn-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 05:26:49,557][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0810 train_metric=0.2131 valid_loss=0.0796 valid_metric=0.2107
+[2026-04-27 05:26:49,557][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:32:11,196][__main__][INFO] - Epoch 27:
+[2026-04-27 05:32:11,197][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:32:11,198][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2100
+[2026-04-27 05:32:11,198][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:32:11,198][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:32:11,198][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 05:32:11,198][__main__][INFO] -   [srnn-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:32:11,198][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0810 train_metric=0.2130 valid_loss=0.0795 valid_metric=0.2107
+[2026-04-27 05:32:11,198][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+  [periodic-upload] Epoch 27: uploading to GCS...
+[2026-04-27 05:37:34,715][__main__][INFO] - Epoch 28:
+[2026-04-27 05:37:34,716][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:37:34,716][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 05:37:34,716][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:37:34,716][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:37:34,716][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 05:37:34,716][__main__][INFO] -   [srnn-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:37:34,716][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0810 train_metric=0.2130 valid_loss=0.0795 valid_metric=0.2106
+[2026-04-27 05:37:34,716][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:42:55,767][__main__][INFO] - Epoch 29:
+[2026-04-27 05:42:55,768][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:42:55,768][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 05:42:55,768][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:42:55,768][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:42:55,768][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 05:42:55,768][__main__][INFO] -   [srnn-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:42:55,768][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0809 train_metric=0.2130 valid_loss=0.0795 valid_metric=0.2106
+[2026-04-27 05:42:55,768][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:48:16,960][__main__][INFO] - Epoch 30:
+[2026-04-27 05:48:16,961][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:48:16,961][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 05:48:16,961][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:48:16,961][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:48:16,961][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0793 valid_metric=0.2104
+[2026-04-27 05:48:16,961][__main__][INFO] -   [srnn-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:48:16,961][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0795 valid_metric=0.2106
+[2026-04-27 05:48:16,961][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:48:41,014][__main__][INFO] - Test [epoch_030 @ epoch 30]:
+[2026-04-27 05:48:41,014][__main__][INFO] -   [srnn-e-only-skip] test_loss=0.0781 test_metric=0.2091
+[2026-04-27 05:48:41,015][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0781 test_metric=0.2090
+[2026-04-27 05:48:41,015][__main__][INFO] -   [srnn-e-only-skip-echo] test_loss=0.0781 test_metric=0.2091
+[2026-04-27 05:48:41,015][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0781 test_metric=0.2091
+[2026-04-27 05:48:41,015][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0783 test_metric=0.2094
+[2026-04-27 05:48:41,015][__main__][INFO] -   [srnn-skip] test_loss=0.0781 test_metric=0.2091
+[2026-04-27 05:48:41,015][__main__][INFO] -   [srnn-sfa-e-only-skip] test_loss=0.0784 test_metric=0.2095
+[2026-04-27 05:48:41,015][__main__][INFO] -   [srnn-std-e-only-skip] test_loss=0.0781 test_metric=0.2091
+[2026-04-27 05:54:02,859][__main__][INFO] - Epoch 31:
+[2026-04-27 05:54:02,861][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2100
+[2026-04-27 05:54:02,861][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 05:54:02,861][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:54:02,861][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:54:02,861][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2104
+[2026-04-27 05:54:02,861][__main__][INFO] -   [srnn-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:54:02,861][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0795 valid_metric=0.2105
+[2026-04-27 05:54:02,861][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:59:25,155][__main__][INFO] - Epoch 32:
+[2026-04-27 05:59:25,156][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2100
+[2026-04-27 05:59:25,156][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 05:59:25,156][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:59:25,156][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 05:59:25,156][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 05:59:25,156][__main__][INFO] -   [srnn-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 05:59:25,156][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 05:59:25,156][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 06:04:48,710][__main__][INFO] - Epoch 33:
+[2026-04-27 06:04:48,711][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2100
+[2026-04-27 06:04:48,711][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:04:48,711][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 06:04:48,711][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:04:48,712][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 06:04:48,712][__main__][INFO] -   [srnn-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:04:48,712][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 06:04:48,712][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 06:10:11,515][__main__][INFO] - Epoch 34:
+[2026-04-27 06:10:11,516][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2100
+[2026-04-27 06:10:11,516][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 06:10:11,516][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2100
+[2026-04-27 06:10:11,516][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:10:11,516][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 06:10:11,516][__main__][INFO] -   [srnn-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:10:11,516][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0809 train_metric=0.2129 valid_loss=0.0794 valid_metric=0.2105
+[2026-04-27 06:10:11,516][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 06:15:35,196][__main__][INFO] - Epoch 35:
+[2026-04-27 06:15:35,197][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:15:35,198][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 06:15:35,198][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2100
+[2026-04-27 06:15:35,198][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:15:35,198][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 06:15:35,198][__main__][INFO] -   [srnn-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:15:35,198][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 06:15:35,198][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 06:20:56,425][__main__][INFO] - Epoch 36:
+[2026-04-27 06:20:56,426][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:20:56,426][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 06:20:56,426][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2100
+[2026-04-27 06:20:56,426][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:20:56,426][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 06:20:56,426][__main__][INFO] -   [srnn-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:20:56,426][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 06:20:56,426][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+  [periodic-upload] Epoch 36: uploading to GCS...
+[2026-04-27 06:26:18,362][__main__][INFO] - Epoch 37:
+[2026-04-27 06:26:18,363][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:26:18,363][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 06:26:18,363][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:26:18,363][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 06:26:18,363][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 06:26:18,363][__main__][INFO] -   [srnn-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:26:18,363][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 06:26:18,363][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2100
+[2026-04-27 06:31:39,918][__main__][INFO] - Epoch 38:
+[2026-04-27 06:31:39,919][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:31:39,919][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2099
+[2026-04-27 06:31:39,919][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:31:39,919][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 06:31:39,919][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 06:31:39,919][__main__][INFO] -   [srnn-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:31:39,919][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 06:31:39,919][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:37:00,961][__main__][INFO] - Epoch 39:
+[2026-04-27 06:37:00,962][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:37:00,962][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 06:37:00,963][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:37:00,963][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0805 train_metric=0.2124 valid_loss=0.0790 valid_metric=0.2099
+[2026-04-27 06:37:00,963][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 06:37:00,963][__main__][INFO] -   [srnn-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 06:37:00,963][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-27 06:37:00,963][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:42:24,139][__main__][INFO] - Epoch 40:
+[2026-04-27 06:42:24,140][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:42:24,141][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 06:42:24,141][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:42:24,141][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2099
+[2026-04-27 06:42:24,141][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 06:42:24,141][__main__][INFO] -   [srnn-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 06:42:24,141][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2104
+[2026-04-27 06:42:24,141][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:42:48,265][__main__][INFO] - Test [epoch_040 @ epoch 40]:
+[2026-04-27 06:42:48,265][__main__][INFO] -   [srnn-e-only-skip] test_loss=0.0781 test_metric=0.2090
+[2026-04-27 06:42:48,265][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0780 test_metric=0.2089
+[2026-04-27 06:42:48,265][__main__][INFO] -   [srnn-e-only-skip-echo] test_loss=0.0781 test_metric=0.2090
+[2026-04-27 06:42:48,265][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0780 test_metric=0.2089
+[2026-04-27 06:42:48,265][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0782 test_metric=0.2093
+[2026-04-27 06:42:48,265][__main__][INFO] -   [srnn-skip] test_loss=0.0780 test_metric=0.2090
+[2026-04-27 06:42:48,265][__main__][INFO] -   [srnn-sfa-e-only-skip] test_loss=0.0782 test_metric=0.2093
+[2026-04-27 06:42:48,265][__main__][INFO] -   [srnn-std-e-only-skip] test_loss=0.0781 test_metric=0.2090
+[2026-04-27 06:48:09,881][__main__][INFO] - Epoch 41:
+[2026-04-27 06:48:09,882][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:48:09,882][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0805 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 06:48:09,882][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:48:09,882][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 06:48:09,882][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 06:48:09,882][__main__][INFO] -   [srnn-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 06:48:09,882][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2128 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 06:48:09,882][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:53:31,776][__main__][INFO] - Epoch 42:
+[2026-04-27 06:53:31,777][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:53:31,777][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0805 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 06:53:31,777][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:53:31,778][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 06:53:31,778][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 06:53:31,778][__main__][INFO] -   [srnn-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2099
+[2026-04-27 06:53:31,778][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 06:53:31,778][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:58:55,164][__main__][INFO] - Epoch 43:
+[2026-04-27 06:58:55,166][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:58:55,166][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0804 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2097
+[2026-04-27 06:58:55,166][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 06:58:55,166][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0805 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 06:58:55,166][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 06:58:55,166][__main__][INFO] -   [srnn-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2099
+[2026-04-27 06:58:55,166][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 06:58:55,166][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 07:04:16,703][__main__][INFO] - Epoch 44:
+[2026-04-27 07:04:16,704][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 07:04:16,704][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0804 train_metric=0.2122 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 07:04:16,704][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 07:04:16,704][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0804 train_metric=0.2122 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 07:04:16,704][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 07:04:16,704][__main__][INFO] -   [srnn-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:04:16,704][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 07:04:16,704][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 07:09:38,837][__main__][INFO] - Epoch 45:
+[2026-04-27 07:09:38,838][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 07:09:38,838][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 07:09:38,838][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 07:09:38,838][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 07:09:38,838][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 07:09:38,838][__main__][INFO] -   [srnn-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:09:38,838][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 07:09:38,838][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+  [periodic-upload] Epoch 45: uploading to GCS...
+[2026-04-27 07:15:01,008][__main__][INFO] - Epoch 46:
+[2026-04-27 07:15:01,010][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 07:15:01,010][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 07:15:01,010][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 07:15:01,010][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 07:15:01,010][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 07:15:01,010][__main__][INFO] -   [srnn-skip] train_loss=0.0805 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:15:01,010][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 07:15:01,010][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 07:20:22,974][__main__][INFO] - Epoch 47:
+[2026-04-27 07:20:22,975][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 07:20:22,975][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 07:20:22,975][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 07:20:22,975][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 07:20:22,975][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 07:20:22,975][__main__][INFO] -   [srnn-skip] train_loss=0.0805 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:20:22,975][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 07:20:22,975][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 07:25:48,016][__main__][INFO] - Epoch 48:
+[2026-04-27 07:25:48,017][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 07:25:48,017][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0804 train_metric=0.2120 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 07:25:48,017][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 07:25:48,017][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0788 valid_metric=0.2096
+[2026-04-27 07:25:48,017][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 07:25:48,018][__main__][INFO] -   [srnn-skip] train_loss=0.0804 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:25:48,018][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 07:25:48,018][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2099
+[2026-04-27 07:31:10,525][__main__][INFO] - Epoch 49:
+[2026-04-27 07:31:10,526][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0805 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2099
+[2026-04-27 07:31:10,526][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 07:31:10,526][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2099
+[2026-04-27 07:31:10,526][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 07:31:10,527][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 07:31:10,527][__main__][INFO] -   [srnn-skip] train_loss=0.0804 train_metric=0.2122 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 07:31:10,527][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0808 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 07:31:10,527][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2099
+[2026-04-27 07:36:31,698][__main__][INFO] - Epoch 50:
+[2026-04-27 07:36:31,699][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2099
+[2026-04-27 07:36:31,699][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 07:36:31,699][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:36:31,699][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 07:36:31,699][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 07:36:31,699][__main__][INFO] -   [srnn-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 07:36:31,699][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-27 07:36:31,699][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:36:55,702][__main__][INFO] - Test [epoch_050 @ epoch 50]:
+[2026-04-27 07:36:55,702][__main__][INFO] -   [srnn-e-only-skip] test_loss=0.0780 test_metric=0.2089
+[2026-04-27 07:36:55,702][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0778 test_metric=0.2086
+[2026-04-27 07:36:55,702][__main__][INFO] -   [srnn-e-only-skip-echo] test_loss=0.0780 test_metric=0.2089
+[2026-04-27 07:36:55,702][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0778 test_metric=0.2086
+[2026-04-27 07:36:55,702][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0781 test_metric=0.2092
+[2026-04-27 07:36:55,702][__main__][INFO] -   [srnn-skip] test_loss=0.0779 test_metric=0.2088
+[2026-04-27 07:36:55,702][__main__][INFO] -   [srnn-sfa-e-only-skip] test_loss=0.0782 test_metric=0.2093
+[2026-04-27 07:36:55,702][__main__][INFO] -   [srnn-std-e-only-skip] test_loss=0.0780 test_metric=0.2089
+[2026-04-27 07:42:16,590][__main__][INFO] - Epoch 51:
+[2026-04-27 07:42:16,591][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:42:16,592][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0803 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 07:42:16,592][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:42:16,592][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0803 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 07:42:16,592][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 07:42:16,592][__main__][INFO] -   [srnn-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 07:42:16,592][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 07:42:16,592][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0805 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:47:40,244][__main__][INFO] - Epoch 52:
+[2026-04-27 07:47:40,245][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:47:40,245][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0803 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 07:47:40,245][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:47:40,245][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0802 train_metric=0.2119 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 07:47:40,245][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 07:47:40,245][__main__][INFO] -   [srnn-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 07:47:40,245][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 07:47:40,245][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0805 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:53:01,964][__main__][INFO] - Epoch 53:
+[2026-04-27 07:53:01,965][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0805 train_metric=0.2123 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:53:01,966][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0802 train_metric=0.2119 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 07:53:01,966][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0805 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:53:01,966][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 07:53:01,966][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 07:53:01,966][__main__][INFO] -   [srnn-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 07:53:01,966][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2127 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 07:53:01,966][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0804 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:58:22,703][__main__][INFO] - Epoch 54:
+[2026-04-27 07:58:22,705][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0805 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:58:22,705][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 07:58:22,705][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0805 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 07:58:22,705][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2093
+[2026-04-27 07:58:22,705][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 07:58:22,705][__main__][INFO] -   [srnn-skip] train_loss=0.0804 train_metric=0.2120 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 07:58:22,705][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 07:58:22,705][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0804 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2097
+  [periodic-upload] Epoch 54: uploading to GCS...
+[2026-04-27 08:03:43,770][__main__][INFO] - Epoch 55:
+[2026-04-27 08:03:43,771][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0805 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 08:03:43,771][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2093
+[2026-04-27 08:03:43,771][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0805 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2098
+[2026-04-27 08:03:43,771][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2093
+[2026-04-27 08:03:43,771][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 08:03:43,771][__main__][INFO] -   [srnn-skip] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 08:03:43,771][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 08:03:43,771][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 08:09:04,256][__main__][INFO] - Epoch 56:
+[2026-04-27 08:09:04,257][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0804 train_metric=0.2122 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 08:09:04,257][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0801 train_metric=0.2117 valid_loss=0.0786 valid_metric=0.2093
+[2026-04-27 08:09:04,257][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0804 train_metric=0.2122 valid_loss=0.0790 valid_metric=0.2097
+[2026-04-27 08:09:04,257][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0801 train_metric=0.2117 valid_loss=0.0786 valid_metric=0.2093
+[2026-04-27 08:09:04,257][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 08:09:04,257][__main__][INFO] -   [srnn-skip] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0788 valid_metric=0.2096
+[2026-04-27 08:09:04,257][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 08:09:04,257][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 08:14:26,725][__main__][INFO] - Epoch 57:
+[2026-04-27 08:14:26,726][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 08:14:26,726][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 08:14:26,726][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0804 train_metric=0.2122 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 08:14:26,726][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0801 train_metric=0.2117 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 08:14:26,727][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 08:14:26,727][__main__][INFO] -   [srnn-skip] train_loss=0.0803 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 08:14:26,727][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 08:14:26,727][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 08:19:50,901][__main__][INFO] - Epoch 58:
+[2026-04-27 08:19:50,902][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 08:19:50,902][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2091
+[2026-04-27 08:19:50,903][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 08:19:50,903][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 08:19:50,903][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 08:19:50,903][__main__][INFO] -   [srnn-skip] train_loss=0.0803 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 08:19:50,903][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 08:19:50,903][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 08:25:14,503][__main__][INFO] - Epoch 59:
+[2026-04-27 08:25:14,504][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 08:25:14,504][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 08:25:14,505][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 08:25:14,505][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2091
+[2026-04-27 08:25:14,505][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 08:25:14,505][__main__][INFO] -   [srnn-skip] train_loss=0.0803 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 08:25:14,505][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 08:25:14,505][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 08:30:35,626][__main__][INFO] - Epoch 60:
+[2026-04-27 08:30:35,628][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 08:30:35,628][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 08:30:35,628][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2097
+[2026-04-27 08:30:35,628][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 08:30:35,628][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 08:30:35,628][__main__][INFO] -   [srnn-skip] train_loss=0.0802 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2094
+[2026-04-27 08:30:35,628][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0793 valid_metric=0.2102
+[2026-04-27 08:30:35,628][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0788 valid_metric=0.2096
+[2026-04-27 08:30:59,613][__main__][INFO] - Test [epoch_060 @ epoch 60]:
+[2026-04-27 08:30:59,614][__main__][INFO] -   [srnn-e-only-skip] test_loss=0.0778 test_metric=0.2087
+[2026-04-27 08:30:59,614][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0775 test_metric=0.2081
+[2026-04-27 08:30:59,614][__main__][INFO] -   [srnn-e-only-skip-echo] test_loss=0.0779 test_metric=0.2087
+[2026-04-27 08:30:59,614][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0775 test_metric=0.2082
+[2026-04-27 08:30:59,614][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0781 test_metric=0.2091
+[2026-04-27 08:30:59,614][__main__][INFO] -   [srnn-skip] test_loss=0.0777 test_metric=0.2085
+[2026-04-27 08:30:59,614][__main__][INFO] -   [srnn-sfa-e-only-skip] test_loss=0.0782 test_metric=0.2092
+[2026-04-27 08:30:59,614][__main__][INFO] -   [srnn-std-e-only-skip] test_loss=0.0778 test_metric=0.2087
+[2026-04-27 08:36:19,823][__main__][INFO] - Epoch 61:
+[2026-04-27 08:36:19,825][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0788 valid_metric=0.2096
+[2026-04-27 08:36:19,825][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 08:36:19,825][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0804 train_metric=0.2121 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 08:36:19,825][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 08:36:19,825][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 08:36:19,825][__main__][INFO] -   [srnn-skip] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 08:36:19,825][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 08:36:19,825][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 08:41:40,603][__main__][INFO] - Epoch 62:
+[2026-04-27 08:41:40,604][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 08:41:40,604][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0799 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 08:41:40,604][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0789 valid_metric=0.2096
+[2026-04-27 08:41:40,604][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0800 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 08:41:40,604][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 08:41:40,604][__main__][INFO] -   [srnn-skip] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 08:41:40,604][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 08:41:40,604][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0803 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 08:47:03,105][__main__][INFO] - Epoch 63:
+[2026-04-27 08:47:03,107][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0803 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 08:47:03,107][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0799 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2088
+[2026-04-27 08:47:03,107][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0788 valid_metric=0.2096
+[2026-04-27 08:47:03,107][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0784 valid_metric=0.2090
+[2026-04-27 08:47:03,107][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 08:47:03,107][__main__][INFO] -   [srnn-skip] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2093
+[2026-04-27 08:47:03,107][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 08:47:03,107][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0803 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+  [periodic-upload] Epoch 63: uploading to GCS...
+[2026-04-27 08:52:24,353][__main__][INFO] - Epoch 64:
+[2026-04-27 08:52:24,355][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0802 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2094
+[2026-04-27 08:52:24,355][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0798 train_metric=0.2112 valid_loss=0.0783 valid_metric=0.2088
+[2026-04-27 08:52:24,355][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0803 train_metric=0.2120 valid_loss=0.0788 valid_metric=0.2096
+[2026-04-27 08:52:24,355][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0799 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 08:52:24,355][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 08:52:24,355][__main__][INFO] -   [srnn-skip] train_loss=0.0802 train_metric=0.2117 valid_loss=0.0787 valid_metric=0.2093
+[2026-04-27 08:52:24,355][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 08:52:24,355][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0802 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 08:57:46,482][__main__][INFO] - Epoch 65:
+[2026-04-27 08:57:46,483][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 08:57:46,483][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0798 train_metric=0.2111 valid_loss=0.0783 valid_metric=0.2087
+[2026-04-27 08:57:46,484][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0803 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 08:57:46,484][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0798 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 08:57:46,484][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0807 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2100
+[2026-04-27 08:57:46,484][__main__][INFO] -   [srnn-skip] train_loss=0.0801 train_metric=0.2117 valid_loss=0.0786 valid_metric=0.2093
+[2026-04-27 08:57:46,484][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 08:57:46,484][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 09:03:10,344][__main__][INFO] - Epoch 66:
+[2026-04-27 09:03:10,345][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 09:03:10,345][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0797 train_metric=0.2110 valid_loss=0.0782 valid_metric=0.2086
+[2026-04-27 09:03:10,346][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0803 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 09:03:10,346][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0798 train_metric=0.2112 valid_loss=0.0783 valid_metric=0.2088
+[2026-04-27 09:03:10,346][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0792 valid_metric=0.2100
+[2026-04-27 09:03:10,346][__main__][INFO] -   [srnn-skip] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 09:03:10,346][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 09:03:10,346][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 09:08:32,196][__main__][INFO] - Epoch 67:
+[2026-04-27 09:08:32,197][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0801 train_metric=0.2117 valid_loss=0.0787 valid_metric=0.2093
+[2026-04-27 09:08:32,198][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0797 train_metric=0.2110 valid_loss=0.0782 valid_metric=0.2086
+[2026-04-27 09:08:32,198][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0802 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 09:08:32,198][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0798 train_metric=0.2112 valid_loss=0.0783 valid_metric=0.2088
+[2026-04-27 09:08:32,198][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 09:08:32,198][__main__][INFO] -   [srnn-skip] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 09:08:32,198][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 09:08:32,198][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 09:13:53,923][__main__][INFO] - Epoch 68:
+[2026-04-27 09:13:53,924][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0801 train_metric=0.2117 valid_loss=0.0787 valid_metric=0.2093
+[2026-04-27 09:13:53,924][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0796 train_metric=0.2109 valid_loss=0.0781 valid_metric=0.2085
+[2026-04-27 09:13:53,924][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0802 train_metric=0.2119 valid_loss=0.0788 valid_metric=0.2095
+[2026-04-27 09:13:53,924][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0797 train_metric=0.2111 valid_loss=0.0783 valid_metric=0.2087
+[2026-04-27 09:13:53,924][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 09:13:53,924][__main__][INFO] -   [srnn-skip] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 09:13:53,924][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 09:13:53,924][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0802 train_metric=0.2117 valid_loss=0.0787 valid_metric=0.2093
+[2026-04-27 09:19:14,111][__main__][INFO] - Epoch 69:
+[2026-04-27 09:19:14,112][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0801 train_metric=0.2117 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 09:19:14,112][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0795 train_metric=0.2108 valid_loss=0.0781 valid_metric=0.2084
+[2026-04-27 09:19:14,112][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 09:19:14,113][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0797 train_metric=0.2110 valid_loss=0.0783 valid_metric=0.2087
+[2026-04-27 09:19:14,113][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 09:19:14,113][__main__][INFO] -   [srnn-skip] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0786 valid_metric=0.2091
+[2026-04-27 09:19:14,113][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 09:19:14,113][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0801 train_metric=0.2117 valid_loss=0.0787 valid_metric=0.2093
+[2026-04-27 09:24:36,798][__main__][INFO] - Epoch 70:
+[2026-04-27 09:24:36,799][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 09:24:36,799][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0795 train_metric=0.2107 valid_loss=0.0781 valid_metric=0.2084
+[2026-04-27 09:24:36,799][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 09:24:36,799][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0797 train_metric=0.2110 valid_loss=0.0782 valid_metric=0.2087
+[2026-04-27 09:24:36,799][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 09:24:36,799][__main__][INFO] -   [srnn-skip] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 09:24:36,799][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 09:24:36,799][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0801 train_metric=0.2117 valid_loss=0.0786 valid_metric=0.2093
+[2026-04-27 09:25:00,768][__main__][INFO] - Test [epoch_070 @ epoch 70]:
+[2026-04-27 09:25:00,768][__main__][INFO] -   [srnn-e-only-skip] test_loss=0.0776 test_metric=0.2083
+[2026-04-27 09:25:00,768][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0770 test_metric=0.2074
+[2026-04-27 09:25:00,768][__main__][INFO] -   [srnn-e-only-skip-echo] test_loss=0.0777 test_metric=0.2085
+[2026-04-27 09:25:00,768][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0772 test_metric=0.2077
+[2026-04-27 09:25:00,768][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0781 test_metric=0.2090
+[2026-04-27 09:25:00,768][__main__][INFO] -   [srnn-skip] test_loss=0.0775 test_metric=0.2082
+[2026-04-27 09:25:00,768][__main__][INFO] -   [srnn-sfa-e-only-skip] test_loss=0.0781 test_metric=0.2092
+[2026-04-27 09:25:00,768][__main__][INFO] -   [srnn-std-e-only-skip] test_loss=0.0776 test_metric=0.2084
+[2026-04-27 09:30:21,013][__main__][INFO] - Epoch 71:
+[2026-04-27 09:30:21,014][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0800 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 09:30:21,014][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0794 train_metric=0.2107 valid_loss=0.0780 valid_metric=0.2083
+[2026-04-27 09:30:21,014][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0802 train_metric=0.2118 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 09:30:21,014][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0796 train_metric=0.2109 valid_loss=0.0782 valid_metric=0.2086
+[2026-04-27 09:30:21,014][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 09:30:21,014][__main__][INFO] -   [srnn-skip] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 09:30:21,014][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 09:30:21,014][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2093
+[2026-04-27 09:35:41,499][__main__][INFO] - Epoch 72:
+[2026-04-27 09:35:41,500][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0786 valid_metric=0.2091
+[2026-04-27 09:35:41,500][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0794 train_metric=0.2106 valid_loss=0.0780 valid_metric=0.2083
+[2026-04-27 09:35:41,500][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0801 train_metric=0.2117 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 09:35:41,500][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0796 train_metric=0.2109 valid_loss=0.0782 valid_metric=0.2086
+[2026-04-27 09:35:41,501][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 09:35:41,501][__main__][INFO] -   [srnn-skip] train_loss=0.0800 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 09:35:41,501][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 09:35:41,501][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2092
+  [periodic-upload] Epoch 72: uploading to GCS...
+[2026-04-27 09:41:01,986][__main__][INFO] - Epoch 73:
+[2026-04-27 09:41:01,987][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 09:41:01,987][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0793 train_metric=0.2105 valid_loss=0.0779 valid_metric=0.2082
+[2026-04-27 09:41:01,988][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0801 train_metric=0.2117 valid_loss=0.0787 valid_metric=0.2094
+[2026-04-27 09:41:01,988][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0796 train_metric=0.2108 valid_loss=0.0782 valid_metric=0.2085
+[2026-04-27 09:41:01,988][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 09:41:01,988][__main__][INFO] -   [srnn-skip] train_loss=0.0800 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 09:41:01,988][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2102
+[2026-04-27 09:41:01,988][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0800 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 09:46:25,251][__main__][INFO] - Epoch 74:
+[2026-04-27 09:46:25,253][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 09:46:25,253][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0793 train_metric=0.2104 valid_loss=0.0779 valid_metric=0.2082
+[2026-04-27 09:46:25,253][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0801 train_metric=0.2117 valid_loss=0.0787 valid_metric=0.2093
+[2026-04-27 09:46:25,253][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0795 train_metric=0.2108 valid_loss=0.0781 valid_metric=0.2085
+[2026-04-27 09:46:25,253][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 09:46:25,253][__main__][INFO] -   [srnn-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 09:46:25,253][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 09:46:25,253][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0800 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 09:51:46,222][__main__][INFO] - Epoch 75:
+[2026-04-27 09:51:46,223][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 09:51:46,223][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0793 train_metric=0.2104 valid_loss=0.0779 valid_metric=0.2081
+[2026-04-27 09:51:46,223][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0801 train_metric=0.2117 valid_loss=0.0787 valid_metric=0.2093
+[2026-04-27 09:51:46,223][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0795 train_metric=0.2108 valid_loss=0.0781 valid_metric=0.2085
+[2026-04-27 09:51:46,223][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 09:51:46,223][__main__][INFO] -   [srnn-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 09:51:46,223][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 09:51:46,223][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 09:57:06,457][__main__][INFO] - Epoch 76:
+[2026-04-27 09:57:06,457][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 09:57:06,458][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0792 train_metric=0.2103 valid_loss=0.0779 valid_metric=0.2081
+[2026-04-27 09:57:06,458][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2093
+[2026-04-27 09:57:06,458][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0795 train_metric=0.2107 valid_loss=0.0781 valid_metric=0.2084
+[2026-04-27 09:57:06,458][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2125 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 09:57:06,458][__main__][INFO] -   [srnn-skip] train_loss=0.0799 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2090
+[2026-04-27 09:57:06,458][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 09:57:06,458][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0786 valid_metric=0.2091
+[2026-04-27 10:02:29,661][__main__][INFO] - Epoch 77:
+[2026-04-27 10:02:29,663][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 10:02:29,663][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0792 train_metric=0.2103 valid_loss=0.0778 valid_metric=0.2081
+[2026-04-27 10:02:29,663][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2093
+[2026-04-27 10:02:29,663][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0795 train_metric=0.2107 valid_loss=0.0781 valid_metric=0.2084
+[2026-04-27 10:02:29,663][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 10:02:29,663][__main__][INFO] -   [srnn-skip] train_loss=0.0799 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:02:29,663][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 10:02:29,663][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 10:07:51,273][__main__][INFO] - Epoch 78:
+[2026-04-27 10:07:51,274][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 10:07:51,274][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0792 train_metric=0.2102 valid_loss=0.0778 valid_metric=0.2080
+[2026-04-27 10:07:51,274][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2093
+[2026-04-27 10:07:51,274][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0794 train_metric=0.2107 valid_loss=0.0781 valid_metric=0.2084
+[2026-04-27 10:07:51,274][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 10:07:51,274][__main__][INFO] -   [srnn-skip] train_loss=0.0799 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:07:51,274][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 10:07:51,275][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 10:13:14,568][__main__][INFO] - Epoch 79:
+[2026-04-27 10:13:14,570][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0799 train_metric=0.2113 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 10:13:14,570][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0791 train_metric=0.2102 valid_loss=0.0778 valid_metric=0.2080
+[2026-04-27 10:13:14,570][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0801 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2093
+[2026-04-27 10:13:14,570][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0794 train_metric=0.2106 valid_loss=0.0780 valid_metric=0.2084
+[2026-04-27 10:13:14,570][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 10:13:14,570][__main__][INFO] -   [srnn-skip] train_loss=0.0799 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:13:14,570][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 10:13:14,570][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0800 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 10:18:38,202][__main__][INFO] - Epoch 80:
+[2026-04-27 10:18:38,203][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0799 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2090
+[2026-04-27 10:18:38,203][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0791 train_metric=0.2101 valid_loss=0.0778 valid_metric=0.2080
+[2026-04-27 10:18:38,203][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0800 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 10:18:38,203][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0794 train_metric=0.2106 valid_loss=0.0780 valid_metric=0.2084
+[2026-04-27 10:18:38,203][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 10:18:38,204][__main__][INFO] -   [srnn-skip] train_loss=0.0798 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:18:38,204][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 10:18:38,204][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 10:19:02,336][__main__][INFO] - Test [epoch_080 @ epoch 80]:
+[2026-04-27 10:19:02,336][__main__][INFO] -   [srnn-e-only-skip] test_loss=0.0774 test_metric=0.2081
+[2026-04-27 10:19:02,336][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0767 test_metric=0.2069
+[2026-04-27 10:19:02,337][__main__][INFO] -   [srnn-e-only-skip-echo] test_loss=0.0776 test_metric=0.2083
+[2026-04-27 10:19:02,337][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0770 test_metric=0.2074
+[2026-04-27 10:19:02,337][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0780 test_metric=0.2090
+[2026-04-27 10:19:02,337][__main__][INFO] -   [srnn-skip] test_loss=0.0774 test_metric=0.2080
+[2026-04-27 10:19:02,337][__main__][INFO] -   [srnn-sfa-e-only-skip] test_loss=0.0781 test_metric=0.2091
+[2026-04-27 10:19:02,337][__main__][INFO] -   [srnn-std-e-only-skip] test_loss=0.0775 test_metric=0.2082
+[2026-04-27 10:24:23,839][__main__][INFO] - Epoch 81:
+[2026-04-27 10:24:23,840][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0799 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2090
+[2026-04-27 10:24:23,840][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0791 train_metric=0.2101 valid_loss=0.0778 valid_metric=0.2080
+[2026-04-27 10:24:23,840][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0800 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 10:24:23,840][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0794 train_metric=0.2106 valid_loss=0.0780 valid_metric=0.2083
+[2026-04-27 10:24:23,840][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 10:24:23,840][__main__][INFO] -   [srnn-skip] train_loss=0.0798 train_metric=0.2112 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:24:23,840][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 10:24:23,840][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2091
+  [periodic-upload] Epoch 81: uploading to GCS...
+[2026-04-27 10:29:46,004][__main__][INFO] - Epoch 82:
+[2026-04-27 10:29:46,005][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0798 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:29:46,005][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0791 train_metric=0.2101 valid_loss=0.0777 valid_metric=0.2079
+[2026-04-27 10:29:46,005][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0800 train_metric=0.2116 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 10:29:46,005][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0794 train_metric=0.2106 valid_loss=0.0780 valid_metric=0.2083
+[2026-04-27 10:29:46,005][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 10:29:46,005][__main__][INFO] -   [srnn-skip] train_loss=0.0798 train_metric=0.2112 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:29:46,005][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 10:29:46,005][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 10:35:08,723][__main__][INFO] - Epoch 83:
+[2026-04-27 10:35:08,724][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0798 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:35:08,724][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0791 train_metric=0.2101 valid_loss=0.0777 valid_metric=0.2079
+[2026-04-27 10:35:08,724][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 10:35:08,724][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0794 train_metric=0.2106 valid_loss=0.0780 valid_metric=0.2083
+[2026-04-27 10:35:08,724][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 10:35:08,724][__main__][INFO] -   [srnn-skip] train_loss=0.0798 train_metric=0.2112 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:35:08,724][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 10:35:08,724][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 10:40:32,742][__main__][INFO] - Epoch 84:
+[2026-04-27 10:40:32,743][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0798 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:40:32,743][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0790 train_metric=0.2101 valid_loss=0.0777 valid_metric=0.2079
+[2026-04-27 10:40:32,743][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 10:40:32,743][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0794 train_metric=0.2105 valid_loss=0.0780 valid_metric=0.2083
+[2026-04-27 10:40:32,743][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 10:40:32,743][__main__][INFO] -   [srnn-skip] train_loss=0.0798 train_metric=0.2112 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:40:32,743][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 10:40:32,743][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2091
+[2026-04-27 10:45:56,133][__main__][INFO] - Epoch 85:
+[2026-04-27 10:45:56,134][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0798 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:45:56,134][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0790 train_metric=0.2100 valid_loss=0.0777 valid_metric=0.2079
+[2026-04-27 10:45:56,135][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 10:45:56,135][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0794 train_metric=0.2105 valid_loss=0.0780 valid_metric=0.2083
+[2026-04-27 10:45:56,135][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 10:45:56,135][__main__][INFO] -   [srnn-skip] train_loss=0.0798 train_metric=0.2112 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:45:56,135][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 10:45:56,135][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 10:51:17,484][__main__][INFO] - Epoch 86:
+[2026-04-27 10:51:17,485][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0798 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:51:17,485][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0790 train_metric=0.2100 valid_loss=0.0777 valid_metric=0.2079
+[2026-04-27 10:51:17,485][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 10:51:17,485][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0794 train_metric=0.2105 valid_loss=0.0780 valid_metric=0.2083
+[2026-04-27 10:51:17,485][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 10:51:17,485][__main__][INFO] -   [srnn-skip] train_loss=0.0798 train_metric=0.2112 valid_loss=0.0784 valid_metric=0.2088
+[2026-04-27 10:51:17,486][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 10:51:17,486][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 10:56:41,933][__main__][INFO] - Epoch 87:
+[2026-04-27 10:56:41,935][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0798 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 10:56:41,935][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0790 train_metric=0.2100 valid_loss=0.0777 valid_metric=0.2079
+[2026-04-27 10:56:41,935][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 10:56:41,935][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0794 train_metric=0.2105 valid_loss=0.0780 valid_metric=0.2083
+[2026-04-27 10:56:41,935][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 10:56:41,935][__main__][INFO] -   [srnn-skip] train_loss=0.0798 train_metric=0.2112 valid_loss=0.0784 valid_metric=0.2088
+[2026-04-27 10:56:41,935][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 10:56:41,935][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 11:02:04,593][__main__][INFO] - Epoch 88:
+[2026-04-27 11:02:04,594][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0798 train_metric=0.2113 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 11:02:04,594][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0790 train_metric=0.2100 valid_loss=0.0777 valid_metric=0.2079
+[2026-04-27 11:02:04,594][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 11:02:04,594][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0794 train_metric=0.2105 valid_loss=0.0780 valid_metric=0.2083
+[2026-04-27 11:02:04,594][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 11:02:04,594][__main__][INFO] -   [srnn-skip] train_loss=0.0798 train_metric=0.2112 valid_loss=0.0784 valid_metric=0.2088
+[2026-04-27 11:02:04,594][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 11:02:04,594][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 11:07:27,065][__main__][INFO] - Epoch 89:
+[2026-04-27 11:07:27,066][__main__][INFO] -   [srnn-e-only-skip] train_loss=0.0798 train_metric=0.2112 valid_loss=0.0784 valid_metric=0.2089
+[2026-04-27 11:07:27,066][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0790 train_metric=0.2100 valid_loss=0.0777 valid_metric=0.2079
+[2026-04-27 11:07:27,066][__main__][INFO] -   [srnn-e-only-skip-echo] train_loss=0.0800 train_metric=0.2115 valid_loss=0.0786 valid_metric=0.2092
+[2026-04-27 11:07:27,066][__main__][INFO] -   [srnn-no-dales-skip] train_loss=0.0793 train_metric=0.2105 valid_loss=0.0780 valid_metric=0.2083
+[2026-04-27 11:07:27,066][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0806 train_metric=0.2124 valid_loss=0.0791 valid_metric=0.2100
+[2026-04-27 11:07:27,067][__main__][INFO] -   [srnn-skip] train_loss=0.0798 train_metric=0.2112 valid_loss=0.0784 valid_metric=0.2088
+[2026-04-27 11:07:27,067][__main__][INFO] -   [srnn-sfa-e-only-skip] train_loss=0.0807 train_metric=0.2126 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-27 11:07:27,067][__main__][INFO] -   [srnn-std-e-only-skip] train_loss=0.0799 train_metric=0.2114 valid_loss=0.0785 valid_metric=0.2090
+[2026-04-27 11:07:51,260][__main__][INFO] - Test [last @ epoch 89]:
+[2026-04-27 11:07:51,260][__main__][INFO] -   [srnn-e-only-skip] test_loss=0.0774 test_metric=0.2080
+[2026-04-27 11:07:51,260][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0766 test_metric=0.2068
+[2026-04-27 11:07:51,260][__main__][INFO] -   [srnn-e-only-skip-echo] test_loss=0.0776 test_metric=0.2083
+[2026-04-27 11:07:51,260][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0769 test_metric=0.2073
+[2026-04-27 11:07:51,260][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0780 test_metric=0.2090
+[2026-04-27 11:07:51,260][__main__][INFO] -   [srnn-skip] test_loss=0.0774 test_metric=0.2080
+[2026-04-27 11:07:51,260][__main__][INFO] -   [srnn-sfa-e-only-skip] test_loss=0.0781 test_metric=0.2091
+[2026-04-27 11:07:51,260][__main__][INFO] -   [srnn-std-e-only-skip] test_loss=0.0775 test_metric=0.2081
+=== Training complete 2026-04-27T11:07:52+00:00 ===
+SUCCESS
+=== Cleanup (exit=0) 2026-04-27T11:07:52+00:00 ===
