@@ -131,6 +131,8 @@ SRNN_PRESETS: dict[str, SRNNConfig] = {
     "srnn-sfa-only": SRNNConfig(n_a_E=1, n_a_I=1, n_b_E=0, n_b_I=0),
     "srnn-std-only": SRNNConfig(n_a_E=0, n_a_I=0, n_b_E=1, n_b_I=1),
     "srnn-E-only": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0),
+    "srnn-sfa-e-only": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=0, n_b_I=0),
+    "srnn-std-e-only": SRNNConfig(n_a_E=0, n_a_I=0, n_b_E=1, n_b_I=0),
     "srnn-e-only-echo": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, echo=True),
     "srnn-e-only-per-neuron": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, per_neuron=True),
     "srnn-e-only-skip": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, skip=True),
