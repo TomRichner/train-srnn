@@ -205,3 +205,46 @@ If you want the IC parameter to learn:
 
 - Replace `with torch.no_grad():` with an explicit `state = state.detach()` wrapper that only severs the gradient once, **after** the first no-grad cell call — still loses the IC connection.
 - A real fix would need either: (a) running the forward-only prefix with gradients on but using gradient checkpointing to control memory; (b) a separate gradient path where `self.ic`'s gradient is computed through a short fully-tracked prefix and then summed in; or (c) accepting that IC + truncated BPTT is incompatible and exposing this in docs + removing `trainable_ic` from the default when `bptt_len < window_len`.
+
+---
+
+## 5. `W_in` initialization is not fan-in scaled
+
+**Summary.** `W_in` is initialized with a fixed σ = 0.1 regardless of `input_size`, so per-neuron input-drive variance scales linearly with the number of input channels. This produces a 3× spread in init drive magnitude across the supported tasks — purely a function of `task.input_size`, not anything the user controls. The trainable `W_in_gain` scalar (init 1.0) eventually compensates, but training starts from a dimensionality-dependent operating point.
+
+**Where the limitation lives.**
+
+`BatchedSRNNCell.__init__` (`train_srnn/models/srnn_cell.py:818`):
+```python
+self.W_in = nn.Parameter(torch.randn(self.K, N, input_size) * 0.1)
+```
+
+The single-cell `SRNNCell` has the analogous `randn * 0.1` init (search `W_in` in `srnn_cell.py`). Neither path applies a `1/√input_size` factor.
+
+**Per-neuron drive variance at init.** With z-scored inputs (e.g. SEEG via `load_seeg`'s per-channel z-score on train stats, `datasets.py:673–678`), each input channel is ≈ N(0, 1). The pre-mask drive at neuron i is `Σⱼ W_in[i,j]·inputs[j]`, variance `input_size · 0.01`:
+
+| Task            | `input_size` | drive σ |
+|-----------------|-------------:|--------:|
+| seeg            | 89           | 0.94    |
+| smnist (rowwise)| 28           | 0.53    |
+| cheetah         | 17           | 0.41    |
+| HAR             | 9            | 0.30    |
+| occupancy       | 5            | 0.22    |
+| serial_smnist (planned) | 1    | 0.10    |
+
+The masked W_in (only the ~25% input partition receives drive) doesn't change this — the mask is applied at forward time, not init.
+
+**`W_out` is fine.** The readout uses `nn.init.kaiming_uniform_(... a=math.sqrt(5))` (`sequence_model.py:130`), which is exactly `nn.Linear`'s default and gives variance `1/(3·fan_in)` where `fan_in = effective_output_size` (~N/4). Per-output-channel logit variance at init is ≈ `E[r²]/3`, independent of `N` and `output_size`. No fix needed.
+
+**Practical consequences.**
+- Cross-task ablations are not on equal footing at init — a wide-input task (seeg) starts saturated, a narrow-input task (HAR, occupancy) starts under-driven, before training has done anything.
+- The `W_in_gain` trainable scalar partially absorbs the mismatch (training history typically shows it moves several %), but the early-epoch loss landscape differs by task in ways orthogonal to the model's actual capacity.
+- A `serial_smnist` task with `input_size = 1` (planned, see §3) would land at drive σ = 0.1 — likely too small to see input over recurrent activity at init.
+
+**Fix sketch.**
+- Single cell and batched cell: change init to `randn(...) / math.sqrt(input_size)` so per-neuron drive σ ≈ 1.0 at init regardless of task. Equivalent to the standard `nn.Linear` Kaiming default applied to the input projection.
+- Existing checkpoints replay correctly (state dict load is unaffected); only fresh runs would converge differently.
+- `W_in_gain` semantics are unchanged — it remains a learnable post-multiplier; it would just start from a sensible scale.
+- Optionally, since `W_in_mask` zeros ~75% of the matrix at every forward, the *effective* fan-in is the size of the input partition (~N/4 entries per row when computing the drive). If that's the better target, scale by `1/√n_input_neurons` instead — but `1/√input_size` is the conventional choice and matches what `nn.Linear` would do.
+
+**Why not fix now.** All current SEEG/HAR/etc. results were obtained under the existing init. Switching the W_in scale changes the init operating point and would invalidate cross-run comparisons until everything is re-run. Worth doing before the next batch of cross-task experiments, not in the middle of an existing series.

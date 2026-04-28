@@ -695,6 +695,16 @@ def parse_args():
     p.add_argument("--skip-download", action="store_true", help="skip GCS download; use existing local files only")
     p.add_argument("--variants", default=None, help="comma-separated variant names to render per-variant (default: all)")
     p.add_argument("--no-report", action="store_true", help="skip the consolidated PDF report")
+    p.add_argument("--skip-replay", action="store_true",
+                   help="skip the forward-replay time-series phase")
+    p.add_argument("--replay-modes", default="no_input,step,seeg",
+                   help="comma-separated subset of {no_input,step,seeg} (default: all three)")
+    p.add_argument("--replay-t-start", type=float, default=-15.0,
+                   help="replay start time in seconds (negative = zero-input warm-up; default: -15)")
+    p.add_argument("--replay-t-end", type=float, default=30.0,
+                   help="replay end time in seconds (default: 30)")
+    p.add_argument("--replay-plot-fs", type=float, default=25.0,
+                   help="replay plot decimation rate in Hz (default: 25)")
     return p.parse_args()
 
 
@@ -715,6 +725,28 @@ def main():
     print(f"\n=== Phase 3: per-variant outputs ===")
     variants_filter = [s.strip() for s in args.variants.split(",")] if args.variants else None
     run_per_variant(run_dir, snaps, ablation_names, variants_filter)
+
+    if not args.skip_replay:
+        print(f"\n=== Phase 3b: forward-replay time-series ===")
+        ckpt_path = run_dir / "last.pt"
+        if not ckpt_path.exists():
+            print(f"  last.pt missing in {run_dir} — skipping replay phase")
+        else:
+            if str(REPO) not in sys.path:
+                sys.path.insert(0, str(REPO))
+            from scripts.plots.plot_srnn_timeseries import plot_replay
+            modes = [m.strip() for m in args.replay_modes.split(",") if m.strip()]
+            for m in modes:
+                try:
+                    plot_replay(
+                        ckpt_path=ckpt_path,
+                        out_dir=run_dir,
+                        mode=m,
+                        t_range=(args.replay_t_start, args.replay_t_end),
+                        plot_fs=args.replay_plot_fs,
+                    )
+                except Exception as e:
+                    print(f"  [replay] mode={m} failed: {e}")
 
     if not args.no_report:
         print(f"\n=== Phase 4: consolidated PDF report ===")

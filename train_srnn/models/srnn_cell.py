@@ -1226,6 +1226,80 @@ class BatchedSRNNCell(nn.Module):
         x = 0.1 * torch.randn_like(x)
         return self.pack_state(a_E, a_I, b_E, b_I, x)
 
+    # ---- Diagnostics (read-only) ----
+
+    def get_diagnostics(
+        self,
+        state: torch.Tensor,
+        inputs: Optional[torch.Tensor] = None,
+    ) -> dict:
+        """Recompute solver-internal quantities from a packed state.
+
+        Mirrors the x_eff / r / b_full block of ``_batched_step_semi_implicit``
+        and ``_batched_compute_rhs`` exactly. No state mutation, no parameters.
+        Useful for visualisation, FTLE, phase-plane analysis, etc.
+
+        Parameters
+        ----------
+        state : (K, B, max_state_dim)
+        inputs : (K, B, input_size) or (B, input_size), optional
+            If provided, ``u`` is included in the returned dict.
+
+        Returns
+        -------
+        dict with keys (all (K, B, ...) tensors):
+            x       : dendritic potential
+            x_eff   : x with SFA contributions subtracted (input to threshold)
+            r       : firing rate, piecewise_sigmoid(x_eff - a_0)
+            b_E     : raw STD E values (ones if STD inactive in that variant)
+            b_I     : raw STD I values
+            b_full  : (K, B, N) STD value used in br = b_full * r
+            a_E     : (K, B, n_E, max_n_a_E) SFA E values
+            a_I     : (K, B, n_I, max_n_a_I) SFA I values
+            br      : b_full * r (synaptic output)
+            u       : (K, B, N) post-W_in input drive (only if inputs given)
+        """
+        K = self.K
+        n_E, n_I, N = self.n_E, self.n_I, self.N
+
+        a_E, a_I, b_E, b_I, x = self.unpack_state(state)
+
+        # Effective potential -- mirror _batched_step_semi_implicit:1292-1306
+        x_eff = x.clone()
+        if self.max_n_a_E > 0:
+            c_E = self._c_E()
+            c_E_masked = c_E * self.sfa_E_mask
+            sfa_E_contrib = (c_E_masked.unsqueeze(1) * a_E).sum(-1)
+            x_eff = torch.cat([x[:, :, :n_E] - sfa_E_contrib, x_eff[:, :, n_E:]], dim=-1)
+        if self.max_n_a_I > 0:
+            c_I = self._c_I()
+            c_I_masked = c_I * self.sfa_I_mask
+            sfa_I_contrib = (c_I_masked.unsqueeze(1) * a_I).sum(-1)
+            x_eff = torch.cat([x_eff[:, :, :n_E], x_eff[:, :, n_E:] - sfa_I_contrib], dim=-1)
+
+        r = piecewise_sigmoid(x_eff - self._a_0().unsqueeze(1))
+
+        # b_full: variants with inactive STD see b_full == 1 regardless of b_E/b_I
+        b_full_E = b_E * self.std_E_mask.unsqueeze(1) + (1.0 - self.std_E_mask.unsqueeze(1))
+        b_full_I = b_I * self.std_I_mask.unsqueeze(1) + (1.0 - self.std_I_mask.unsqueeze(1))
+        b_full = torch.cat([b_full_E, b_full_I], dim=-1)
+        br = b_full * r
+
+        out = {
+            "x": x,
+            "x_eff": x_eff,
+            "r": r,
+            "b_E": b_E,
+            "b_I": b_I,
+            "b_full": b_full,
+            "a_E": a_E,
+            "a_I": a_I,
+            "br": br,
+        }
+        if inputs is not None:
+            out["u"] = self._batched_input_drive(inputs)
+        return out
+
     # ---- BMM recurrent drive ----
 
     def _batched_recurrent_drive(
