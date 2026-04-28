@@ -1,0 +1,16 @@
+{
+  "run_name": "overnight-cl250",
+  "experiment": "seeg",
+  "model": "srnn",
+  "seed": 1,
+  "exit_code": 0,
+  "vm_name": "devbox-srnn-seeg-seed1",
+  "hardware": "gpu-l4",
+  "start_time": "2026-04-28T03:36:11Z",
+  "completed": "2026-04-28T09:48:51Z",
+  "duration_seconds": 22356,
+  "commit": "f89ba4c374d7053c6f91ba2d6f5eee609a900a80",
+  "train_args": "epochs=100 size=256 batch_size=12 window_len=3750 bptt_len=2500 bptt_chunk_len=125 loss_over_bptt=true stretch_lo=1.0 stretch_hi=1.0 no_augment=true  epochs=100 size=300 batch_size=24 model.h=0.004 model.ode_unfolds=1 window_len=3750 bptt_len=2500 bptt_chunk_len=250 stretch_lo=1.0 stretch_hi=1.0 no_augment=true loss_over_bptt=true lr=0.0005 cosine_decay=false batched_ablations=[srnn-e-only-per-neuron,srnn-e-only-skip-per-neuron,srnn-sfa-e-only-per-neuron,srnn-sfa-e-only-skip-per-neuron,srnn-std-e-only-per-neuron,srnn-std-e-only-skip-per-neuron] compile=false amp=bf16 grad_checkpoint=true grad_checkpoint_segment_len=4",
+  "cleanup_mode": "stop",
+  "skip_refresh": 0
+}

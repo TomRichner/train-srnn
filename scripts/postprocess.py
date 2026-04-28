@@ -577,6 +577,95 @@ def write_param_table(out_dir: Path, run_label: str, snaps, k, name):
 # Orchestration
 # =============================================================================
 
+def build_report(run_dir: Path, ablation_names: list[str], variants_filter: list[str] | None):
+    """Assemble a single PDF report:
+       - log-log loss curves first (skip + no-skip)
+       - then per variant: tau_evolution + W_EI_evolution on one page,
+         param_table on the next page, with the variant name as an H1 at
+         the top-left of every page.
+    """
+    if not shutil.which("pandoc"):
+        print("[report] pandoc not in PATH — skipping PDF assembly")
+        return
+    if not shutil.which("lualatex"):
+        print("[report] lualatex not in PATH — skipping PDF assembly (install MacTeX)")
+        return
+
+    selected = ablation_names if not variants_filter else [n for n in ablation_names if n in variants_filter]
+
+    md = []
+    # YAML frontmatter — geometry + small font so the wide param tables fit US-letter
+    md += [
+        f"# Run: {run_dir.name}",
+        "",
+        "## Log-log loss curves",
+        "",
+    ]
+    for grp in ("skip", "no-skip"):
+        png = run_dir / f"log_log_curves_{grp}.png"
+        if png.exists():
+            md.append(f"![{grp} variants — log-log loss/metric](log_log_curves_{grp}.png){{ width=95% }}")
+            md.append("")
+
+    for name in selected:
+        out = run_dir / name
+        tau_p = out / "tau_evolution.png"
+        w_p = out / "W_EI_evolution.png"
+        tbl_p = out / "param_table.txt"
+        if not (tau_p.exists() or w_p.exists() or tbl_p.exists()):
+            continue
+        md += ["\\newpage", "", f"# {name}", ""]
+        if tau_p.exists():
+            md.append(f"![Tau evolution]({name}/tau_evolution.png){{ width=95% }}")
+            md.append("")
+        if w_p.exists():
+            md.append(f"![W\\_EI evolution]({name}/W_EI_evolution.png){{ width=95% }}")
+            md.append("")
+        if tbl_p.exists():
+            md += ["\\newpage", "", f"# {name} — parameter table", "", "```text"]
+            md.append(tbl_p.read_text().rstrip())
+            md += ["```", ""]
+
+    run_dir_abs = run_dir.resolve()
+    md_path = run_dir_abs / "report.md"
+    md_path.write_text("\n".join(md))
+    pdf_path = run_dir_abs / "report.pdf"
+
+    # Header-includes file: small monospace font for the param tables, and
+    # fancyhdr running header showing the current section in the upper-left.
+    header_tex = run_dir_abs / "_report_header.tex"
+    header_tex.write_text(
+        "\\usepackage{fvextra}\n"
+        "\\DefineVerbatimEnvironment{Highlighting}{Verbatim}"
+        "{breaklines,fontsize=\\scriptsize,commandchars=\\\\\\{\\}}\n"
+        "\\usepackage{fancyhdr}\n"
+        "\\pagestyle{fancy}\n"
+        "\\fancyhf{}\n"
+        "\\fancyhead[L]{\\leftmark}\n"
+        "\\renewcommand{\\sectionmark}[1]{\\markboth{#1}{}}\n"
+        "\\renewcommand{\\headrulewidth}{0pt}\n"
+    )
+
+    cmd = [
+        "pandoc", str(md_path),
+        "-f", "markdown+tex_math_single_backslash",
+        "--pdf-engine=lualatex",
+        "-V", "geometry:top=0.5in,bottom=0.5in,left=0.5in,right=0.5in",
+        "-V", "papersize=letter",
+        "-V", "fontsize=9pt",
+        "-H", str(header_tex),
+        "-o", str(pdf_path),
+    ]
+    # cwd=run_dir_abs so that relative image paths in report.md resolve correctly
+    res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(run_dir_abs))
+    if res.returncode != 0:
+        print(f"[report] pandoc failed (exit {res.returncode}):")
+        print(res.stderr[-2000:])
+        return
+    print(f"  wrote report.md")
+    print(f"  wrote report.pdf")
+
+
 def run_per_variant(run_dir: Path, snaps, ablation_names: list[str], variants_filter: list[str] | None):
     if not ablation_names:
         print("[per-variant] no ablation_names found in last.pt — skipping per-variant phase")
@@ -605,6 +694,7 @@ def parse_args():
     p.add_argument("--tmp-dir", default=str(DEFAULT_TMP), help=f"local destination root (default: {DEFAULT_TMP})")
     p.add_argument("--skip-download", action="store_true", help="skip GCS download; use existing local files only")
     p.add_argument("--variants", default=None, help="comma-separated variant names to render per-variant (default: all)")
+    p.add_argument("--no-report", action="store_true", help="skip the consolidated PDF report")
     return p.parse_args()
 
 
@@ -625,6 +715,10 @@ def main():
     print(f"\n=== Phase 3: per-variant outputs ===")
     variants_filter = [s.strip() for s in args.variants.split(",")] if args.variants else None
     run_per_variant(run_dir, snaps, ablation_names, variants_filter)
+
+    if not args.no_report:
+        print(f"\n=== Phase 4: consolidated PDF report ===")
+        build_report(run_dir, ablation_names, variants_filter)
 
     print(f"\n=== Done — outputs in {run_dir} ===")
 
