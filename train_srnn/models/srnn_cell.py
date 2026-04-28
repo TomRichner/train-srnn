@@ -148,6 +148,14 @@ SRNN_PRESETS: dict[str, SRNNConfig] = {
         n_a_E=3, n_a_I=0, n_b_E=0, n_b_I=0, skip=True),
     "srnn-std-e-only-skip": SRNNConfig(
         n_a_E=0, n_a_I=0, n_b_E=1, n_b_I=0, skip=True),
+    "srnn-sfa-e-only-per-neuron": SRNNConfig(
+        n_a_E=3, n_a_I=0, n_b_E=0, n_b_I=0, per_neuron=True),
+    "srnn-std-e-only-per-neuron": SRNNConfig(
+        n_a_E=0, n_a_I=0, n_b_E=1, n_b_I=0, per_neuron=True),
+    "srnn-sfa-e-only-skip-per-neuron": SRNNConfig(
+        n_a_E=3, n_a_I=0, n_b_E=0, n_b_I=0, per_neuron=True, skip=True),
+    "srnn-std-e-only-skip-per-neuron": SRNNConfig(
+        n_a_E=0, n_a_I=0, n_b_E=1, n_b_I=0, per_neuron=True, skip=True),
     "srnn-multi-sfa": SRNNConfig(n_a_E=2, n_a_I=2),
     "srnn-multi-sfa-E": SRNNConfig(n_a_E=2, n_a_I=0, n_b_E=1, n_b_I=0),
     "srnn-no-dales": SRNNConfig(dales=False),
