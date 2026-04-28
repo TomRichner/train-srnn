@@ -1,0 +1,23 @@
+# Gradient direction consistency for variant: srnn-e-only-skip
+# 16 batches, bptt_chunk_len=128, batch_size=4, window_len=1024, bptt_len=768, fresh init.
+#
+# mean_pairwise_cosine: average of cos(g_i, g_j) for i≠j; close to 1 = consistent direction,
+#                       close to 0 = direction is noise (Adam can't accumulate momentum).
+# concentration:        ‖<g>‖ / <‖g‖>; 1 = all batches point the same way, 0 = pure noise.
+
+param                                  <|g|>      std|g|     <cos>   concentration
+----------------------------------------------------------------------------------
+a_0_scalar                         8.790e-03   1.088e-03     1.000           1.000
+readout_bias                       3.648e-03   2.995e-04     0.966           0.984
+W_in                               1.961e-03   3.644e-04     0.353           0.625
+readout_weight                     1.446e-03   2.565e-04     0.861           0.933
+W_raw_gain                         8.504e-04   2.612e-04     1.000           1.000
+c_0_E_scalar                       6.134e-04   1.058e-04     1.000           1.000
+log_tau_b_rel_E_gain               4.924e-04   1.107e-04     1.000           1.000
+W_raw                              3.645e-04   7.548e-05     0.773           0.886
+log_tau_d_gain                     3.487e-04   1.481e-04     1.000           1.000
+log_tau_b_rec_E_gain               2.566e-04   5.241e-05     1.000           1.000
+log_c_E_gain                       1.144e-04   2.086e-05     1.000           1.000
+W_in_gain                          8.974e-05   7.011e-05     0.000           0.673
+log_tau_global                     8.148e-05   6.394e-05     0.083           0.637
+log_tau_a_E_gain                   3.079e-05   6.305e-06     1.000           1.000

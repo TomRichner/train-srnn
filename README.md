@@ -149,6 +149,40 @@ python cloud/collect_results.py full-run --output results.csv
 
 VMs self-delete after training completes and results are uploaded to GCS.
 
+## Post-run analysis
+
+One command does it all — downloads a run from GCS, generates run-level loss/metric/LR/weight-evolution plots, and emits per-variant tau evolution, W_EI evolution, and effective-parameter tables into per-variant subfolders:
+
+```bash
+python scripts/postprocess.py <run_name>
+# Optional flags:
+#   --task <name>             # default: seeg
+#   --seed <n>                # default: 1
+#   --bucket gs://...         # default: from cloud/config.env
+#   --skip-download           # use existing tmp/<run>/ contents
+#   --variants v1,v2,...      # restrict per-variant outputs
+```
+
+Output layout:
+
+```
+tmp/<run>/
+  init.pt, last.pt, epoch_*.pt, *.csv, *.json, training_log.txt
+  curves_{skip,no-skip}.png         linear, semilogy, log_log, semilogy_direct
+  lr_schedule.png                   linear / semilogy / log-log
+  weight_evolution.png              top-16 most-changed params
+  <variant>/
+    tau_evolution.png               with grey overlay on masked-inactive panels
+    W_EI_evolution.png              mean E vs I recurrent weights
+    param_table.txt                 effective (post-transform) values, init vs final
+```
+
+Loss/metric curves are split skip vs no-skip because the autoregressive skip residual gives those variants a much lower y-scale baseline. `param_table.txt` reports **effective (post-transform) values** — what actually multiplies things on the right-hand side after softplus/exp/scale composition — with init/final mean & std for each parameter group.
+
+For diagnostic gradient analysis (chunk-length sensitivity, direction consistency), see `scripts/grad_norm_probe.py` and `scripts/grad_cosine_consistency.py`.
+
+A complete LaTeX specification of the full model — every parameter, buffer, mask, ODE RHS, and ablation gating — lives in [`FullModel.md`](FullModel.md) (rendered to `FullModel.pdf` via pandoc + lualatex). Use it as the authoritative reference for what each effective parameter is and how it composes from raw stored values.
+
 ## Project Structure
 
 ```

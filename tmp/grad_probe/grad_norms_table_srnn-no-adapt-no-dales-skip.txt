@@ -1,0 +1,39 @@
+# Grad L2 norms vs bptt_chunk_len, variant: srnn-no-adapt-no-dales-skip
+# Sorted by |∇| at chunk_len=128 (descending).
+# Params with all-zero gradients are masked-out per-neuron *_vec params (grad hook zeros them for non-per-neuron variants).
+
+param                            cl=  16  cl=  32  cl=  64  cl= 128  cl= 256  cl= 512  | 512/16
+-----------------------------------------------------------------------------------------------
+a_0_scalar                       7.16e-02 7.41e-02 8.13e-02 9.34e-02 1.03e-01 1.22e-01 |   1.71
+W_raw                            7.53e-03 1.67e-02 3.54e-02 6.50e-02 1.14e-01 1.91e-01 |  25.38
+readout_weight                   5.00e-02 5.00e-02 5.00e-02 5.00e-02 5.00e-02 5.00e-02 |   1.00
+W_raw_gain                       6.52e-03 1.21e-02 2.05e-02 2.93e-02 3.72e-02 5.46e-02 |   8.37
+readout_bias                     2.37e-02 2.37e-02 2.37e-02 2.37e-02 2.37e-02 2.37e-02 |   1.00
+W_in                             9.86e-04 3.55e-03 8.32e-03 1.93e-02 4.23e-02 6.87e-02 |  69.73
+log_tau_d_gain                   3.36e-06 4.01e-04 3.37e-04 8.76e-04 5.51e-03 8.47e-03 | 2524.45
+log_tau_global                   2.12e-06 2.53e-04 2.13e-04 5.53e-04 3.48e-03 5.35e-03 | 2524.43
+W_in_gain                        2.24e-04 6.55e-04 4.86e-04 4.28e-04 1.57e-03 9.90e-04 |   4.42
+
+# Always-zero gradients (22 params, frozen by per-neuron grad mask):
+  a_0_vec
+  log_tau_d_vec
+  log_tau_a_E_vec
+  log_tau_a_E_gain
+  log_c_E_vec
+  log_c_E_gain
+  c_0_E_vec
+  c_0_E_scalar
+  log_tau_a_I_vec
+  log_tau_a_I_gain
+  log_c_I_vec
+  log_c_I_gain
+  c_0_I_vec
+  c_0_I_scalar
+  log_tau_b_rec_E_vec
+  log_tau_b_rec_E_gain
+  log_tau_b_rel_E_vec
+  log_tau_b_rel_E_gain
+  log_tau_b_rec_I_vec
+  log_tau_b_rec_I_gain
+  log_tau_b_rel_I_vec
+  log_tau_b_rel_I_gain

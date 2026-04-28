@@ -1,0 +1,25 @@
+# lr3e4-20ep — variant srnn-e-only-skip-echo (k=2)
+# Effective values (post-transform). Means/stds computed over the indicated dimension.
+effective parameter                  init mean    final mean    init std   final std          n
+-----------------------------------------------------------------------------------------------
+tau_global (s)                              +1      +0.98764           —           —     scalar
+tau_d (s)                                 +0.1      +0.10008           0           0        300
+tau_a_E (s)                            +4.8777       +4.7312       3.996       3.876        450
+tau_a_I (s)                           +0.69315      +0.68458           0           0        450
+tau_b_rec_E (s)                             +1       +1.0024           0           0        150
+tau_b_rel_E (s)                          +0.25      +0.24305           0           0        150
+tau_b_rec_I (s)                             +1      +0.98764           0           0        150
+tau_b_rel_I (s)                          +0.25      +0.24691           0           0        150
+W_eff (E src, signed)                 +0.23267       +0.2286     0.07641     0.07508      15048
+W_eff (I src, signed)                 -0.31062      -0.30519     0.07724     0.07589      14977
+|W_eff| (E src)                       +0.23267       +0.2286     0.07641     0.07508      15048
+|W_eff| (I src)                       +0.31062      +0.30519     0.07724     0.07589      14977
+W_in_eff (input neurons)           -0.00015382   -0.00019858     0.09934     0.09912       6675
+c_E (SFA coupling)                       +0.05     +0.050897           0           0        450
+c_0_E (SFA offset)                          +0     +0.018208           0           0        450
+c_I (SFA coupling)                       +0.05         +0.05           0           0        450
+c_0_I (SFA offset)                          +0            +0           0           0        450
+a_0 (threshold)                          +0.35      +0.36933           0           0        300
+readout_weight                     -0.00011373    -0.0011971     0.06687     0.06072       6675
+readout_bias                                +0   +0.00037265           0    0.005328         89
+ic.ic (per-variant init)              +0.15962      +0.17043      0.4124      0.4065       1500

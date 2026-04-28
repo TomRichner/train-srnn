@@ -1,0 +1,633 @@
+"""Unified post-run analysis: download + plots + tables.
+
+Single entry point. Replaces the legacy trio of:
+  - scripts/plots/plot_overnight9h.py     (loss/metric curves, weight evolution)
+  - scripts/plots/plot_lr_schedule.py     (LR schedule)
+  - scripts/plots/plot_param_evolution.py (per-variant tau/W_EI plots, param table)
+
+Usage:
+    python scripts/postprocess.py <run_name>
+    python scripts/postprocess.py overnight-cl250 --task seeg --seed 1
+    python scripts/postprocess.py myrun --skip-download
+    python scripts/postprocess.py myrun --variants srnn-skip,srnn-e-only-skip
+
+Output layout:
+    tmp/<run_name>/
+        init.pt, last.pt, epoch_*.pt, *.csv, *.json, training_log.txt
+        curves_{skip,no-skip}.png
+        semilogy_curves_{skip,no-skip}.png
+        log_log_curves_{skip,no-skip}.png
+        semilogy_direct_curves_{skip,no-skip}.png
+        lr_schedule.png
+        weight_evolution.png
+        <variant_1>/
+            tau_evolution.png
+            W_EI_evolution.png
+            param_table.txt
+        <variant_2>/...
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import os
+import shutil
+import subprocess
+import sys
+from collections import defaultdict
+from pathlib import Path
+from typing import Iterable
+
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torch.nn.functional as F
+
+
+REPO = Path(__file__).resolve().parents[1]
+DEFAULT_TMP = REPO / "tmp"
+DEFAULT_BUCKET = "gs://liquidneuralnets-experiments"
+
+
+# =============================================================================
+# Phase 1: download
+# =============================================================================
+
+def _read_bucket_from_config() -> str:
+    """Parse cloud/config.env for GCP_BUCKET; fall back to default."""
+    cfg = REPO / "cloud" / "config.env"
+    if not cfg.exists():
+        return DEFAULT_BUCKET
+    for line in cfg.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("GCP_BUCKET="):
+            val = line.split("=", 1)[1].strip().strip('"').strip("'")
+            return val or DEFAULT_BUCKET
+    return DEFAULT_BUCKET
+
+
+def _gsutil(*args: str, capture: bool = True) -> subprocess.CompletedProcess:
+    if not shutil.which("gsutil"):
+        sys.exit("ERROR: gsutil not found in PATH. Install Google Cloud SDK.")
+    return subprocess.run(
+        ["gsutil", *args],
+        capture_output=capture,
+        text=True,
+        check=False,
+    )
+
+
+def ensure_local_run(args) -> Path:
+    """Download (or reuse) artifacts for <run_name>/srnn/<task>/seed<seed>/."""
+    local = Path(args.tmp_dir) / args.run_name
+    local.mkdir(parents=True, exist_ok=True)
+
+    if args.skip_download:
+        print(f"[download] --skip-download set, using {local} as-is")
+        return local
+
+    remote_prefix = f"{args.bucket}/results-pytorch/{args.run_name}/srnn/{args.task}/seed{args.seed}"
+    print(f"[download] enumerating {remote_prefix}/*")
+    res = _gsutil("ls", f"{remote_prefix}/")
+    if res.returncode != 0:
+        sys.exit(f"ERROR: gsutil ls failed:\n{res.stderr}\n"
+                 f"Check that {remote_prefix} exists and you're authenticated.")
+
+    remote_files = [line.strip() for line in res.stdout.splitlines() if line.strip().startswith("gs://")]
+    if not remote_files:
+        sys.exit(f"ERROR: no files at {remote_prefix}/. Wrong run_name/task/seed?")
+
+    new = 0
+    skipped = 0
+    for rf in remote_files:
+        if rf.endswith("/"):  # subdirectory marker
+            continue
+        name = rf.rsplit("/", 1)[-1]
+        dest = local / name
+        if dest.exists() and dest.stat().st_size > 0:
+            skipped += 1
+            continue
+        print(f"[download] {name}")
+        cp = _gsutil("cp", rf, str(dest), capture=False)
+        if cp.returncode != 0:
+            sys.exit(f"ERROR: gsutil cp {rf} -> {dest} failed (exit {cp.returncode})")
+        new += 1
+    print(f"[download] done: {new} new, {skipped} cached, total {new+skipped} files")
+
+    # Sanity checks
+    must_have = ["last.pt", "training_history.csv"]
+    for fn in must_have:
+        if not (local / fn).exists():
+            sys.exit(f"ERROR: required file {fn} missing from {local}. Run incomplete?")
+    return local
+
+
+# =============================================================================
+# Common loaders
+# =============================================================================
+
+def load_snapshots(run_dir: Path):
+    """Returns (snaps, ablation_names) where snaps = [(label, x_epoch, model_state_dict), ...]
+    and x_epoch is the true epoch index from the checkpoint (init -> -1)."""
+    raw = []
+    init = run_dir / "init.pt"
+    if init.exists():
+        raw.append(("init", -1, torch.load(init, map_location="cpu", weights_only=False)))
+    for p in sorted(run_dir.glob("epoch_*.pt")):
+        ep = int(p.stem.split("_")[1])
+        raw.append((f"ep{ep:03d}", ep, torch.load(p, map_location="cpu", weights_only=False)))
+    last = run_dir / "last.pt"
+    if last.exists():
+        sd = torch.load(last, map_location="cpu", weights_only=False)
+        ep = int(sd["epoch"]) if isinstance(sd, dict) and "epoch" in sd else -1
+        raw.append(("last", ep, sd))
+
+    out = []
+    for label, ep, sd in raw:
+        ms = sd.get("model_state_dict", sd) if isinstance(sd, dict) else sd
+        out.append((label, ep, ms))
+    if not raw:
+        return [], []
+    ablation_names = list(raw[-1][2].get("ablation_names", []))
+    return out, ablation_names
+
+
+def load_history_by_variant(path: Path) -> dict[str, list[dict]]:
+    rows = list(csv.DictReader(open(path)))
+    by_variant: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        by_variant[r["variant"]].append(r)
+    return by_variant
+
+
+def x_axis(snaps) -> list[int]:
+    return [ep for (_, ep, _) in snaps]
+
+
+# =============================================================================
+# Phase 2A: loss / metric curves (split skip vs no-skip)
+# =============================================================================
+
+def _is_skip(variant: str) -> bool:
+    return "-skip" in variant
+
+
+def _draw_curves(axes, th, variant_subset, cmap):
+    for i, v in enumerate(variant_subset):
+        rows = th[v]
+        ep = [int(r["epoch"]) + 1 for r in rows]
+        c = cmap(i % 10)
+        axes[0, 0].plot(ep, [float(r["train_loss"]) for r in rows], color=c, label=v, lw=1)
+        axes[0, 1].plot(ep, [float(r["valid_loss"]) for r in rows], color=c, label=v, lw=1)
+        axes[1, 0].plot(ep, [float(r["train_metric"]) for r in rows], color=c, label=v, lw=1)
+        axes[1, 1].plot(ep, [float(r["valid_metric"]) for r in rows], color=c, label=v, lw=1)
+    axes[0, 0].set_title("train_loss");  axes[0, 1].set_title("valid_loss")
+    axes[1, 0].set_title("train_metric"); axes[1, 1].set_title("valid_metric")
+    for ax in axes.flat:
+        ax.set_xlabel("epoch"); ax.grid(alpha=0.3)
+    axes[0, 1].legend(fontsize=7, loc="best")
+
+
+def _save_curves_group(run_dir: Path, group_label: str, variants_in_group: list[str], th, test):
+    """Emit linear / semilogy / log_log curves for a single group of variants."""
+    if not variants_in_group:
+        return
+    cmap = plt.get_cmap("tab10")
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
+    _draw_curves(axes, th, variants_in_group, cmap)
+
+    final = {r["variant"]: float(r["test_loss"]) for r in test if r["tag"] == "last"}
+    init = {r["variant"]: float(r["test_loss"]) for r in test if r["tag"] == "init"}
+    txt = f"Final test_loss (init → last) [{group_label}]:\n" + "\n".join(
+        f"  {v}: {init.get(v, float('nan')):.5f} → {final.get(v, float('nan')):.5f}"
+        for v in variants_in_group
+    )
+    fig.suptitle(f"{run_dir.name} — {group_label} variants", fontsize=11)
+    fig.text(0.01, 0.01, txt, family="monospace", fontsize=8, va="bottom")
+    plt.tight_layout(rect=[0, 0.18, 1, 0.97])
+
+    plt.savefig(run_dir / f"curves_{group_label}.png", dpi=120)
+    print(f"  wrote curves_{group_label}.png")
+    for ax in axes.flat:
+        ax.set_yscale("log")
+    plt.savefig(run_dir / f"semilogy_curves_{group_label}.png", dpi=120)
+    print(f"  wrote semilogy_curves_{group_label}.png")
+    for ax in axes.flat:
+        ax.set_xscale("log")
+        ax.set_xlabel("epoch + 1 (log)")
+    plt.savefig(run_dir / f"log_log_curves_{group_label}.png", dpi=120)
+    print(f"  wrote log_log_curves_{group_label}.png")
+    plt.close(fig)
+
+
+def _save_semilogy_direct(run_dir: Path, group_label: str, variants_in_group: list[str], th):
+    """Direct ax.semilogy(...) version — keeps the 'no NaN dropped' panels for sanity."""
+    if not variants_in_group:
+        return
+    cmap = plt.get_cmap("tab10")
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
+    for i, v in enumerate(variants_in_group):
+        rows = th[v]
+        ep = [int(r["epoch"]) + 1 for r in rows]
+        c = cmap(i % 10)
+        axes[0, 0].semilogy(ep, [float(r["train_loss"]) for r in rows], color=c, label=v, lw=1)
+        axes[0, 1].semilogy(ep, [float(r["valid_loss"]) for r in rows], color=c, label=v, lw=1)
+        axes[1, 0].semilogy(ep, [float(r["train_metric"]) for r in rows], color=c, label=v, lw=1)
+        axes[1, 1].semilogy(ep, [float(r["valid_metric"]) for r in rows], color=c, label=v, lw=1)
+    axes[0, 0].set_title("train_loss");  axes[0, 1].set_title("valid_loss")
+    axes[1, 0].set_title("train_metric"); axes[1, 1].set_title("valid_metric")
+    for ax in axes.flat:
+        ax.set_xlabel("epoch + 1"); ax.grid(alpha=0.3, which="both")
+    axes[0, 1].legend(fontsize=7, loc="best")
+    fig.suptitle(f"{run_dir.name} — semilogy_direct ({group_label})", fontsize=11)
+    plt.tight_layout()
+    plt.savefig(run_dir / f"semilogy_direct_curves_{group_label}.png", dpi=120)
+    print(f"  wrote semilogy_direct_curves_{group_label}.png")
+    plt.close(fig)
+
+
+def plot_curves_split(run_dir: Path):
+    th = load_history_by_variant(run_dir / "training_history.csv")
+    te = list(csv.DictReader(open(run_dir / "test_history.csv")))
+    variants = sorted(th.keys())
+    skip = [v for v in variants if _is_skip(v)]
+    noskip = [v for v in variants if not _is_skip(v)]
+    _save_curves_group(run_dir, "skip", skip, th, te)
+    _save_curves_group(run_dir, "no-skip", noskip, th, te)
+    _save_semilogy_direct(run_dir, "skip", skip, th)
+    _save_semilogy_direct(run_dir, "no-skip", noskip, th)
+
+
+# =============================================================================
+# Phase 2B: LR schedule
+# =============================================================================
+
+def plot_lr_schedule(run_dir: Path):
+    rows = list(csv.DictReader(open(run_dir / "training_history.csv")))
+    if not rows:
+        print("  [lr_schedule] empty training_history.csv")
+        return
+    v0 = rows[0]["variant"]
+    ep, lr = [], []
+    for r in rows:
+        if r["variant"] != v0:
+            continue
+        ep.append(int(r["epoch"]))
+        lr.append(float(r["lr"]))
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    axes[0].plot(ep, lr, marker="o", ms=3); axes[0].set_title("LR schedule (linear)"); axes[0].set_xlabel("epoch")
+    axes[1].semilogy(ep, lr, marker="o", ms=3); axes[1].set_title("LR schedule (semilogy)"); axes[1].set_xlabel("epoch")
+    axes[2].loglog([e + 1 for e in ep], lr, marker="o", ms=3); axes[2].set_title("LR schedule (log-log)"); axes[2].set_xlabel("epoch + 1")
+    for ax in axes:
+        ax.set_ylabel("lr"); ax.grid(alpha=0.3, which="both")
+    plt.tight_layout()
+    out = run_dir / "lr_schedule.png"
+    plt.savefig(out, dpi=120); plt.close(fig)
+    print(f"  wrote lr_schedule.png  (peak={max(lr):.3e}, final={lr[-1]:.3e})")
+
+
+# =============================================================================
+# Phase 2C: weight evolution (top-16 most-changed params)
+# =============================================================================
+
+def plot_weight_evolution(run_dir: Path, snaps):
+    pts = sorted(run_dir.glob("epoch_*.pt"))
+    if not pts:
+        print("  [weight_evolution] no epoch_*.pt found"); return
+    epochs, snapshots = [], []
+    for p in pts:
+        epochs.append(int(p.stem.split("_")[1]))
+        sd = torch.load(p, map_location="cpu", weights_only=False)
+        if isinstance(sd, dict) and "model_state_dict" in sd:
+            sd = sd["model_state_dict"]
+        snapshots.append(sd)
+
+    keys = list(snapshots[0].keys())
+    norms: dict[str, np.ndarray] = {}
+    for k in keys:
+        try:
+            ts = [s[k].float() for s in snapshots]
+        except (KeyError, AttributeError):
+            continue
+        if ts[0].ndim == 0:
+            continue
+        n = np.array([t.norm().item() for t in ts])
+        if np.allclose(n, n[0]):
+            continue
+        norms[k] = n
+
+    if not norms:
+        print("  [weight_evolution] no varying params"); return
+
+    rel = sorted(norms.items(),
+                 key=lambda kv: abs(kv[1][-1] - kv[1][0]) / (abs(kv[1][0]) + 1e-9),
+                 reverse=True)[:16]
+    fig, ax = plt.subplots(figsize=(13, 8))
+    for k, n in rel:
+        ax.plot(epochs, n, marker="o", ms=3, lw=1, label=k)
+    ax.set_xlabel("epoch"); ax.set_ylabel("|param| (L2)")
+    ax.set_title(f"Top-16 most-changed param L2 norms ({run_dir.name}, {len(snapshots)} snapshots)")
+    ax.legend(fontsize=7, loc="best", ncol=2); ax.grid(alpha=0.3)
+    plt.tight_layout()
+    out = run_dir / "weight_evolution.png"
+    plt.savefig(out, dpi=120); plt.close(fig)
+    print(f"  wrote weight_evolution.png")
+    print("  Top-16 most-changed params (final / initial L2 norm):")
+    for k, n in rel:
+        pct = 100 * (n[-1] - n[0]) / (n[0] + 1e-9)
+        print(f"    {k:60s}  {n[0]:.4g} -> {n[-1]:.4g}  ({pct:+.2f}%)")
+
+
+# =============================================================================
+# Phase 3: per-variant tau / W_EI / param table
+# =============================================================================
+
+def effective_taus(ms, k):
+    tau_global = F.softplus(ms["cell.log_tau_global"])[k].item()
+    out = {"tau_global": tau_global}
+
+    def eff(vec_key, gain_key):
+        if vec_key not in ms:
+            return None
+        gain = torch.exp(ms[gain_key])[k].item()
+        vec = F.softplus(ms[vec_key])[k].numpy()
+        return tau_global * gain * vec
+
+    out["tau_d"] = eff("cell.log_tau_d_vec", "cell.log_tau_d_gain")
+    out["tau_a_E"] = eff("cell.log_tau_a_E_vec", "cell.log_tau_a_E_gain")
+    out["tau_a_I"] = eff("cell.log_tau_a_I_vec", "cell.log_tau_a_I_gain")
+    out["tau_b_rec_E"] = eff("cell.log_tau_b_rec_E_vec", "cell.log_tau_b_rec_E_gain")
+    out["tau_b_rel_E"] = eff("cell.log_tau_b_rel_E_vec", "cell.log_tau_b_rel_E_gain")
+    out["tau_b_rec_I"] = eff("cell.log_tau_b_rec_I_vec", "cell.log_tau_b_rec_I_gain")
+    out["tau_b_rel_I"] = eff("cell.log_tau_b_rel_I_vec", "cell.log_tau_b_rel_I_gain")
+    return {k_: v for k_, v in out.items() if v is not None}
+
+
+def effective_W(ms, k):
+    """Reproduce BatchedSRNNCell._effective_W for variant k."""
+    W_raw = ms["cell.W_raw"][k]
+    gain = ms["cell.W_raw_gain"][k].item()
+    dales_mask = ms["cell.dales_mask"][k].item()
+    dales_signs = ms["cell.dales_signs"][k]
+    sparsity = ms["cell.sparsity_masks"][k]
+    if dales_mask >= 0.5:
+        W_eff = dales_signs.unsqueeze(0) * F.softplus(W_raw)
+    else:
+        W_eff = W_raw
+    return (gain * W_eff * sparsity).numpy(), dales_signs.numpy(), sparsity.numpy()
+
+
+def effective_W_in(ms, k):
+    W_in = ms["cell.W_in"][k]
+    gain = ms["cell.W_in_gain"][k].item()
+    mask = ms["cell.W_in_mask"]                     # (1, N, 1) shared across variants
+    return (gain * W_in * mask.squeeze(0)).numpy()
+
+
+def effective_c(ms, k, side):
+    vec_key = f"cell.log_c_{side}_vec"; gain_key = f"cell.log_c_{side}_gain"
+    if vec_key not in ms:
+        return None
+    gain = torch.exp(ms[gain_key])[k].item()
+    return (gain * F.softplus(ms[vec_key])[k]).numpy()
+
+
+def effective_a_0(ms, k):
+    return (ms["cell.a_0_vec"][k] + ms["cell.a_0_scalar"][k]).numpy()
+
+
+def effective_c_0(ms, k, side):
+    vec_key = f"cell.c_0_{side}_vec"; sc_key = f"cell.c_0_{side}_scalar"
+    if vec_key not in ms:
+        return None
+    return (ms[vec_key][k] + ms[sc_key][k]).numpy()
+
+
+def is_tau_active(ms, k, key):
+    """Whether the given effective tau drives the loss for variant k."""
+    if key in ("tau_global", "tau_d"):
+        return True
+    if key == "tau_a_E":
+        m = ms.get("cell.sfa_E_mask"); return bool(m is not None and m[k].any().item())
+    if key == "tau_a_I":
+        m = ms.get("cell.sfa_I_mask"); return bool(m is not None and m[k].any().item())
+    if key in ("tau_b_rec_E", "tau_b_rel_E"):
+        m = ms.get("cell.std_E_mask"); return bool(m is not None and m[k].any().item())
+    if key in ("tau_b_rec_I", "tau_b_rel_I"):
+        m = ms.get("cell.std_I_mask"); return bool(m is not None and m[k].any().item())
+    return True
+
+
+def _grey_overlay(ax):
+    """20%-opacity grey covering the whole axes box (data-coords-independent)."""
+    ax.add_patch(plt.Rectangle(
+        (0, 0), 1, 1, transform=ax.transAxes,
+        facecolor="gray", alpha=0.20, zorder=10, edgecolor="none",
+    ))
+
+
+def plot_tau_evolution(out_dir: Path, run_label: str, snaps, k, name):
+    xs = x_axis(snaps)
+    series: dict[str, list[float]] = {}
+    for (_, _, ms) in snaps:
+        tau = effective_taus(ms, k)
+        for key, arr in tau.items():
+            if key == "tau_global":
+                series.setdefault(key, []).append(arr)
+            else:
+                a = arr.flatten() if arr.ndim > 1 else arr
+                series.setdefault(key + "_mean", []).append(a.mean())
+                series.setdefault(key + "_std", []).append(a.std())
+
+    last_ms = snaps[-1][2]
+    keys_present = sorted({s.replace("_mean", "").replace("_std", "") for s in series if s != "tau_global"})
+    n = len(keys_present) + 1
+    cols = 3; rows = (n + cols - 1) // cols
+    fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 3 * rows), squeeze=False)
+    flat = axes.flatten()
+    flat[0].plot(xs, series["tau_global"], "o-", lw=1.5, ms=4)
+    flat[0].set_title("tau_global"); flat[0].set_xlabel("epoch"); flat[0].set_ylabel("seconds"); flat[0].grid(alpha=0.3)
+    for i, key in enumerate(keys_present, start=1):
+        m = np.array(series[key + "_mean"]); s = np.array(series[key + "_std"])
+        ax = flat[i]
+        ax.plot(xs, m, "o-", lw=1.5, ms=4, color="C0", label="mean")
+        ax.fill_between(xs, m - s, m + s, alpha=0.2, color="C0", label="±std")
+        active = is_tau_active(last_ms, k, key)
+        title = f"effective {key}" + ("" if active else "  (masked — tau_global only)")
+        ax.set_title(title); ax.set_xlabel("epoch"); ax.set_ylabel("seconds"); ax.grid(alpha=0.3)
+        if not active:
+            _grey_overlay(ax)
+        if i == 1:
+            ax.legend(fontsize=8)
+    for j in range(len(keys_present) + 1, len(flat)):
+        flat[j].axis("off")
+    fig.suptitle(f"{run_label} — effective time constants ({name})", fontsize=11)
+    plt.tight_layout()
+    out = out_dir / "tau_evolution.png"
+    plt.savefig(out, dpi=120); plt.close(fig)
+    print(f"    wrote {name}/tau_evolution.png")
+
+
+def plot_W_EI_evolution(out_dir: Path, run_label: str, snaps, k, name):
+    xs = x_axis(snaps)
+    e_means, i_means, e_abs, i_abs = [], [], [], []
+    for (_, _, ms) in snaps:
+        W_eff, signs, sp = effective_W(ms, k)
+        e_cols = signs > 0; i_cols = signs < 0; nz = sp != 0
+        e_block = W_eff[:, e_cols]; i_block = W_eff[:, i_cols]
+        e_nz = nz[:, e_cols]; i_nz = nz[:, i_cols]
+        if e_nz.any():
+            e_means.append(float(e_block[e_nz].mean()))
+            e_abs.append(float(np.abs(e_block[e_nz]).mean()))
+        else:
+            e_means.append(np.nan); e_abs.append(np.nan)
+        if i_nz.any():
+            i_means.append(float(i_block[i_nz].mean()))
+            i_abs.append(float(np.abs(i_block[i_nz]).mean()))
+        else:
+            i_means.append(np.nan); i_abs.append(np.nan)
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+    axes[0].plot(xs, e_means, "o-", color="C3", label="mean E (signed)")
+    axes[0].plot(xs, i_means, "o-", color="C0", label="mean I (signed)")
+    axes[0].axhline(0, color="k", lw=0.5)
+    axes[0].set_title("Mean non-zero W_eff (signed)"); axes[0].set_xlabel("epoch"); axes[0].grid(alpha=0.3); axes[0].legend()
+    axes[1].plot(xs, e_abs, "o-", color="C3", label="|E|")
+    axes[1].plot(xs, i_abs, "o-", color="C0", label="|I|")
+    axes[1].set_title("Mean |W_eff| non-zero"); axes[1].set_xlabel("epoch"); axes[1].grid(alpha=0.3); axes[1].legend()
+    fig.suptitle(f"{run_label} — recurrent E vs I weights ({name})", fontsize=11)
+    plt.tight_layout()
+    out = out_dir / "W_EI_evolution.png"
+    plt.savefig(out, dpi=120); plt.close(fig)
+    print(f"    wrote {name}/W_EI_evolution.png")
+
+
+def stats(arr, mask=None):
+    a = np.asarray(arr).astype(np.float64)
+    if mask is not None:
+        a = a[mask]
+    if a.size == 0:
+        return float("nan"), float("nan"), 0
+    return float(a.mean()), float(a.std()), int(a.size)
+
+
+def write_param_table(out_dir: Path, run_label: str, snaps, k, name):
+    init_ms = snaps[0][2]; last_ms = snaps[-1][2]
+    rows = []
+
+    def add(label, a0, a1):
+        m0, s0, n0 = stats(a0); m1, s1, _ = stats(a1)
+        rows.append((label, f"{m0:+.5g}", f"{m1:+.5g}", f"{s0:.4g}", f"{s1:.4g}", str(n0)))
+
+    t0 = effective_taus(init_ms, k); t1 = effective_taus(last_ms, k)
+    rows.append(("tau_global (s)", f"{t0['tau_global']:+.5g}", f"{t1['tau_global']:+.5g}", "—", "—", "scalar"))
+    for key in ("tau_d", "tau_a_E", "tau_a_I", "tau_b_rec_E", "tau_b_rel_E", "tau_b_rec_I", "tau_b_rel_I"):
+        if key in t0:
+            add(f"{key} (s)", t0[key], t1[key])
+
+    # W_eff (split E / I source)
+    W0, signs0, sp0 = effective_W(init_ms, k); W1, _, sp1 = effective_W(last_ms, k)
+    e_mask0 = (sp0 != 0) & (signs0 > 0)[None, :]
+    i_mask0 = (sp0 != 0) & (signs0 < 0)[None, :]
+    e_mask1 = (sp1 != 0) & (signs0 > 0)[None, :]
+    i_mask1 = (sp1 != 0) & (signs0 < 0)[None, :]
+    add("W_eff (E src, signed)", W0[e_mask0], W1[e_mask1])
+    add("W_eff (I src, signed)", W0[i_mask0], W1[i_mask1])
+    add("|W_eff| (E src)", np.abs(W0[e_mask0]), np.abs(W1[e_mask1]))
+    add("|W_eff| (I src)", np.abs(W0[i_mask0]), np.abs(W1[i_mask1]))
+
+    # W_in_eff
+    Win0 = effective_W_in(init_ms, k); Win1 = effective_W_in(last_ms, k)
+    add("W_in_eff (input neurons)", Win0[Win0 != 0], Win1[Win1 != 0])
+
+    # SFA & STD couplings + offsets
+    for side in ("E", "I"):
+        c0 = effective_c(init_ms, k, side); c1 = effective_c(last_ms, k, side)
+        if c0 is not None:
+            add(f"c_{side} (SFA coupling)", c0, c1)
+        c0_0 = effective_c_0(init_ms, k, side); c0_1 = effective_c_0(last_ms, k, side)
+        if c0_0 is not None:
+            add(f"c_0_{side} (SFA offset)", c0_0, c0_1)
+
+    # Threshold a_0
+    add("a_0 (threshold)", effective_a_0(init_ms, k), effective_a_0(last_ms, k))
+
+    # Readout
+    add("readout_weight", init_ms["readout_weight"][k].numpy(), last_ms["readout_weight"][k].numpy())
+    add("readout_bias", init_ms["readout_bias"][k].numpy(), last_ms["readout_bias"][k].numpy())
+
+    if "ic.ic" in init_ms and init_ms["ic.ic"].shape[0] == last_ms["cell.skip_flags"].shape[0]:
+        add("ic.ic (per-variant init)", init_ms["ic.ic"][k].numpy(), last_ms["ic.ic"][k].numpy())
+
+    header = f"{'effective parameter':<32s} {'init mean':>13s} {'final mean':>13s} {'init std':>11s} {'final std':>11s} {'n':>10s}"
+    lines = [
+        f"# {run_label} — variant {name} (k={k})",
+        f"# Effective values (post-transform). Means/stds computed over the indicated dimension.",
+        header, "-" * len(header),
+    ]
+    for r in rows:
+        lines.append(f"{r[0]:<32s} {r[1]:>13s} {r[2]:>13s} {r[3]:>11s} {r[4]:>11s} {r[5]:>10s}")
+    out = out_dir / "param_table.txt"
+    out.write_text("\n".join(lines) + "\n")
+    print(f"    wrote {name}/param_table.txt")
+
+
+# =============================================================================
+# Orchestration
+# =============================================================================
+
+def run_per_variant(run_dir: Path, snaps, ablation_names: list[str], variants_filter: list[str] | None):
+    if not ablation_names:
+        print("[per-variant] no ablation_names found in last.pt — skipping per-variant phase")
+        return
+    selected = ablation_names if not variants_filter else [n for n in ablation_names if n in variants_filter]
+    if variants_filter and not selected:
+        print(f"[per-variant] WARNING: --variants {variants_filter} matched none of {ablation_names}")
+    print(f"[per-variant] {len(selected)} variant(s)")
+    for k, name in enumerate(ablation_names):
+        if name not in selected:
+            continue
+        out = run_dir / name
+        out.mkdir(parents=True, exist_ok=True)
+        print(f"  [{k}] {name}")
+        plot_tau_evolution(out, run_dir.name, snaps, k, name)
+        plot_W_EI_evolution(out, run_dir.name, snaps, k, name)
+        write_param_table(out, run_dir.name, snaps, k, name)
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("run_name", help="GCS run name (top-level folder under results-pytorch/)")
+    p.add_argument("--task", default="seeg", help="task name (default: seeg)")
+    p.add_argument("--seed", type=int, default=1, help="seed (default: 1)")
+    p.add_argument("--bucket", default=_read_bucket_from_config(), help=f"GCS bucket (default: {_read_bucket_from_config()})")
+    p.add_argument("--tmp-dir", default=str(DEFAULT_TMP), help=f"local destination root (default: {DEFAULT_TMP})")
+    p.add_argument("--skip-download", action="store_true", help="skip GCS download; use existing local files only")
+    p.add_argument("--variants", default=None, help="comma-separated variant names to render per-variant (default: all)")
+    return p.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    print(f"=== Phase 1: download ===")
+    run_dir = ensure_local_run(args)
+
+    print(f"\n=== Phase 2: run-level plots ===")
+    plot_curves_split(run_dir)
+    plot_lr_schedule(run_dir)
+
+    snaps, ablation_names = load_snapshots(run_dir)
+    print(f"  {len(snaps)} snapshots: {[s[0] for s in snaps]}")
+    plot_weight_evolution(run_dir, snaps)
+
+    print(f"\n=== Phase 3: per-variant outputs ===")
+    variants_filter = [s.strip() for s in args.variants.split(",")] if args.variants else None
+    run_per_variant(run_dir, snaps, ablation_names, variants_filter)
+
+    print(f"\n=== Done — outputs in {run_dir} ===")
+
+
+if __name__ == "__main__":
+    main()
