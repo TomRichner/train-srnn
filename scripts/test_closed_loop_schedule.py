@@ -11,6 +11,7 @@ import torch
 
 from train_srnn.training.closed_loop import (
     ClosedLoopConfig,
+    effective_alpha_baseline,
     sample_alpha_schedule,
     summarize_alpha,
 )
@@ -143,6 +144,37 @@ def test_summarize_alpha():
     assert math.isclose(s["alpha_mean"], 0.3, abs_tol=1e-6)
     assert math.isclose(s["alpha_max"], 0.3, abs_tol=1e-6)
     assert math.isclose(s["alpha_active_frac"], 1.0, abs_tol=1e-6)
+
+
+def test_effective_alpha_baseline_default_constant():
+    """alpha_baseline_start=None -> always returns alpha_baseline."""
+    cfg = ClosedLoopConfig(enabled=True, alpha_baseline=0.4)
+    for e in range(10):
+        assert effective_alpha_baseline(cfg, epoch=e, total_epochs=10) == 0.4
+
+
+def test_effective_alpha_baseline_linear_ramp():
+    cfg = ClosedLoopConfig(enabled=True, alpha_baseline=0.2,
+                           alpha_baseline_start=0.0)
+    # 5 epochs: e/(N-1) at e=0,1,2,3,4 -> 0, 0.25, 0.5, 0.75, 1.0
+    expected = [0.0, 0.05, 0.1, 0.15, 0.2]
+    for e, exp in enumerate(expected):
+        got = effective_alpha_baseline(cfg, epoch=e, total_epochs=5)
+        assert math.isclose(got, exp, abs_tol=1e-9), (e, got, exp)
+
+
+def test_effective_alpha_baseline_single_epoch():
+    """total_epochs <= 1 -> always returns alpha_baseline (avoid div-by-zero)."""
+    cfg = ClosedLoopConfig(enabled=True, alpha_baseline=0.2,
+                           alpha_baseline_start=0.0)
+    assert effective_alpha_baseline(cfg, epoch=0, total_epochs=1) == 0.2
+
+
+def test_effective_alpha_baseline_clamped_above_total():
+    """epochs >= total_epochs-1 should clamp to alpha_baseline (final value)."""
+    cfg = ClosedLoopConfig(enabled=True, alpha_baseline=0.2,
+                           alpha_baseline_start=0.0)
+    assert effective_alpha_baseline(cfg, epoch=10, total_epochs=5) == 0.2
 
 
 def test_device_cpu():

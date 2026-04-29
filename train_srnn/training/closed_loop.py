@@ -34,8 +34,14 @@ class ClosedLoopConfig:
     enabled: bool = False
     # Fraction of batches with full teacher forcing (alpha=0 everywhere).
     teacher_forcing_batch_frac: float = 0.2
-    # Per-batch baseline alpha (the "intensity" knob).
+    # Per-batch baseline alpha (the "intensity" knob; final value when ramping).
     alpha_baseline: float = 0.3
+    # Optional across-epoch linear ramp: if set, the *effective* baseline at
+    # epoch e of an N-epoch run is `lerp(start, alpha_baseline, e/(N-1))`.
+    # None preserves the constant-baseline behavior. Computed by the caller
+    # (train.py) which knows the epoch context; the schedule sampler itself
+    # is unaware of epoch — see `effective_alpha_baseline()` below.
+    alpha_baseline_start: float | None = None
     # Half-range of uniform jitter on baseline; 0 = fixed baseline.
     alpha_baseline_jitter: float = 0.0
     # Per-channel sparse perturbation around baseline (zero-mean Gaussian).
@@ -43,6 +49,23 @@ class ClosedLoopConfig:
     alpha_rnd_sigma: float = 0.0
     # Half-cosine warmup ramp length in samples; 0 = no ramp (envelope=1).
     t_warm: int = 0
+
+
+def effective_alpha_baseline(cfg: ClosedLoopConfig, epoch: int,
+                             total_epochs: int) -> float:
+    """Compute the per-epoch effective alpha_baseline.
+
+    With ``alpha_baseline_start`` unset (None) or with ``total_epochs <= 1``,
+    returns ``cfg.alpha_baseline`` unchanged (constant-baseline behavior).
+    Otherwise linearly interpolates from ``alpha_baseline_start`` at epoch 0
+    to ``alpha_baseline`` at epoch ``total_epochs - 1``.
+    """
+    if cfg.alpha_baseline_start is None or total_epochs <= 1:
+        return cfg.alpha_baseline
+    frac = max(0.0, min(1.0, epoch / (total_epochs - 1)))
+    return cfg.alpha_baseline_start + frac * (
+        cfg.alpha_baseline - cfg.alpha_baseline_start
+    )
 
 
 def sample_alpha_schedule(

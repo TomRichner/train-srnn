@@ -16,6 +16,7 @@ from train_srnn.data.transforms import wrap_eval_batch, wrap_train_batch
 from train_srnn.models.factory import build_batched_model, build_model
 from train_srnn.training.closed_loop import (
     ClosedLoopConfig,
+    effective_alpha_baseline,
     sample_alpha_schedule,
     summarize_alpha,
 )
@@ -483,10 +484,12 @@ def main(cfg: DictConfig) -> None:
                 f"task.output_size, got {cfg.task.input_size} != "
                 f"{cfg.task.output_size}."
             )
+        ramp_str = (f" (ramp from {cl_cfg.alpha_baseline_start:.3f})"
+                    if cl_cfg.alpha_baseline_start is not None else "")
         log.info(
-            "Closed-loop enabled: baseline=%.3f (jitter=%.3f), rnd "
+            "Closed-loop enabled: baseline=%.3f%s (jitter=%.3f), rnd "
             "density=%.2f sigma=%.2f, t_warm=%d, pure-TF batch frac=%.2f",
-            cl_cfg.alpha_baseline, cl_cfg.alpha_baseline_jitter,
+            cl_cfg.alpha_baseline, ramp_str, cl_cfg.alpha_baseline_jitter,
             cl_cfg.alpha_rnd_density, cl_cfg.alpha_rnd_sigma,
             cl_cfg.t_warm, cl_cfg.teacher_forcing_batch_frac,
         )
@@ -507,18 +510,28 @@ def main(cfg: DictConfig) -> None:
                 and cfg.burn_in > 0 and hasattr(model, "ic")):
             _refresh_ic_from_burn_in()
 
+        # Per-epoch effective alpha_baseline (linear ramp if alpha_baseline_start
+        # is set; constant otherwise).
+        if cl_cfg.enabled:
+            import dataclasses as _dc
+            eff_baseline = effective_alpha_baseline(cl_cfg, epoch, cfg.epochs)
+            epoch_cl_cfg = _dc.replace(cl_cfg, alpha_baseline=eff_baseline)
+        else:
+            epoch_cl_cfg = cl_cfg
+
         model.train()
         train_loss, train_metric = run_epoch(
             model, train_x, train_y,
             optimizer, scheduler, criterion,
             cfg, rng, device, training=True, K=K,
-            closed_loop_cfg=cl_cfg, closed_loop_gen=cl_gen,
+            closed_loop_cfg=epoch_cl_cfg, closed_loop_gen=cl_gen,
         )
         if getattr(run_epoch, "last_alpha_stats", None):
             s = run_epoch.last_alpha_stats
             log.info(
-                "  closed-loop: alpha_mean=%.3f alpha_max=%.3f "
-                "pure_tf_frac=%.2f over %d batches",
+                "  closed-loop[ep=%d]: eff_baseline=%.3f alpha_mean=%.3f "
+                "alpha_max=%.3f pure_tf_frac=%.2f over %d batches",
+                epoch, epoch_cl_cfg.alpha_baseline,
                 s["alpha_mean"], s["alpha_max"], s["pure_tf_frac"],
                 s["n_batches"],
             )

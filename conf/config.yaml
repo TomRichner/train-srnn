@@ -46,8 +46,11 @@ closed_loop:
   enabled: false
   # Fraction of batches with full teacher forcing (alpha=0 everywhere).
   teacher_forcing_batch_frac: 0.2
-  # Per-batch baseline alpha (the "intensity" knob).
+  # Per-batch baseline alpha (target value when ramping; constant otherwise).
   alpha_baseline: 0.3
+  # If set (not null), ramp alpha_baseline linearly from this start value at
+  # epoch 0 to `alpha_baseline` at the last epoch. null = constant baseline.
+  alpha_baseline_start: null
   # Half-range of uniform jitter on baseline; 0 = fixed baseline.
   alpha_baseline_jitter: 0.0
   # Per-channel sparse Gaussian perturbation around baseline (mu fixed at 0).
