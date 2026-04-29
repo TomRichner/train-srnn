@@ -1,0 +1,20 @@
+# overnight-cl250-resume120 — variant srnn-e-only-per-neuron (k=0)
+# Effective values (post-transform). Means/stds computed over the indicated dimension.
+effective parameter                  init mean    final mean    init std   final std          n
+-----------------------------------------------------------------------------------------------
+tau_global (s)                        +0.75694      +0.52182           —           —     scalar
+tau_d (s)                            +0.047285     +0.021479     0.00829    0.007465        300
+tau_a_E (s)                            +2.5842      +0.89414       2.116      0.7305        450
+tau_b_rec_E (s)                       +0.45844      +0.22725     0.04265      0.0352        150
+tau_b_rel_E (s)                       +0.32092      +0.32289     0.03539     0.05786        150
+W_eff (E src, signed)                 +0.24787      +0.18151     0.08534     0.06566      15048
+W_eff (I src, signed)                 -0.32687      -0.24028     0.08695     0.07004      14977
+|W_eff| (E src)                       +0.24787      +0.18151     0.08534     0.06566      15048
+|W_eff| (I src)                       +0.32687      +0.24028     0.08695     0.07004      14977
+W_in_eff (input neurons)            +0.0013842   +0.00081433      0.1342     0.07879       6675
+c_E (SFA coupling)                    +0.05476     +0.082126    0.006898     0.02424        450
+c_0_E (SFA offset)                    -0.27431      -0.36987     0.09773      0.1679        450
+a_0 (threshold)                       +0.16777      +0.16904     0.08514      0.1091        300
+readout_weight                      -0.0057749   -0.00058804      0.1456      0.2205       6675
+readout_bias                        +0.0044741   +0.00010319      0.1548      0.2097         89
+ic.ic (per-variant init)             -0.025816     -0.055855       0.504      0.5219        900
