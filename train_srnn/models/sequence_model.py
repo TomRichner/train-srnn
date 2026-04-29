@@ -9,21 +9,10 @@ K-batched cells like ``BatchedSRNNCell`` (output shape ``(K, B, N)``).
 """
 
 import math
-import os
 
 import torch
 import torch.nn as nn
 import torch.utils.checkpoint
-
-# Diagnostic toggle for KnownIssues #7. When True, torch.utils.checkpoint
-# emits op-level traces of saved tensors during forward and recompute when a
-# metadata mismatch fires. Has no effect on training correctness; only
-# enriches error output. **TEMPORARILY HARD-CODED TRUE for diagnostic; revert
-# to env-var gated (CKPT_DEBUG) after capturing the trace.**
-_CKPT_DEBUG = True
-if _CKPT_DEBUG:
-    torch.utils.checkpoint.set_checkpoint_debug_enabled(True)
-_ = os.environ  # silence unused import warning when toggle is hard-coded
 
 from train_srnn.utils.io_masks import (
     generate_neuron_partition,
@@ -144,6 +133,40 @@ class SequenceModel(nn.Module):
             self.readout = nn.Linear(effective_output_size, output_size)
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _no_autocast_cache_ctx():
+        """If autocast is currently active, return a context that re-applies
+        it with ``cache_enabled=False`` so subsequent calls don't reuse cached
+        bf16 casts. Otherwise return a no-op nullcontext.
+
+        Why: PyTorch's autocast cache stores fp32->bf16 casts of weight
+        tensors. Under ``torch.utils.checkpoint``, the cache state diverges
+        between the original forward (cache hits) and the recompute (cache
+        empty), producing a different count of saved ``aten._to_copy`` ops
+        and triggering ``CheckpointError`` on saved-tensor metadata sanity
+        checks. Disabling the cache makes both passes save the same count.
+        See KnownIssues #7.
+        """
+        import contextlib
+        for dev in ("cuda", "cpu"):
+            try:
+                if torch.is_autocast_enabled(dev):
+                    return torch.autocast(
+                        device_type=dev,
+                        dtype=torch.get_autocast_dtype(dev),
+                        cache_enabled=False,
+                    )
+            except (TypeError, RuntimeError):
+                # Older PyTorch: no device argument.
+                if dev == "cuda" and torch.is_autocast_enabled():
+                    return torch.autocast(
+                        device_type="cuda",
+                        dtype=torch.get_autocast_gpu_dtype(),
+                        cache_enabled=False,
+                    )
+                break
+        return contextlib.nullcontext()
+
     def _run_segment(self, x_seg: torch.Tensor, state: torch.Tensor):
         """Run the cell over a contiguous time slice.
 
@@ -152,9 +175,10 @@ class SequenceModel(nn.Module):
         ``(K, B, T_seg, E)`` for K-batched cells.
         """
         outputs = []
-        for t in range(x_seg.shape[1]):
-            out, state = self.cell(x_seg[:, t, :], state)
-            outputs.append(out)
+        with self._no_autocast_cache_ctx():
+            for t in range(x_seg.shape[1]):
+                out, state = self.cell(x_seg[:, t, :], state)
+                outputs.append(out)
         return torch.stack(outputs, dim=-2), state
 
     # ------------------------------------------------------------------
@@ -222,14 +246,15 @@ class SequenceModel(nn.Module):
         no RNG, no side effects.
         """
         y_outs: list[torch.Tensor] = []
-        for t in range(x_seg.shape[1]):
-            x_real_t = x_seg[:, t, :]
-            alpha_t = alpha_seg[t]
-            x_in_t = (1.0 - alpha_t) * x_real_t + alpha_t * y_prev
-            out_t, state = self.cell(x_in_t, state)
-            y_t = self._readout_one(out_t, x_in_t)
-            y_outs.append(y_t)
-            y_prev = y_t
+        with self._no_autocast_cache_ctx():
+            for t in range(x_seg.shape[1]):
+                x_real_t = x_seg[:, t, :]
+                alpha_t = alpha_seg[t]
+                x_in_t = (1.0 - alpha_t) * x_real_t + alpha_t * y_prev
+                out_t, state = self.cell(x_in_t, state)
+                y_t = self._readout_one(out_t, x_in_t)
+                y_outs.append(y_t)
+                y_prev = y_t
         y_stacked = torch.stack(y_outs, dim=-2)
         return y_stacked, state, y_prev
 
@@ -332,7 +357,6 @@ class SequenceModel(nn.Module):
                     self._cl_run_segment,
                     x_seg, alpha_seg, state, y_prev,
                     use_reentrant=False,
-                    debug=_CKPT_DEBUG,
                 )
             else:
                 outs, state, y_prev = self._cl_run_segment(
@@ -472,7 +496,6 @@ class SequenceModel(nn.Module):
             if grad_checkpoint:
                 outs, state = torch.utils.checkpoint.checkpoint(
                     self._run_segment, x_seg, state, use_reentrant=False,
-                    debug=_CKPT_DEBUG,
                 )
             else:
                 outs, state = self._run_segment(x_seg, state)
