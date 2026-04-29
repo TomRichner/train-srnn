@@ -221,6 +221,65 @@ def test_grad_equivalence_int_readout_idx():
 
 
 # ---------------------------------------------------------------------------
+# bf16 autocast variants — exercise checkpoint+autocast composition (KnownIssues #7).
+# CPU bf16 autocast is supported by PyTorch 2.11 and exercises the same code
+# path as CUDA bf16 (saved-tensor metadata check inside torch.utils.checkpoint).
+#
+# Without the autocast-aware context_fn fix, these tests raise
+# `CheckpointError: A different number of tensors was saved during the
+# original forward and recomputation` because torch.utils.checkpoint's
+# saved tensors are in bf16 (forward under autocast) but recompute runs in
+# fp32 (autocast not re-applied). With the fix in place they pass.
+#
+# Tolerance is relaxed because bf16 has ~7 mantissa bits — gradients won't
+# match exactly, just within a few percent.
+# ---------------------------------------------------------------------------
+
+def _run_pair_autocast(model_a, model_b, x, alpha, *,
+                        readout_idx, bptt_start_idx, bptt_chunk_len,
+                        autocast_dtype=torch.bfloat16):
+    model_a.train(); model_b.train()
+    _zero_grads(model_a); _zero_grads(model_b)
+
+    with torch.autocast(device_type="cpu", dtype=autocast_dtype):
+        y_a = model_a(x, readout_idx=readout_idx, alpha_schedule=alpha,
+                      bptt_start_idx=bptt_start_idx, bptt_chunk_len=bptt_chunk_len,
+                      grad_checkpoint=False)
+    y_a.float().pow(2).sum().backward()
+
+    with torch.autocast(device_type="cpu", dtype=autocast_dtype):
+        y_b = model_b(x, readout_idx=readout_idx, alpha_schedule=alpha,
+                      bptt_start_idx=bptt_start_idx, bptt_chunk_len=bptt_chunk_len,
+                      grad_checkpoint=True)
+    y_b.float().pow(2).sum().backward()
+
+    return y_a, y_b
+
+
+def test_grad_equivalence_under_cpu_autocast_bf16_single():
+    cfg, a, b = _build_paired_models_single()
+    B, T, C = 2, 24, cfg.task.input_size
+    torch.manual_seed(8); x = torch.randn(B, T, C)
+    alpha = torch.full((T, C), 0.4); alpha[0].zero_()
+
+    _run_pair_autocast(a, b, x, alpha, readout_idx=slice(0, T),
+                       bptt_start_idx=4, bptt_chunk_len=8)
+    _assert_grads_close(a, b, atol=5e-3, rtol=5e-3)
+
+
+def test_grad_equivalence_under_cpu_autocast_bf16_k_batched():
+    abls = ["srnn-e-only-per-neuron", "srnn-e-only-skip-per-neuron"]
+    cfg, a, b = _build_paired_models_batched(abls)
+    B, T, C = 2, 24, cfg.task.input_size
+    torch.manual_seed(9); x = torch.randn(B, T, C)
+    alpha = torch.full((T, C), 0.4); alpha[0].zero_()
+
+    _run_pair_autocast(a, b, x, alpha, readout_idx=slice(0, T),
+                       bptt_start_idx=4, bptt_chunk_len=8)
+    _assert_grads_close(a, b, atol=5e-3, rtol=5e-3)
+
+
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     fns = [v for k, v in globals().items()
