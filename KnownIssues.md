@@ -248,3 +248,19 @@ The masked W_in (only the ~25% input partition receives drive) doesn't change th
 - Optionally, since `W_in_mask` zeros ~75% of the matrix at every forward, the *effective* fan-in is the size of the input partition (~N/4 entries per row when computing the drive). If that's the better target, scale by `1/√n_input_neurons` instead — but `1/√input_size` is the conventional choice and matches what `nn.Linear` would do.
 
 **Why not fix now.** All current SEEG/HAR/etc. results were obtained under the existing init. Switching the W_in scale changes the init operating point and would invalidate cross-run comparisons until everything is re-run. Worth doing before the next batch of cross-task experiments, not in the middle of an existing series.
+
+---
+
+## 6. `_install_vec_mask` gradient hooks don't fire under `torch.utils.checkpoint(use_reentrant=False)`
+
+`BatchedSRNNCell.__init__:_install_vec_mask` (`srnn_cell.py:978-985`) registers `Tensor.register_hook` callbacks on the `*_vec` parameters that multiply incoming gradients by a `(K, ...)` per-variant mask. The mask is zero for non-per-neuron variants, freezing those parameters at init.
+
+**The bug.** `torch.utils.checkpoint.checkpoint(..., use_reentrant=False)` does not reliably trigger `Tensor.register_hook` callbacks on parameters used inside the checkpointed segment during the re-forward backward pass. As a result, `*_vec` parameters of non-per-neuron variants accumulate non-zero `.grad` and drift away from their init during training when checkpointing is enabled.
+
+**Reproduction.** Run a K-batched training step with at least one non-per-neuron variant (e.g. `srnn-no-adapt`) under `grad_checkpoint=True`. Compare `cell.a_0_vec.grad` to a non-checkpointed run on the same inputs — they will differ on the non-per-neuron K slice. The closed-loop gradient-equivalence tests in `scripts/test_closed_loop_grad_checkpoint.py` exercise the no-bug regime (all-per-neuron variants).
+
+**Affects.** Both open-loop and closed-loop forward paths under `grad_checkpoint=True`. Latent in cl250 production runs because cl250 uses all-per-neuron variants (mask=ones, hook is a no-op). Would manifest in any future run that mixes per-neuron and non-per-neuron variants under checkpointing.
+
+**Fix sketch.** Replace the gradient-hook masking with a forward-time multiplication: compute effective values as `param * mask` inside the per-helper accessors (`_a_0()`, `_tau_d()`, `_c_E()`, etc. in `BatchedSRNNCell`). Mathematically equivalent for forward output (the `_vec` init is identical-across-neurons + scalar shifts produce per-K offsets; with mask=0 the vec contribution is zero, matching the no-grad-drift behavior of the hook). Backward gradient through the multiplication naturally produces zero on `*_vec` for masked variants, with no hook needed. Removes the latent checkpoint-incompatibility entirely.
+
+**Why not fix now.** Out of scope for the closed-loop checkpoint enablement work. Tracked here so the next time `_install_vec_mask` is touched, the fix lands cleanly.

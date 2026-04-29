@@ -189,6 +189,40 @@ class SequenceModel(nn.Module):
             return self.readout(out_t)
 
     # ------------------------------------------------------------------
+    def _cl_run_segment(
+        self,
+        x_seg: torch.Tensor,         # (B, T_seg, C)
+        alpha_seg: torch.Tensor,     # (T_seg, C)
+        state: torch.Tensor,         # (B, S) or (K, B, S)
+        y_prev: torch.Tensor,        # (B, C) or (K, B, C); zeros at t=0
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Closed-loop unroll over one contiguous time slice.
+
+        Returns ``(y_outs, state, y_prev)`` where ``y_outs`` is in OUTPUT
+        space (post-readout, post-skip), shape ``(B, T_seg, O)`` for single
+        cells or ``(K, B, T_seg, O)`` for K-batched cells.
+
+        This is the closed-loop counterpart to ``_run_segment``; the extra
+        carry ``y_prev`` is the last-step prediction, which serves as the
+        autoregressive feedback for the next step's input blend.
+
+        Wrapped in ``torch.utils.checkpoint.checkpoint(...)`` from the
+        forward path when ``grad_checkpoint=True``. Pure function of inputs:
+        no RNG, no side effects.
+        """
+        y_outs: list[torch.Tensor] = []
+        for t in range(x_seg.shape[1]):
+            x_real_t = x_seg[:, t, :]
+            alpha_t = alpha_seg[t]
+            x_in_t = (1.0 - alpha_t) * x_real_t + alpha_t * y_prev
+            out_t, state = self.cell(x_in_t, state)
+            y_t = self._readout_one(out_t, x_in_t)
+            y_outs.append(y_t)
+            y_prev = y_t
+        y_stacked = torch.stack(y_outs, dim=-2)
+        return y_stacked, state, y_prev
+
+    # ------------------------------------------------------------------
     def _forward_closed_loop(
         self,
         x: torch.Tensor,
@@ -198,20 +232,19 @@ class SequenceModel(nn.Module):
         bptt_start_idx: int | None,
         bptt_chunk_len: int | None,
         grad_checkpoint: bool,
+        grad_checkpoint_segment_len: int | None,
     ) -> torch.Tensor:
         """Closed-loop unroll: cell input is a per-channel blend of real
         input and the model's previous prediction.
 
-        See ``forward`` docstring for the alpha_schedule semantics.
+        See ``forward`` docstring for the alpha_schedule semantics. The
+        ``grad_checkpoint`` flag is supported and behaves identically to
+        the open-loop branch — each segment is wrapped in
+        ``torch.utils.checkpoint.checkpoint(...)`` with ``use_reentrant=False``.
         """
         batch_size, seq_len, n_features = x.shape
 
         # Validation ----------------------------------------------------------
-        if grad_checkpoint:
-            raise NotImplementedError(
-                "alpha_schedule (closed-loop) is incompatible with "
-                "grad_checkpoint=True in v1."
-            )
         if alpha_schedule.shape != (seq_len, n_features):
             raise ValueError(
                 f"alpha_schedule shape {tuple(alpha_schedule.shape)} does not "
@@ -232,7 +265,8 @@ class SequenceModel(nn.Module):
         if alpha_schedule.dtype != x.dtype or alpha_schedule.device != x.device:
             alpha_schedule = alpha_schedule.to(dtype=x.dtype, device=x.device)
 
-        # Initial state -------------------------------------------------------
+        # Initial state + y_prev (zeros; alpha[0,:]=0 by construction makes the
+        # blend at t=0 trivially x_real[:, 0, :], regardless of y_prev's value).
         if hasattr(self, "ic"):
             state = self.ic(batch_size)
         elif self._K is not None:
@@ -244,57 +278,71 @@ class SequenceModel(nn.Module):
                 batch_size, self.cell.state_size, device=x.device
             )
 
-        y_prev: torch.Tensor | None = None  # filled lazily; alpha[0,:]=0 by construction
-        all_y: list[torch.Tensor] = []      # per-timestep y in OUTPUT space
+        if self._K is not None:
+            y_prev = torch.zeros(self._K, batch_size, n_features,
+                                 device=x.device, dtype=x.dtype)
+        else:
+            y_prev = torch.zeros(batch_size, n_features,
+                                 device=x.device, dtype=x.dtype)
+
+        all_y: list[torch.Tensor] = []  # per-segment y in OUTPUT space
 
         grad_start = bptt_start_idx if bptt_start_idx is not None else 0
 
-        def _blend(x_real_t: torch.Tensor, y_p: torch.Tensor | None,
-                   alpha_t: torch.Tensor) -> torch.Tensor:
-            """Convex-combine x_real and y_prev per channel.
-
-            x_real_t: (B, C); y_p: (B, C) or (K, B, C) or None; alpha_t: (C,)
-            Returns: matches y_p's leading dims when y_p is not None.
-            """
-            if y_p is None:
-                return x_real_t
-            # alpha_t broadcasts: (C,) -> (..., 1, C) implicit via right-align.
-            return (1.0 - alpha_t) * x_real_t + alpha_t * y_p
-
-        # 1) Warmup region (no_grad) -----------------------------------------
+        # 1) Warmup region (no_grad) — never checkpointed (no graph anyway).
         if grad_start > 0:
             with torch.no_grad():
-                for t in range(grad_start):
-                    x_in_t = _blend(x[:, t, :], y_prev, alpha_schedule[t])
-                    out_t, state = self.cell(x_in_t, state)
-                    y_t = self._readout_one(out_t, x_in_t)
-                    all_y.append(y_t)
-                    y_prev = y_t
+                outs, state, y_prev = self._cl_run_segment(
+                    x[:, :grad_start, :], alpha_schedule[:grad_start],
+                    state, y_prev,
+                )
+            all_y.append(outs)
             state = state.detach()
-            if y_prev is not None:
-                y_prev = y_prev.detach()
+            y_prev = y_prev.detach()
 
-        # 2) Grad region with optional bptt_chunk_len detach -----------------
+        # 2) Grad region: choose seg_len matching open-loop logic ------------
+        if grad_checkpoint:
+            seg_len = (grad_checkpoint_segment_len
+                       if grad_checkpoint_segment_len is not None
+                       else (bptt_chunk_len or (seq_len - grad_start)))
+        else:
+            seg_len = bptt_chunk_len or (seq_len - grad_start)
+        seg_len = max(1, seg_len)
+
+        t = grad_start
         steps_since_detach = 0
-        for t in range(grad_start, seq_len):
-            x_in_t = _blend(x[:, t, :], y_prev, alpha_schedule[t])
-            out_t, state = self.cell(x_in_t, state)
-            y_t = self._readout_one(out_t, x_in_t)
-            all_y.append(y_t)
-            y_prev = y_t
-            steps_since_detach += 1
+        while t < seq_len:
+            end = min(t + seg_len, seq_len)
+            x_seg = x[:, t:end, :]
+            alpha_seg = alpha_schedule[t:end]
+
+            if grad_checkpoint:
+                outs, state, y_prev = torch.utils.checkpoint.checkpoint(
+                    self._cl_run_segment,
+                    x_seg, alpha_seg, state, y_prev,
+                    use_reentrant=False,
+                )
+            else:
+                outs, state, y_prev = self._cl_run_segment(
+                    x_seg, alpha_seg, state, y_prev
+                )
+
+            all_y.append(outs)
+            steps_since_detach += (end - t)
+            t = end
+
             # Detach at chunk boundary (cap grad horizon to bptt_chunk_len).
             if (bptt_chunk_len is not None
                     and steps_since_detach >= bptt_chunk_len
-                    and t + 1 < seq_len):
+                    and t < seq_len):
                 state = state.detach()
                 y_prev = y_prev.detach()
                 steps_since_detach = 0
 
-        # Stack along the time axis (-2). full_y shape:
+        # Concatenate along the time axis (-2). full_y shape:
         #   single:  (B, T, O)
         #   batched: (K, B, T, O)
-        full_y = torch.stack(all_y, dim=-2)
+        full_y = torch.cat(all_y, dim=-2)
 
         # Select readout timestep(s) -----------------------------------------
         if isinstance(readout_idx, slice):
@@ -340,9 +388,12 @@ class SequenceModel(nn.Module):
             alpha_schedule: Optional ``(T, C)`` tensor enabling **closed-loop**
                 (variable teacher-forcing) unroll. When set, at each step ``t``
                 the cell sees ``x_in[t,c] = (1 - alpha[t,c]) * x_real[t,c] +
-                alpha[t,c] * y_pred[t-1,c]``. ``alpha[0,:]`` is ignored (no
-                ``y_prev`` exists at t=0). Requires ``input_size ==
-                output_size``; incompatible with ``grad_checkpoint=True`` (v1).
+                alpha[t,c] * y_pred[t-1,c]``. ``alpha[0,:]`` should be 0 (the
+                schedule sampler enforces this) since ``y_prev`` at t=0 is
+                zeros. Requires ``input_size == output_size``. Composes with
+                ``grad_checkpoint=True``: each segment is wrapped in
+                ``torch.utils.checkpoint.checkpoint`` and the carried
+                ``y_prev`` is threaded through the checkpointed callable.
                 Per-step readout cost is paid every timestep (unavoidable).
 
         Returns:
@@ -361,6 +412,7 @@ class SequenceModel(nn.Module):
                 bptt_start_idx=bptt_start_idx,
                 bptt_chunk_len=bptt_chunk_len,
                 grad_checkpoint=grad_checkpoint,
+                grad_checkpoint_segment_len=grad_checkpoint_segment_len,
             )
 
         batch_size, seq_len, _ = x.shape

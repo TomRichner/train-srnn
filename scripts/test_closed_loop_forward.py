@@ -158,13 +158,10 @@ def test_validation_errors():
     else:
         raise AssertionError("expected ValueError on wrong alpha shape")
 
-    # grad_checkpoint not allowed
-    try:
-        model(x, alpha_schedule=alpha, grad_checkpoint=True)
-    except NotImplementedError:
-        pass
-    else:
-        raise AssertionError("expected NotImplementedError on grad_checkpoint=True")
+    # grad_checkpoint=True is supported (regression: was NotImplementedError in v1).
+    # Verify it runs without raising.
+    out = model(x, alpha_schedule=alpha, grad_checkpoint=True)
+    assert out.shape[-1] == C
 
 
 def test_closed_loop_gradients_flow():
