@@ -13,7 +13,6 @@ results/
 *.pt
 *.png
 *.npz
-_postprocess.log
 
 # Downloaded datasets
 train_srnn/data/*/

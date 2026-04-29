@@ -1,0 +1,96 @@
+=== Phase 1: download ===
+[download] --skip-download set, using /Users/richner.thomas/Desktop/MayoVertex/train-srnn/tmp/overnight-cl250 as-is
+
+=== Phase 2: run-level plots ===
+  wrote curves_skip.png
+  wrote semilogy_curves_skip.png
+  wrote log_log_curves_skip.png
+  wrote curves_no-skip.png
+  wrote semilogy_curves_no-skip.png
+  wrote log_log_curves_no-skip.png
+  wrote semilogy_direct_curves_skip.png
+  wrote semilogy_direct_curves_no-skip.png
+  wrote lr_schedule.png  (peak=5.000e-04, final=5.000e-04)
+  12 snapshots: ['init', 'ep000', 'ep010', 'ep020', 'ep030', 'ep040', 'ep050', 'ep060', 'ep070', 'ep080', 'ep090', 'last']
+  wrote weight_evolution.png
+  Top-16 most-changed params (final / initial L2 norm):
+    cell.log_tau_d_gain                                           0.001498 -> 0.7593  (+50585.82%)
+    cell.log_tau_b_rec_E_gain                                     0.001244 -> 0.4886  (+39167.64%)
+    cell.log_tau_b_rel_E_gain                                     0.001245 -> 0.4671  (+37406.24%)
+    cell.log_tau_a_E_gain                                         0.001248 -> 0.3615  (+28865.45%)
+    readout_bias                                                  0.01381 -> 2.326  (+16743.17%)
+    cell.c_0_E_scalar                                             0.001248 -> 0.1855  (+14762.74%)
+    cell.c_0_E_vec                                                0.02428 -> 3.346  (+13682.12%)
+    cell.a_0_scalar                                               0.001528 -> 0.2068  (+13434.59%)
+    cell.log_c_E_gain                                             0.001247 -> 0.08582  (+6783.70%)
+    readout_weight                                                13.29 -> 20.87  (+57.05%)
+    cell.log_tau_global                                           1.326 -> 0.6737  (-49.19%)
+    cell.log_tau_b_rec_E_vec                                      16.25 -> 14.66  (-9.78%)
+    ic.ic                                                         31.62 -> 34.42  (+8.84%)
+    cell.W_in_gain                                                2.45 -> 2.591  (+5.78%)
+    cell.W_raw_gain                                               2.448 -> 2.559  (+4.54%)
+    cell.log_tau_b_rel_E_vec                                      37.77 -> 36.32  (-3.84%)
+
+=== Phase 3: per-variant outputs ===
+[per-variant] 6 variant(s)
+  [0] srnn-e-only-per-neuron
+    wrote srnn-e-only-per-neuron/tau_evolution.png
+    wrote srnn-e-only-per-neuron/W_EI_evolution.png
+    wrote srnn-e-only-per-neuron/param_table.txt
+  [1] srnn-e-only-skip-per-neuron
+    wrote srnn-e-only-skip-per-neuron/tau_evolution.png
+    wrote srnn-e-only-skip-per-neuron/W_EI_evolution.png
+    wrote srnn-e-only-skip-per-neuron/param_table.txt
+  [2] srnn-sfa-e-only-per-neuron
+    wrote srnn-sfa-e-only-per-neuron/tau_evolution.png
+    wrote srnn-sfa-e-only-per-neuron/W_EI_evolution.png
+    wrote srnn-sfa-e-only-per-neuron/param_table.txt
+  [3] srnn-sfa-e-only-skip-per-neuron
+    wrote srnn-sfa-e-only-skip-per-neuron/tau_evolution.png
+    wrote srnn-sfa-e-only-skip-per-neuron/W_EI_evolution.png
+    wrote srnn-sfa-e-only-skip-per-neuron/param_table.txt
+  [4] srnn-std-e-only-per-neuron
+    wrote srnn-std-e-only-per-neuron/tau_evolution.png
+    wrote srnn-std-e-only-per-neuron/W_EI_evolution.png
+    wrote srnn-std-e-only-per-neuron/param_table.txt
+  [5] srnn-std-e-only-skip-per-neuron
+    wrote srnn-std-e-only-skip-per-neuron/tau_evolution.png
+    wrote srnn-std-e-only-skip-per-neuron/W_EI_evolution.png
+    wrote srnn-std-e-only-skip-per-neuron/param_table.txt
+
+=== Phase 3b: forward-replay time-series ===
+[replay] loading /Users/richner.thomas/Desktop/MayoVertex/train-srnn/tmp/overnight-cl250/last.pt
+[replay] mode=no_input t_range=(-15.0, 30.0) h=0.004 plot_step=10 (plot_fs ≈ 25.00 Hz)
+[replay] inputs: T_warm=3750, T_main=7500, total=11250
+[replay] benettin: lya_M=5 (lya_dt=0.0200s) d0=0.001
+[replay] LLE per variant: srnn-e-only-per-neuron=+2.7175, srnn-e-only-skip-per-neuron=-0.1645, srnn-sfa-e-only-per-neuron=+1.0441, srnn-sfa-e-only-skip-per-neuron=-0.0057, srnn-std-e-only-per-neuron=+2.7495, srnn-std-e-only-skip-per-neuron=+0.0000
+[replay]   wrote overnight-cl250/srnn-e-only-per-neuron/timeseries_no_input.png
+[replay]   wrote overnight-cl250/srnn-e-only-skip-per-neuron/timeseries_no_input.png
+[replay]   wrote overnight-cl250/srnn-sfa-e-only-per-neuron/timeseries_no_input.png
+[replay]   wrote overnight-cl250/srnn-sfa-e-only-skip-per-neuron/timeseries_no_input.png
+[replay]   wrote overnight-cl250/srnn-std-e-only-per-neuron/timeseries_no_input.png
+[replay]   wrote overnight-cl250/srnn-std-e-only-skip-per-neuron/timeseries_no_input.png
+[replay] loading /Users/richner.thomas/Desktop/MayoVertex/train-srnn/tmp/overnight-cl250/last.pt
+[replay] mode=step t_range=(-15.0, 30.0) h=0.004 plot_step=10 (plot_fs ≈ 25.00 Hz)
+[replay] inputs: T_warm=3750, T_main=7500, total=11250
+[replay] benettin: lya_M=5 (lya_dt=0.0200s) d0=0.001
+[replay] LLE per variant: srnn-e-only-per-neuron=+2.2525, srnn-e-only-skip-per-neuron=-0.1643, srnn-sfa-e-only-per-neuron=+0.7883, srnn-sfa-e-only-skip-per-neuron=-0.0057, srnn-std-e-only-per-neuron=+2.4461, srnn-std-e-only-skip-per-neuron=-0.0000
+[replay]   wrote overnight-cl250/srnn-e-only-per-neuron/timeseries_step.png
+[replay]   wrote overnight-cl250/srnn-e-only-skip-per-neuron/timeseries_step.png
+[replay]   wrote overnight-cl250/srnn-sfa-e-only-per-neuron/timeseries_step.png
+[replay]   wrote overnight-cl250/srnn-sfa-e-only-skip-per-neuron/timeseries_step.png
+[replay]   wrote overnight-cl250/srnn-std-e-only-per-neuron/timeseries_step.png
+[replay]   wrote overnight-cl250/srnn-std-e-only-skip-per-neuron/timeseries_step.png
+[replay] loading /Users/richner.thomas/Desktop/MayoVertex/train-srnn/tmp/overnight-cl250/last.pt
+[replay] mode=seeg t_range=(-15.0, 30.0) h=0.004 plot_step=10 (plot_fs ≈ 25.00 Hz)
+[replay] inputs: T_warm=3750, T_main=7500, total=11250
+[replay] benettin: lya_M=5 (lya_dt=0.0200s) d0=0.001
+[replay] LLE per variant: srnn-e-only-per-neuron=-0.3136, srnn-e-only-skip-per-neuron=-0.1642, srnn-sfa-e-only-per-neuron=-0.2085, srnn-sfa-e-only-skip-per-neuron=-0.0057, srnn-std-e-only-per-neuron=-1.2270, srnn-std-e-only-skip-per-neuron=-0.0001
+[replay]   wrote overnight-cl250/srnn-e-only-per-neuron/timeseries_seeg.png
+[replay]   wrote overnight-cl250/srnn-e-only-skip-per-neuron/timeseries_seeg.png
+[replay]   wrote overnight-cl250/srnn-sfa-e-only-per-neuron/timeseries_seeg.png
+[replay]   wrote overnight-cl250/srnn-sfa-e-only-skip-per-neuron/timeseries_seeg.png
+[replay]   wrote overnight-cl250/srnn-std-e-only-per-neuron/timeseries_seeg.png
+[replay]   wrote overnight-cl250/srnn-std-e-only-skip-per-neuron/timeseries_seeg.png
+
+=== Done — outputs in /Users/richner.thomas/Desktop/MayoVertex/train-srnn/tmp/overnight-cl250 ===
