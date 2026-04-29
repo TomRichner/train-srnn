@@ -24,6 +24,8 @@ Output layout:
             tau_evolution.png
             W_EI_evolution.png
             param_table.txt
+            timeseries_<mode>.png   (with optional Lyapunov panel)
+            lyapunov_<mode>.npz     (t_lya, local_lya, finite_lya, LLE)
         <variant_2>/...
 """
 from __future__ import annotations
@@ -705,6 +707,14 @@ def parse_args():
                    help="replay end time in seconds (default: 30)")
     p.add_argument("--replay-plot-fs", type=float, default=25.0,
                    help="replay plot decimation rate in Hz (default: 25)")
+    p.add_argument("--no-replay-lyapunov", action="store_true",
+                   help="skip the Benettin LLE pass during forward-replay")
+    p.add_argument("--lya-M", type=int, default=5,
+                   help="Benettin rescaling stride in cell-forward steps (default: 5 → lya_dt=5h)")
+    p.add_argument("--lya-d0", type=float, default=1e-3,
+                   help="Benettin perturbation magnitude (default: 1e-3)")
+    p.add_argument("--lya-seed", type=int, default=0,
+                   help="RNG seed for the Benettin initial perturbation (default: 0)")
     return p.parse_args()
 
 
@@ -744,6 +754,10 @@ def main():
                         mode=m,
                         t_range=(args.replay_t_start, args.replay_t_end),
                         plot_fs=args.replay_plot_fs,
+                        compute_lyapunov=not args.no_replay_lyapunov,
+                        lya_M=args.lya_M,
+                        lya_d0=args.lya_d0,
+                        lya_seed=args.lya_seed,
                     )
                 except Exception as e:
                     print(f"  [replay] mode={m} failed: {e}")

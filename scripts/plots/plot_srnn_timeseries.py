@@ -235,6 +235,136 @@ def replay(model, inputs: torch.Tensor, plot_step: int):
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Benettin largest Lyapunov exponent
+# ─────────────────────────────────────────────────────────────────────────
+
+@torch.no_grad()
+def benettin_replay(
+    model,
+    inputs: torch.Tensor,
+    T_warm: int,
+    *,
+    lya_M: int = 5,
+    d0: float = 1e-3,
+    seed: int = 0,
+):
+    """Streaming Benettin largest-Lyapunov pass for the K batched variants.
+
+    Mirrors `benettin_algorithm.m`: every `lya_M` cell-forward steps, fork a
+    perturbation of size `d0` from the fiducial state, integrate the same
+    `lya_M` steps with the same input slice, measure divergence, and
+    renormalise the perturbation direction. Local Lyapunov exponents are
+    computed throughout the entire input window (including warm-up) so the
+    transient settling is visible; the running-average `finite_lya` only
+    accumulates `log(d_k/d0)` for intervals starting at real time t >= 0.
+
+    Returns dict with arrays shaped (n_lya,) and (n_lya, K):
+        t_lya, local_lya, finite_lya, LLE (K,), plus scalar metadata.
+    `t_lya[k]` is the START of the k-th interval, in seconds, with t=0
+    aligned at the end of the warm-up (so warm-up samples have t<0).
+    """
+    cell = model.cell
+    h = float(cell.h)
+    K = cell.K
+    state_size = cell.state_size
+    device = next(cell.parameters()).device
+    tau_lya = lya_M * h
+
+    if hasattr(model, "ic"):
+        state_fid = model.ic(1).to(device)
+    else:
+        state_fid = torch.zeros(K, 1, state_size, device=device)
+
+    g = torch.Generator(device="cpu").manual_seed(seed)
+    d_unit = torch.randn(K, 1, state_size, generator=g).to(device)
+    d_unit = d_unit / d_unit.flatten(1).norm(dim=-1).clamp_min(1e-30).view(K, 1, 1)
+
+    T_total = inputs.shape[0]
+
+    t = 0
+    t_lya_list: list[float] = []
+    local_list: list[np.ndarray] = []
+    finite_list: list[np.ndarray] = []
+    sum_log = torch.zeros(K, device=device)
+    finite_t = 0.0  # accumulated time post-warm-up (for the running average)
+    diverged = torch.zeros(K, dtype=torch.bool, device=device)
+    last_finite = torch.zeros(K, device=device)
+
+    while t + lya_M <= T_total:
+        # Build perturbed state from current fiducial
+        state_pert = state_fid + d_unit * d0
+        # Clamp b_E, b_I components into [0, 1] (matches MATLAB min/max range)
+        a_E, a_I, b_E, b_I, x = cell.unpack_state(state_pert)
+        if cell.max_n_b_E > 0:
+            b_E = b_E.clamp(0.0, 1.0)
+        if cell.max_n_b_I > 0:
+            b_I = b_I.clamp(0.0, 1.0)
+        state_pert = cell.pack_state(a_E, a_I, b_E, b_I, x)
+
+        # Roll fiducial AND perturbed forward by lya_M steps using the same inputs
+        for s in range(lya_M):
+            u_t = inputs[t + s : t + s + 1]
+            _, state_fid = cell(u_t, state_fid)
+            _, state_pert = cell(u_t, state_pert)
+        t += lya_M
+
+        delta = state_pert - state_fid
+        d_k = delta.flatten(1).norm(dim=-1).clamp_min(1e-30)  # (K,)
+        log_ratio = torch.log(d_k / d0)
+        local_lya = log_ratio / tau_lya
+        new_diverged = ~torch.isfinite(local_lya) | ~torch.isfinite(d_k)
+
+        # Freeze diverged variants at their last good values for plotting
+        local_out = torch.where(diverged | new_diverged, last_finite, local_lya)
+
+        # Real-time interval bounds (t=0 at end of warm-up)
+        t_seg_start = (t - lya_M - T_warm) * h
+        t_seg_end = (t - T_warm) * h
+
+        # Running average only accumulates for intervals starting at t>=0
+        if t_seg_start >= 0.0:
+            log_ratio_safe = torch.where(diverged | new_diverged,
+                                         torch.zeros_like(log_ratio), log_ratio)
+            sum_log = sum_log + log_ratio_safe
+            finite_t = finite_t + tau_lya
+            finite_lya = sum_log / max(finite_t, 1e-12)
+            finite_lya = torch.where(diverged, last_finite, finite_lya)
+            last_finite = torch.where(diverged, last_finite, finite_lya)
+        else:
+            # Pre-transient: keep finite_lya at NaN so the plot shows nothing
+            finite_lya = torch.full_like(local_lya, float("nan"))
+
+        diverged = diverged | new_diverged
+
+        t_lya_list.append(t_seg_start)
+        local_list.append(local_out.detach().cpu().numpy())
+        finite_list.append(finite_lya.detach().cpu().numpy())
+
+        # Renormalise perturbation direction (keep old direction for diverged)
+        d_unit_new = delta / d_k.view(K, 1, 1)
+        d_unit = torch.where(diverged.view(K, 1, 1), d_unit, d_unit_new)
+
+    if not t_lya_list:
+        return {
+            "t_lya": np.zeros(0),
+            "local_lya": np.zeros((0, K)),
+            "finite_lya": np.zeros((0, K)),
+            "LLE": np.zeros(K),
+            "lya_dt": tau_lya, "lya_M": int(lya_M), "d0": float(d0), "h": h,
+        }
+    return {
+        "t_lya": np.asarray(t_lya_list, dtype=np.float64),
+        "local_lya": np.stack(local_list, axis=0),
+        "finite_lya": np.stack(finite_list, axis=0),
+        "LLE": last_finite.detach().cpu().numpy(),
+        "lya_dt": tau_lya,
+        "lya_M": int(lya_M),
+        "d0": float(d0),
+        "h": h,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Plotting
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -249,9 +379,15 @@ def render_variant(
     out_path: Path,
     mode: str,
     t_warm_seconds: float,
+    lya: dict | None = None,
 ):
-    """Build the 5-panel figure for variant k and save to out_path."""
-    fig, axes = plt.subplots(5, 1, figsize=(16, 12), sharex=True)
+    """Build the timeseries figure for variant k and save to out_path.
+
+    If `lya` is provided, append a 6th panel showing the local + finite
+    Lyapunov exponent for this variant.
+    """
+    n_panels = 7 if lya is not None else 5
+    fig, axes = plt.subplots(n_panels, 1, figsize=(16, 2.2 * n_panels), sharex=True)
 
     u = bufs["u"][:, k, :]              # (T_plot, N)
     x = bufs["x"][:, k, :]
@@ -281,13 +417,44 @@ def render_variant(
     plot_lines(axes[4], t_seconds, b_full, n_E, "b(t)\nSTD",
                ylim_range=(-0.05, 1.1))
 
+    lle_text = ""
+    if lya is not None and lya["t_lya"].size > 0:
+        t_l = lya["t_lya"]
+        loc = lya["local_lya"][:, k]
+        fin = lya["finite_lya"][:, k]
+        lle_k = float(lya["LLE"][k])
+
+        # Panel 5: local Lyapunov exponent
+        ax_loc = axes[5]
+        ax_loc.plot(t_l, loc, color="C0", lw=0.7)
+        ax_loc.axhline(0.0, color="k", lw=0.5, ls="--")
+        ax_loc.axhline(lle_k, color="C3", lw=1.0, ls="-",
+                       label=f"LLE = {lle_k:+.4f}")
+        ax_loc.set_ylabel("local λ (1/s)\nBenettin", fontsize=10)
+        ax_loc.legend(fontsize=8, loc="best", frameon=False)
+        ax_loc.spines["top"].set_visible(False)
+        ax_loc.spines["right"].set_visible(False)
+
+        # Panel 6: finite-time (running average) Lyapunov exponent
+        ax_fin = axes[6]
+        ax_fin.plot(t_l, fin, color="C0", lw=1.5)
+        ax_fin.axhline(0.0, color="k", lw=0.5, ls="--")
+        ax_fin.axhline(lle_k, color="C3", lw=1.0, ls="-",
+                       label=f"LLE = {lle_k:+.4f}")
+        ax_fin.set_ylabel("finite-time λ (1/s)\nrunning average", fontsize=10)
+        ax_fin.legend(fontsize=8, loc="best", frameon=False)
+        ax_fin.spines["top"].set_visible(False)
+        ax_fin.spines["right"].set_visible(False)
+
+        lle_text = f"  LLE={lle_k:+.4f}"
+
     # Mark the t=0 boundary (end of zero-input warm-up) when present
     if t_warm_seconds > 0:
         for ax in axes:
             ax.axvline(0.0, color="0.4", linestyle=":", linewidth=0.8)
 
     axes[-1].set_xlabel("time (s)")
-    fig.suptitle(f"{variant_name} — mode={mode}", fontsize=12)
+    fig.suptitle(f"{variant_name} — mode={mode}{lle_text}", fontsize=12)
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
@@ -304,6 +471,10 @@ def plot_replay(
     t_range: tuple[float, float] = (-15.0, 30.0),
     plot_fs: float = 25.0,
     device: str = "cpu",
+    compute_lyapunov: bool = True,
+    lya_M: int = 5,
+    lya_d0: float = 1e-3,
+    lya_seed: int = 0,
 ):
     """Replay one mode and write per-variant figures into <out_dir>/<variant>/."""
     ckpt_path = Path(ckpt_path)
@@ -344,6 +515,33 @@ def plot_replay(
     n_E = cell.n_E
     n_I = cell.n_I
 
+    lya = None
+    if compute_lyapunov:
+        print(f"[replay] benettin: lya_M={lya_M} (lya_dt={lya_M*h:.4f}s) d0={lya_d0:g}")
+        lya = benettin_replay(
+            model, inputs, T_warm,
+            lya_M=lya_M, d0=lya_d0, seed=lya_seed,
+        )
+        for k, name in enumerate(ablation_names):
+            variant_dir = out_dir / name
+            variant_dir.mkdir(parents=True, exist_ok=True)
+            np.savez(
+                variant_dir / f"lyapunov_{mode}.npz",
+                t_lya=lya["t_lya"],
+                local_lya=lya["local_lya"][:, k],
+                finite_lya=lya["finite_lya"][:, k],
+                LLE=lya["LLE"][k],
+                lya_dt=lya["lya_dt"],
+                lya_M=lya["lya_M"],
+                d0=lya["d0"],
+                h=lya["h"],
+                mode=mode,
+                variant=name,
+            )
+        print(f"[replay] LLE per variant: " + ", ".join(
+            f"{n}={lya['LLE'][k]:+.4f}" for k, n in enumerate(ablation_names)
+        ))
+
     for k, name in enumerate(ablation_names):
         variant_dir = out_dir / name
         variant_dir.mkdir(parents=True, exist_ok=True)
@@ -351,6 +549,7 @@ def plot_replay(
         render_variant(
             bufs, t_seconds, k, name, cell.configs[k],
             n_E, n_I, out_path, mode, t_warm_seconds,
+            lya=lya,
         )
         print(f"[replay]   wrote {out_path.relative_to(out_dir.parent)}")
 
@@ -374,6 +573,14 @@ def parse_args():
     p.add_argument("--plot-fs", type=float, default=25.0,
                    help="Plot decimation rate in Hz (default: 25)")
     p.add_argument("--device", default="cpu", help="torch device (default: cpu)")
+    p.add_argument("--no-lyapunov", action="store_true",
+                   help="Skip the Benettin LLE pass and the lyapunov panel")
+    p.add_argument("--lya-M", type=int, default=5,
+                   help="Cell forward steps between Benettin rescalings (default: 5 → lya_dt=5h)")
+    p.add_argument("--lya-d0", type=float, default=1e-3,
+                   help="Benettin perturbation magnitude (default: 1e-3)")
+    p.add_argument("--lya-seed", type=int, default=0,
+                   help="RNG seed for the initial perturbation direction (default: 0)")
     return p.parse_args()
 
 
@@ -388,6 +595,10 @@ def main():
             t_range=(args.t_start, args.t_end),
             plot_fs=args.plot_fs,
             device=args.device,
+            compute_lyapunov=not args.no_lyapunov,
+            lya_M=args.lya_M,
+            lya_d0=args.lya_d0,
+            lya_seed=args.lya_seed,
         )
 
 
