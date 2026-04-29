@@ -12,6 +12,8 @@ results/
 # Scratch/working files (not checked in)
 *.pt
 *.png
+*.npz
+_postprocess.log
 
 # Downloaded datasets
 train_srnn/data/*/
