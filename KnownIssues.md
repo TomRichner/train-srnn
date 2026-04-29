@@ -264,3 +264,28 @@ The masked W_in (only the ~25% input partition receives drive) doesn't change th
 **Fix sketch.** Replace the gradient-hook masking with a forward-time multiplication: compute effective values as `param * mask` inside the per-helper accessors (`_a_0()`, `_tau_d()`, `_c_E()`, etc. in `BatchedSRNNCell`). Mathematically equivalent for forward output (the `_vec` init is identical-across-neurons + scalar shifts produce per-K offsets; with mask=0 the vec contribution is zero, matching the no-grad-drift behavior of the hook). Backward gradient through the multiplication naturally produces zero on `*_vec` for masked variants, with no hook needed. Removes the latent checkpoint-incompatibility entirely.
 
 **Why not fix now.** Out of scope for the closed-loop checkpoint enablement work. Tracked here so the next time `_install_vec_mask` is touched, the fix lands cleanly.
+
+---
+
+## 7. `grad_checkpoint=True` + `amp=bf16` + closed-loop fails with saved-tensor metadata mismatch
+
+`torch.utils.checkpoint.checkpoint(..., use_reentrant=False)` does not reliably re-apply the ambient `torch.autocast` context during recomputation. Tensors saved during the original forward (in bf16, because autocast was active) don't match the recomputed forward (running in fp32 because the autocast context isn't propagated). The non-reentrant checkpoint's saved-tensor metadata sanity check raises `CheckpointError: tensor saved during forward is now a different size or dtype during recomputation`.
+
+**Reproduction.** Train with `closed_loop.enabled=true grad_checkpoint=true amp=bf16` on a CUDA device. Crashes early in epoch 0 with metadata mismatches like `saved {shape: (K, B, N), dtype: bfloat16}` vs `recomputed {shape: (K, N), dtype: float32}`. CPU runs (`amp=off`) and bf16-only runs without checkpointing both work fine.
+
+**Affects.** Closed-loop + checkpoint paths under bf16 autocast. The open-loop checkpoint path may also have this issue but cl250 didn't trigger it (or triggered it silently — the open-loop path doesn't have a gradient-equivalence test to catch it). The closed-loop path triggers it because the per-step `_readout_one` includes ops (output_mask boolean indexing, einsum + bias add + skip residual) whose dtypes shift more visibly under autocast.
+
+**Workaround.** Run closed-loop + checkpoint with `amp=off`. At `size=150 bs=12 bptt_chunk_len=125` on L4 this fits comfortably; at production scale (`size=300 bs=24 bptt=2500`) the memory hit may force smaller batch_size to compensate.
+
+**Investigation history.** Tried the obvious fix in commit `213fd31` (subsequently reverted): pass `context_fn` to `torch.utils.checkpoint.checkpoint(...)` that re-applies `torch.autocast(...)` for both forward and recompute. **Did not fix the CUDA failure.** A re-run with the patch in place produced the same metadata-mismatch error, with positions of the mismatches indicating that recompute saves a *different count* of tensors than forward (the displayed error positions are misaligned in a way consistent with one saved tensor extra/missing during recompute), not just different dtypes.
+
+CPU bf16 autocast tests added in `scripts/test_closed_loop_grad_checkpoint.py:test_grad_equivalence_under_cpu_autocast_bf16_*` pass both with and without the `context_fn` patch — PyTorch handles CPU autocast in `torch.utils.checkpoint` internals automatically, so CPU is not a useful regression detector for the CUDA failure. Those tests are kept for general regression coverage.
+
+**Hypotheses still open** (any may be the root cause):
+1. CUDA-specific cache state in autocast (op cache for matmul cast) differs between forward and recompute, producing a different number of saved tensors.
+2. Boolean indexing `out_t[..., self.output_mask.bool()]` in `_readout_one` produces autograd-graph differences under bf16 autocast that don't appear under fp32 or under CPU bf16.
+3. The K-batched `expand` + `bmm` interaction in `_batched_input_drive` saves cached intermediates whose dtype depends on autocast state in a way that drifts between forward and recompute.
+
+**Workaround for now.** Run closed-loop + checkpoint with `amp=off`. At `size=150 bs=12 bptt_chunk_len=125` on L4 this fits comfortably. At production scale (`size=300 bs=24 bptt=2500`) the memory hit may force smaller batch_size; can also drop `bptt_chunk_len` further (e.g. 64 or 32) which directly reduces per-chunk activation memory without needing checkpointing.
+
+**Real fix probably requires.** Reproducing locally with CUDA, running with `torch.utils.checkpoint.set_checkpoint_debug_enabled(True)` to get the per-op trace of what's saved, then narrowing to the offending op. May also require filing a PyTorch issue if the bug is upstream. Out of scope for the closed-loop training work; tracked here for the next person who hits the symptom.

@@ -147,50 +147,6 @@ class SequenceModel(nn.Module):
         return torch.stack(outputs, dim=-2), state
 
     # ------------------------------------------------------------------
-    def _autocast_aware_ckpt_kwargs(self) -> dict:
-        """Return kwargs for ``torch.utils.checkpoint.checkpoint`` that re-apply
-        the ambient autocast context during recomputation.
-
-        Background: ``torch.utils.checkpoint(..., use_reentrant=False)`` does
-        not always reliably re-apply the device autocast context during the
-        recomputation pass. Saved tensors are in autocast dtype (e.g. bf16)
-        but the recompute may run in fp32, leading to a saved-tensor metadata
-        mismatch (KnownIssues #7). Passing an explicit ``context_fn`` that
-        wraps both forward and recompute in ``torch.autocast(...)`` ensures
-        the recomputed tensors match the saved ones exactly.
-
-        Returns ``{}`` when no autocast is active so behavior is bit-identical
-        to today on the ``amp=off`` path.
-        """
-        # Detect active autocast for both CUDA and CPU; capture device + dtype.
-        active = []
-        for dev in ("cuda", "cpu"):
-            try:
-                if torch.is_autocast_enabled(dev):
-                    active.append((dev, torch.get_autocast_dtype(dev)))
-            except (TypeError, RuntimeError):
-                # Older PyTorch versions: is_autocast_enabled() is global.
-                if dev == "cuda" and torch.is_autocast_enabled():
-                    active.append(("cuda", torch.get_autocast_gpu_dtype()))
-                break
-
-        if not active:
-            return {}
-
-        def _ctx_fn():
-            # Build *fresh* autocast contexts each call — torch.autocast
-            # instances are not reusable across re-entries.
-            import contextlib
-            fwd = contextlib.ExitStack()
-            rec = contextlib.ExitStack()
-            for dev, dtype in active:
-                fwd.enter_context(torch.autocast(device_type=dev, dtype=dtype))
-                rec.enter_context(torch.autocast(device_type=dev, dtype=dtype))
-            return fwd, rec
-
-        return {"context_fn": _ctx_fn}
-
-    # ------------------------------------------------------------------
     def _readout_one(self, out_t: torch.Tensor, x_in_t: torch.Tensor) -> torch.Tensor:
         """Apply output_mask + readout head + (optional) skip residual at one timestep.
 
@@ -365,7 +321,6 @@ class SequenceModel(nn.Module):
                     self._cl_run_segment,
                     x_seg, alpha_seg, state, y_prev,
                     use_reentrant=False,
-                    **self._autocast_aware_ckpt_kwargs(),
                 )
             else:
                 outs, state, y_prev = self._cl_run_segment(
@@ -504,8 +459,7 @@ class SequenceModel(nn.Module):
 
             if grad_checkpoint:
                 outs, state = torch.utils.checkpoint.checkpoint(
-                    self._run_segment, x_seg, state, use_reentrant=False,
-                    **self._autocast_aware_ckpt_kwargs(),
+                    self._run_segment, x_seg, state, use_reentrant=False
                 )
             else:
                 outs, state = self._run_segment(x_seg, state)
