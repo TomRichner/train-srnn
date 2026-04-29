@@ -35,5 +35,11 @@ amp: off       # off | bf16. bf16 requires Ampere+ GPU (L4, A100, H100, RTX 30/4
 # Ablation batching
 batched_ablations: null  # list of model variant names to run in parallel via bmm
 
+# Resume from a previous checkpoint (model + optimizer + scheduler).
+# Local path or gs:// URL. Loaded after optimizer/scheduler are built and
+# before the epoch loop; the new run still iterates `epochs` fresh epochs
+# (its own CSVs/checkpoints in the new output_dir). Set to null to disable.
+init_ckpt: null
+
 # Cloud/output
 output_dir: results/${task.name}/${model.name}_${size}

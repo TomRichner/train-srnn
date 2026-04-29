@@ -17,6 +17,7 @@ from train_srnn.models.factory import build_batched_model, build_model
 from train_srnn.utils.checkpoint import (
     append_history_row,
     append_test_history_row,
+    load_checkpoint,
     save_checkpoint,
     write_progress,
 )
@@ -351,6 +352,37 @@ def main(cfg: DictConfig) -> None:
         criterion = nn.CrossEntropyLoss()
     else:
         criterion = nn.MSELoss()
+
+    # 7b. Optional resume: full-state restore from a prior checkpoint ---------
+    # Loads model + optimizer + scheduler. RNG state is intentionally NOT
+    # restored so the continuation epochs see fresh batch order. Burn-in
+    # below will overwrite model.ic.ic if cfg.burn_in > 0; set burn_in=0
+    # to keep the restored IC verbatim.
+    init_ckpt_cfg = cfg.get("init_ckpt", None)
+    if init_ckpt_cfg:
+        import os as _os
+        import subprocess as _subprocess
+        local_init_ckpt = init_ckpt_cfg
+        if str(init_ckpt_cfg).startswith("gs://"):
+            local_init_ckpt = _os.path.join(cfg.output_dir, "_init_ckpt.pt")
+            _os.makedirs(cfg.output_dir, exist_ok=True)
+            log.info(f"Downloading init_ckpt from {init_ckpt_cfg} -> {local_init_ckpt}")
+            _subprocess.run(
+                ["gsutil", "cp", str(init_ckpt_cfg), local_init_ckpt], check=True,
+            )
+        log.info(f"Loading init_ckpt: model + optimizer + scheduler from {local_init_ckpt}")
+        prev_ckpt = load_checkpoint(
+            local_init_ckpt,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            device=str(device),
+        )
+        log.info(
+            f"Resumed from epoch={prev_ckpt.get('epoch')} "
+            f"(scheduler step={getattr(scheduler, 'last_epoch', '?')}, "
+            f"current lr={optimizer.param_groups[0]['lr']:.3e})"
+        )
 
     # 8. Optional burn-in for IC ----------------------------------------------
     def _refresh_ic_from_burn_in():
