@@ -14,6 +14,11 @@ from omegaconf import DictConfig, OmegaConf
 from train_srnn.data.datasets import load_dataset
 from train_srnn.data.transforms import wrap_eval_batch, wrap_train_batch
 from train_srnn.models.factory import build_batched_model, build_model
+from train_srnn.training.closed_loop import (
+    ClosedLoopConfig,
+    sample_alpha_schedule,
+    summarize_alpha,
+)
 from train_srnn.utils.checkpoint import (
     append_history_row,
     append_test_history_row,
@@ -64,12 +69,21 @@ def run_epoch(
     device: torch.device,
     training: bool = True,
     K: int | None = None,
+    closed_loop_cfg: ClosedLoopConfig | None = None,
+    closed_loop_gen: torch.Generator | None = None,
 ) -> tuple[float | list[float], float | list[float]]:
     """Run one epoch of training or evaluation.
 
     Returns:
         ``(avg_loss, avg_metric)`` — scalars for single models, or
         lists of length K for batched ablation models.
+
+    When ``training=True`` and ``closed_loop_cfg.enabled`` is True, each
+    minibatch samples an alpha schedule from ``closed_loop_cfg`` and passes
+    it to the model so the unroll runs in closed-loop mode. The mean of the
+    schedule (excluding the t=0 forced-zero) and the fraction of pure-TF
+    batches across the epoch are accumulated into per-epoch summary stats
+    available via ``run_epoch.last_alpha_stats`` after the call.
     """
     if K is not None:
         total_loss_k = [0.0] * K
@@ -79,6 +93,13 @@ def run_epoch(
         total_correct = 0.0
     total_samples = 0
     batch_size: int = cfg.batch_size
+
+    cl_active = bool(training and closed_loop_cfg is not None
+                     and closed_loop_cfg.enabled)
+    cl_alpha_sum = 0.0
+    cl_alpha_max = 0.0
+    cl_pure_tf_batches = 0
+    cl_total_batches = 0
 
     indices = rng.permutation(len(data_x)) if training else np.arange(len(data_x))
 
@@ -125,6 +146,23 @@ def run_epoch(
         else:
             batch_y_t = torch.tensor(batch_y, dtype=torch.float32, device=device)
 
+        # Closed-loop alpha schedule (training only; None = pure teacher forcing)
+        alpha_schedule = None
+        if cl_active:
+            alpha_schedule = sample_alpha_schedule(
+                closed_loop_cfg,
+                T=batch_x_t.shape[1],
+                C=batch_x_t.shape[2],
+                device=device,
+                generator=closed_loop_gen,
+                dtype=batch_x_t.dtype,
+            )
+            stats = summarize_alpha(alpha_schedule)
+            cl_alpha_sum += stats["alpha_mean"]
+            cl_alpha_max = max(cl_alpha_max, stats["alpha_max"])
+            cl_pure_tf_batches += int(stats["is_pure_tf"])
+            cl_total_batches += 1
+
         # Forward + loss (under AMP autocast when cfg.amp != off) -------------
         with amp_autocast(cfg):
             logits = model(
@@ -134,6 +172,7 @@ def run_epoch(
                 bptt_chunk_len=cfg.get("bptt_chunk_len", None),
                 grad_checkpoint=cfg.get("grad_checkpoint", False),
                 grad_checkpoint_segment_len=cfg.get("grad_checkpoint_segment_len", None),
+                alpha_schedule=alpha_schedule,
             )
 
             if K is not None:
@@ -188,6 +227,17 @@ def run_epoch(
 
         total_samples += n
 
+    # Stash closed-loop summary for the caller to log (epoch-level).
+    if cl_active and cl_total_batches > 0:
+        run_epoch.last_alpha_stats = {  # type: ignore[attr-defined]
+            "alpha_mean": cl_alpha_sum / cl_total_batches,
+            "alpha_max": cl_alpha_max,
+            "pure_tf_frac": cl_pure_tf_batches / cl_total_batches,
+            "n_batches": cl_total_batches,
+        }
+    else:
+        run_epoch.last_alpha_stats = None  # type: ignore[attr-defined]
+
     if K is not None:
         avg_losses = [tl / total_samples for tl in total_loss_k]
         if cfg.task.task_type == "classification":
@@ -207,6 +257,18 @@ def run_epoch(
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
+def _build_closed_loop_cfg(cfg: DictConfig) -> ClosedLoopConfig:
+    """Construct a typed ClosedLoopConfig from the Hydra `closed_loop` block.
+
+    Missing or absent block -> default disabled config.
+    """
+    cl_block = cfg.get("closed_loop", None)
+    if cl_block is None:
+        return ClosedLoopConfig()
+    raw = OmegaConf.to_container(cl_block, resolve=True)
+    return ClosedLoopConfig(**raw)
+
 
 def resolve_device(device_str: str) -> torch.device:
     """Resolve device string (``"auto"``, ``"cpu"``, ``"cuda"``, ``"mps"``)."""
@@ -407,6 +469,28 @@ def main(cfg: DictConfig) -> None:
     rng = np.random.RandomState(cfg.seed)
     burn_in_every = cfg.get("burn_in_every", 0)
 
+    # Closed-loop variable teacher forcing: build a typed config from the
+    # Hydra block and a dedicated torch.Generator (independent of `rng` so
+    # batch sampling order is unaffected when toggling closed-loop on/off).
+    cl_cfg = _build_closed_loop_cfg(cfg)
+    cl_gen = (torch.Generator(device=device).manual_seed(int(cfg.seed) + 1)
+              if cl_cfg.enabled else None)
+    if cl_cfg.enabled:
+        # Validate task dim constraint up front (fail fast).
+        if cfg.task.input_size != cfg.task.output_size:
+            raise ValueError(
+                f"closed_loop.enabled=true requires task.input_size == "
+                f"task.output_size, got {cfg.task.input_size} != "
+                f"{cfg.task.output_size}."
+            )
+        log.info(
+            "Closed-loop enabled: baseline=%.3f (jitter=%.3f), rnd "
+            "density=%.2f sigma=%.2f, t_warm=%d, pure-TF batch frac=%.2f",
+            cl_cfg.alpha_baseline, cl_cfg.alpha_baseline_jitter,
+            cl_cfg.alpha_rnd_density, cl_cfg.alpha_rnd_sigma,
+            cl_cfg.t_warm, cl_cfg.teacher_forcing_batch_frac,
+        )
+
     # Save init checkpoint + test eval (before any training)
     save_checkpoint(model, optimizer, scheduler, epoch=0, cfg=cfg, tag="init")
     eval_and_log_test(
@@ -428,7 +512,16 @@ def main(cfg: DictConfig) -> None:
             model, train_x, train_y,
             optimizer, scheduler, criterion,
             cfg, rng, device, training=True, K=K,
+            closed_loop_cfg=cl_cfg, closed_loop_gen=cl_gen,
         )
+        if getattr(run_epoch, "last_alpha_stats", None):
+            s = run_epoch.last_alpha_stats
+            log.info(
+                "  closed-loop: alpha_mean=%.3f alpha_max=%.3f "
+                "pure_tf_frac=%.2f over %d batches",
+                s["alpha_mean"], s["alpha_max"], s["pure_tf_frac"],
+                s["n_batches"],
+            )
 
         # Constrain parameters (e.g. LTC weight clipping)
         model.constrain_parameters()

@@ -147,6 +147,164 @@ class SequenceModel(nn.Module):
         return torch.stack(outputs, dim=-2), state
 
     # ------------------------------------------------------------------
+    def _readout_one(self, out_t: torch.Tensor, x_in_t: torch.Tensor) -> torch.Tensor:
+        """Apply output_mask + readout head + (optional) skip residual at one timestep.
+
+        Mirrors the end-of-forward block but for a single timestep. Only used
+        by the closed-loop forward path (the open-loop path keeps the inline
+        end-of-forward block to guarantee byte-identical numerics).
+
+        Args:
+            out_t: hidden-units output from the cell at one timestep.
+                ``(B, E)`` single mode, ``(K, B, E)`` K-batched.
+            x_in_t: the actual input fed to the cell at this timestep
+                (already including any closed-loop blend). Used for the
+                skip residual ``y += alpha_skip * x_in_t``.
+                ``(B, C)`` or ``(K, B, C)``.
+
+        Returns:
+            ``(B, O)`` single mode or ``(K, B, O)`` K-batched.
+        """
+        # Output mask
+        if hasattr(self, "output_mask"):
+            out_t = out_t * self.output_mask
+            out_t = out_t[..., self.output_mask.bool()]
+
+        # Readout head
+        if self._K is not None:
+            # einsum handles (K, B, E) -> (K, B, O); bias (K, 1, O) broadcasts.
+            logits = torch.einsum("k...e,koe->k...o", out_t, self.readout_weight)
+            logits = logits + self.readout_bias
+
+            if self._has_skip:
+                # skip_flags: (K,) -> (K, 1, 1); x_in_t may be (K, B, C) or (B, C).
+                skip_flags = self.cell.skip_flags.view(self._K, 1, 1)
+                if x_in_t.dim() == 2:  # (B, C) broadcast to all K variants
+                    x_in_kb = x_in_t.unsqueeze(0)  # (1, B, C) -> broadcasts on K
+                else:
+                    x_in_kb = x_in_t  # (K, B, C)
+                logits = logits + skip_flags * x_in_kb
+            return logits
+        else:
+            return self.readout(out_t)
+
+    # ------------------------------------------------------------------
+    def _forward_closed_loop(
+        self,
+        x: torch.Tensor,
+        *,
+        alpha_schedule: torch.Tensor,
+        readout_idx: int | slice | None,
+        bptt_start_idx: int | None,
+        bptt_chunk_len: int | None,
+        grad_checkpoint: bool,
+    ) -> torch.Tensor:
+        """Closed-loop unroll: cell input is a per-channel blend of real
+        input and the model's previous prediction.
+
+        See ``forward`` docstring for the alpha_schedule semantics.
+        """
+        batch_size, seq_len, n_features = x.shape
+
+        # Validation ----------------------------------------------------------
+        if grad_checkpoint:
+            raise NotImplementedError(
+                "alpha_schedule (closed-loop) is incompatible with "
+                "grad_checkpoint=True in v1."
+            )
+        if alpha_schedule.shape != (seq_len, n_features):
+            raise ValueError(
+                f"alpha_schedule shape {tuple(alpha_schedule.shape)} does not "
+                f"match (T={seq_len}, C={n_features})"
+            )
+        # input_size == output_size is required because we feed y_pred back as x.
+        if self._K is not None:
+            out_size = self.readout_weight.shape[1]
+        else:
+            out_size = self.readout.out_features
+        if n_features != out_size:
+            raise ValueError(
+                f"alpha_schedule (closed-loop) requires input_size == "
+                f"output_size, got {n_features} != {out_size}"
+            )
+
+        # Match dtype/device to x ---------------------------------------------
+        if alpha_schedule.dtype != x.dtype or alpha_schedule.device != x.device:
+            alpha_schedule = alpha_schedule.to(dtype=x.dtype, device=x.device)
+
+        # Initial state -------------------------------------------------------
+        if hasattr(self, "ic"):
+            state = self.ic(batch_size)
+        elif self._K is not None:
+            state = torch.zeros(
+                self._K, batch_size, self.cell.state_size, device=x.device
+            )
+        else:
+            state = torch.zeros(
+                batch_size, self.cell.state_size, device=x.device
+            )
+
+        y_prev: torch.Tensor | None = None  # filled lazily; alpha[0,:]=0 by construction
+        all_y: list[torch.Tensor] = []      # per-timestep y in OUTPUT space
+
+        grad_start = bptt_start_idx if bptt_start_idx is not None else 0
+
+        def _blend(x_real_t: torch.Tensor, y_p: torch.Tensor | None,
+                   alpha_t: torch.Tensor) -> torch.Tensor:
+            """Convex-combine x_real and y_prev per channel.
+
+            x_real_t: (B, C); y_p: (B, C) or (K, B, C) or None; alpha_t: (C,)
+            Returns: matches y_p's leading dims when y_p is not None.
+            """
+            if y_p is None:
+                return x_real_t
+            # alpha_t broadcasts: (C,) -> (..., 1, C) implicit via right-align.
+            return (1.0 - alpha_t) * x_real_t + alpha_t * y_p
+
+        # 1) Warmup region (no_grad) -----------------------------------------
+        if grad_start > 0:
+            with torch.no_grad():
+                for t in range(grad_start):
+                    x_in_t = _blend(x[:, t, :], y_prev, alpha_schedule[t])
+                    out_t, state = self.cell(x_in_t, state)
+                    y_t = self._readout_one(out_t, x_in_t)
+                    all_y.append(y_t)
+                    y_prev = y_t
+            state = state.detach()
+            if y_prev is not None:
+                y_prev = y_prev.detach()
+
+        # 2) Grad region with optional bptt_chunk_len detach -----------------
+        steps_since_detach = 0
+        for t in range(grad_start, seq_len):
+            x_in_t = _blend(x[:, t, :], y_prev, alpha_schedule[t])
+            out_t, state = self.cell(x_in_t, state)
+            y_t = self._readout_one(out_t, x_in_t)
+            all_y.append(y_t)
+            y_prev = y_t
+            steps_since_detach += 1
+            # Detach at chunk boundary (cap grad horizon to bptt_chunk_len).
+            if (bptt_chunk_len is not None
+                    and steps_since_detach >= bptt_chunk_len
+                    and t + 1 < seq_len):
+                state = state.detach()
+                y_prev = y_prev.detach()
+                steps_since_detach = 0
+
+        # Stack along the time axis (-2). full_y shape:
+        #   single:  (B, T, O)
+        #   batched: (K, B, T, O)
+        full_y = torch.stack(all_y, dim=-2)
+
+        # Select readout timestep(s) -----------------------------------------
+        if isinstance(readout_idx, slice):
+            return full_y[..., readout_idx, :]
+        elif readout_idx is not None:
+            return full_y[..., readout_idx, :]
+        else:
+            return full_y[..., -1, :]
+
+    # ------------------------------------------------------------------
     def forward(
         self,
         x: torch.Tensor,
@@ -155,6 +313,7 @@ class SequenceModel(nn.Module):
         bptt_chunk_len: int | None = None,
         grad_checkpoint: bool = False,
         grad_checkpoint_segment_len: int | None = None,
+        alpha_schedule: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward pass.
 
@@ -178,6 +337,13 @@ class SequenceModel(nn.Module):
                 within the grad region. Only consulted when
                 ``grad_checkpoint=True``. ``None`` defaults to
                 ``bptt_chunk_len`` (one checkpoint per detach-chunk).
+            alpha_schedule: Optional ``(T, C)`` tensor enabling **closed-loop**
+                (variable teacher-forcing) unroll. When set, at each step ``t``
+                the cell sees ``x_in[t,c] = (1 - alpha[t,c]) * x_real[t,c] +
+                alpha[t,c] * y_pred[t-1,c]``. ``alpha[0,:]`` is ignored (no
+                ``y_prev`` exists at t=0). Requires ``input_size ==
+                output_size``; incompatible with ``grad_checkpoint=True`` (v1).
+                Per-step readout cost is paid every timestep (unavoidable).
 
         Returns:
             logits: ``(batch, output_size)`` for single cells, or
@@ -186,6 +352,17 @@ class SequenceModel(nn.Module):
                     before the output axis: ``(batch, T, output_size)`` or
                     ``(K, batch, T, output_size)``.
         """
+        # Closed-loop dispatch ------------------------------------------------
+        if alpha_schedule is not None:
+            return self._forward_closed_loop(
+                x,
+                alpha_schedule=alpha_schedule,
+                readout_idx=readout_idx,
+                bptt_start_idx=bptt_start_idx,
+                bptt_chunk_len=bptt_chunk_len,
+                grad_checkpoint=grad_checkpoint,
+            )
+
         batch_size, seq_len, _ = x.shape
 
         # Initial state --------------------------------------------------------

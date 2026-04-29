@@ -1,0 +1,132 @@
+"""Closed-loop teacher-forcing schedule sampling.
+
+Produces a per-batch (T, C) alpha tensor that controls how strongly the
+model's previous prediction is fed back as input at each timestep:
+
+    x_in[t, c] = (1 - alpha[t, c]) * x_real[t, c] + alpha[t, c] * y_pred[t-1, c]
+
+alpha = 0 -> pure teacher forcing (current behavior).
+alpha = 1 -> pure free-run (closed-loop autoregressive).
+
+Schedule structure:
+    alpha[t, c] = envelope(t) * clip(baseline + rnd[c], 0, 1)
+
+Where envelope is a half-cosine ramp 0 -> 1 over `t_warm` samples, then 1.
+`baseline` is per-batch (optionally jittered). `rnd[c]` is a sparse
+zero-mean Gaussian over channels: with probability `alpha_rnd_density`,
+draw N(0, alpha_rnd_sigma^2); otherwise 0.
+
+A fraction `teacher_forcing_batch_frac` of batches return `None`
+(treat as alpha = 0 everywhere -> pure teacher forcing batch).
+
+alpha[0, :] is forced to 0 by construction -- there is no y_prev at t=0.
+"""
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+import torch
+
+
+@dataclass
+class ClosedLoopConfig:
+    enabled: bool = False
+    # Fraction of batches with full teacher forcing (alpha=0 everywhere).
+    teacher_forcing_batch_frac: float = 0.2
+    # Per-batch baseline alpha (the "intensity" knob).
+    alpha_baseline: float = 0.3
+    # Half-range of uniform jitter on baseline; 0 = fixed baseline.
+    alpha_baseline_jitter: float = 0.0
+    # Per-channel sparse perturbation around baseline (zero-mean Gaussian).
+    alpha_rnd_density: float = 0.0
+    alpha_rnd_sigma: float = 0.0
+    # Half-cosine warmup ramp length in samples; 0 = no ramp (envelope=1).
+    t_warm: int = 0
+
+
+def sample_alpha_schedule(
+    cfg: ClosedLoopConfig,
+    T: int,
+    C: int,
+    device: torch.device | str = "cpu",
+    generator: torch.Generator | None = None,
+    dtype: torch.dtype = torch.float32,
+) -> torch.Tensor | None:
+    """Sample one (T, C) alpha schedule for a single batch.
+
+    Returns ``None`` for batches that should run pure teacher forcing.
+
+    Args:
+        cfg: closed-loop hyperparameters.
+        T: window length (number of timesteps).
+        C: number of input channels (== output channels for closed-loop).
+        device: device to place the result on.
+        generator: torch RNG. Required when cfg.enabled is True for determinism;
+            if None, falls back to the default RNG.
+        dtype: floating dtype for the schedule.
+
+    Returns:
+        (T, C) tensor on `device`, or None when this batch is pure-TF.
+        alpha[0, :] == 0 always (t=0 boundary).
+    """
+    if not cfg.enabled:
+        return None
+
+    # Pure-TF batch coin flip --------------------------------------------------
+    if cfg.teacher_forcing_batch_frac > 0.0:
+        u = torch.rand((), device=device, generator=generator)
+        if u.item() < cfg.teacher_forcing_batch_frac:
+            return None
+
+    # Baseline (optionally jittered) -------------------------------------------
+    if cfg.alpha_baseline_jitter > 0.0:
+        j = (torch.rand((), device=device, generator=generator) * 2.0 - 1.0)
+        a_base = float(cfg.alpha_baseline) + float(cfg.alpha_baseline_jitter) * j.item()
+    else:
+        a_base = float(cfg.alpha_baseline)
+
+    # Per-channel sparse Gaussian perturbation, mu = 0 -------------------------
+    a_rnd = torch.zeros(C, device=device, dtype=dtype)
+    if cfg.alpha_rnd_density > 0.0 and cfg.alpha_rnd_sigma > 0.0:
+        support = torch.rand(C, device=device, generator=generator) < cfg.alpha_rnd_density
+        if support.any():
+            noise = torch.randn(C, device=device, generator=generator, dtype=dtype) * cfg.alpha_rnd_sigma
+            a_rnd = torch.where(support, noise, a_rnd)
+
+    # Per-channel raw alpha, clipped to [0, 1] ---------------------------------
+    alpha_raw = (a_base + a_rnd).clamp_(0.0, 1.0)  # (C,)
+
+    # Envelope: half-cosine ramp 0 -> 1 over t_warm samples, then 1 ------------
+    if cfg.t_warm > 0:
+        ts = torch.arange(T, device=device, dtype=dtype)
+        ramp = torch.clamp(ts / float(cfg.t_warm), max=1.0)
+        envelope = 0.5 * (1.0 - torch.cos(math.pi * ramp))  # (T,)
+    else:
+        envelope = torch.ones(T, device=device, dtype=dtype)
+
+    # Outer product -> (T, C) --------------------------------------------------
+    alpha = envelope.unsqueeze(1) * alpha_raw.unsqueeze(0)
+
+    # Force alpha[0, :] = 0 by construction (t=0 boundary, no y_prev) ----------
+    alpha[0].zero_()
+
+    return alpha
+
+
+def summarize_alpha(alpha: torch.Tensor | None) -> dict[str, float]:
+    """Compact summary stats for logging. Safe on None.
+
+    Returns a dict with mean (over t>=1, i.e. excluding the forced-zero
+    boundary), max, fraction of (t, c) entries that are >0.
+    """
+    if alpha is None:
+        return {"alpha_mean": 0.0, "alpha_max": 0.0, "alpha_active_frac": 0.0,
+                "is_pure_tf": 1.0}
+    body = alpha[1:] if alpha.shape[0] > 1 else alpha
+    return {
+        "alpha_mean": float(body.mean().item()),
+        "alpha_max": float(body.max().item()),
+        "alpha_active_frac": float((body > 0).float().mean().item()),
+        "is_pure_tf": 0.0,
+    }

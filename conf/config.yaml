@@ -35,6 +35,28 @@ amp: off       # off | bf16. bf16 requires Ampere+ GPU (L4, A100, H100, RTX 30/4
 # Ablation batching
 batched_ablations: null  # list of model variant names to run in parallel via bmm
 
+# Closed-loop variable teacher forcing.
+# When enabled, training batches are unrolled with a per-channel blend of
+# real input and the model's previous prediction:
+#     x_in[t,c] = (1 - alpha[t,c]) * x_real[t,c] + alpha[t,c] * y_pred[t-1,c]
+# alpha is sampled per batch from envelope(t) * clip(baseline + sparse-rnd[c]).
+# Disabled by default — zero behavior change vs. pure teacher forcing.
+# Requires input_size == output_size on the task. Eval is unaffected.
+closed_loop:
+  enabled: false
+  # Fraction of batches with full teacher forcing (alpha=0 everywhere).
+  teacher_forcing_batch_frac: 0.2
+  # Per-batch baseline alpha (the "intensity" knob).
+  alpha_baseline: 0.3
+  # Half-range of uniform jitter on baseline; 0 = fixed baseline.
+  alpha_baseline_jitter: 0.0
+  # Per-channel sparse Gaussian perturbation around baseline (mu fixed at 0).
+  alpha_rnd_density: 0.0    # bernoulli prob per channel
+  alpha_rnd_sigma: 0.0      # gaussian std
+  # Half-cosine warmup ramp length in samples; 0 disables ramp (envelope=1).
+  # Match this to your eval warmup length so train/eval regimes align.
+  t_warm: 0
+
 # Resume from a previous checkpoint (model + optimizer + scheduler).
 # Local path or gs:// URL. Loaded after optimizer/scheduler are built and
 # before the epoch loop; the new run still iterates `epochs` fresh epochs
