@@ -10,6 +10,11 @@ Usage:
     python scripts/postprocess.py overnight-cl250 --task seeg --seed 1
     python scripts/postprocess.py myrun --skip-download
     python scripts/postprocess.py myrun --variants srnn-skip,srnn-e-only-skip
+    python scripts/postprocess.py overnight-cl250-resume120 \\
+        --prepend-runs overnight-cl250 --skip-download
+        # ^ concatenates cl250 (epochs 0-99) + resume120 (epochs 100-219) into
+        # tmp/overnight-cl250-resume120__concat/ and runs all phases on the
+        # merged 220-epoch trajectory.
 
 Output layout:
     tmp/<run_name>/
@@ -31,6 +36,7 @@ Output layout:
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import os
 import shutil
@@ -122,6 +128,184 @@ def ensure_local_run(args) -> Path:
         if not (local / fn).exists():
             sys.exit(f"ERROR: required file {fn} missing from {local}. Run incomplete?")
     return local
+
+
+# =============================================================================
+# Phase 1b (optional): concatenate multiple runs into a synthetic merged dir
+# =============================================================================
+
+def _run_epoch_count(run_dir: Path) -> int:
+    """How many epochs this run actually completed.
+
+    Read training_history.csv for the first variant; return max(epoch)+1.
+    Falls back to last.pt's "epoch" key if the CSV is missing/empty.
+    """
+    csv_path = run_dir / "training_history.csv"
+    if csv_path.exists():
+        rows = list(csv.DictReader(open(csv_path)))
+        if rows:
+            v0 = rows[0]["variant"]
+            eps = [int(r["epoch"]) for r in rows if r["variant"] == v0]
+            if eps:
+                return max(eps) + 1
+    last = run_dir / "last.pt"
+    if last.exists():
+        sd = torch.load(last, map_location="cpu", weights_only=False)
+        if isinstance(sd, dict) and "epoch" in sd:
+            return int(sd["epoch"]) + 1
+    sys.exit(f"ERROR: cannot determine epoch count for {run_dir}")
+
+
+def _ablation_names_for(run_dir: Path) -> list[str]:
+    """Read ablation_names from any checkpoint in run_dir."""
+    for cand in ("last.pt", "init.pt"):
+        p = run_dir / cand
+        if p.exists():
+            sd = torch.load(p, map_location="cpu", weights_only=False)
+            if isinstance(sd, dict) and sd.get("ablation_names"):
+                return list(sd["ablation_names"])
+    # CSV fallback
+    csv_path = run_dir / "training_history.csv"
+    if csv_path.exists():
+        rows = list(csv.DictReader(open(csv_path)))
+        # Preserve order of first appearance
+        seen: list[str] = []
+        for r in rows:
+            v = r["variant"]
+            if v not in seen:
+                seen.append(v)
+        if seen:
+            return seen
+    sys.exit(f"ERROR: cannot determine ablation_names for {run_dir}")
+
+
+def _validate_chain_compat(run_dirs: list[Path]) -> list[str]:
+    """All runs in a concat chain must share ablation_names."""
+    canonical = _ablation_names_for(run_dirs[0])
+    for rd in run_dirs[1:]:
+        names = _ablation_names_for(rd)
+        if names != canonical:
+            sys.exit(
+                f"ERROR: ablation_names mismatch in concat chain.\n"
+                f"  {run_dirs[0].name}: {canonical}\n"
+                f"  {rd.name}: {names}"
+            )
+    return canonical
+
+
+def _concat_training_history(run_dirs: list[Path], offsets: list[int], out_path: Path) -> None:
+    """Concat training_history.csv rows; offset each row's epoch column."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = None
+    merged_rows: list[dict] = []
+    for rd, off in zip(run_dirs, offsets):
+        csv_path = rd / "training_history.csv"
+        if not csv_path.exists():
+            sys.exit(f"ERROR: {csv_path} missing")
+        with open(csv_path) as f:
+            reader = csv.DictReader(f)
+            if fieldnames is None:
+                fieldnames = reader.fieldnames
+            for r in reader:
+                r["epoch"] = str(int(r["epoch"]) + off)
+                merged_rows.append(r)
+    with open(out_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(merged_rows)
+
+
+def _concat_test_history(run_dirs: list[Path], offsets: list[int], out_path: Path) -> None:
+    """Concat test_history.csv: keep `init` only from earliest, `last` only from latest;
+    other tags (e.g. periodic mid-run test eval) are preserved with offsets."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = None
+    merged: list[dict] = []
+    n_runs = len(run_dirs)
+    for i, (rd, off) in enumerate(zip(run_dirs, offsets)):
+        csv_path = rd / "test_history.csv"
+        if not csv_path.exists():
+            continue
+        with open(csv_path) as f:
+            reader = csv.DictReader(f)
+            if fieldnames is None:
+                fieldnames = reader.fieldnames
+            for r in reader:
+                tag = r.get("tag", "")
+                if tag == "init" and i != 0:
+                    continue
+                if tag == "last" and i != n_runs - 1:
+                    continue
+                r["epoch"] = str(int(r["epoch"]) + off)
+                merged.append(r)
+    if fieldnames is None:
+        return
+    with open(out_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(merged)
+
+
+def _symlink_force(target: Path, link_path: Path) -> None:
+    if link_path.exists() or link_path.is_symlink():
+        link_path.unlink()
+    # Use absolute target so the symlink works regardless of cwd
+    link_path.symlink_to(target.resolve())
+
+
+def _build_concat_run_dir(prepend_dirs: list[Path], primary_dir: Path, out_dir: Path) -> Path:
+    """Materialise a synthetic merged run dir. Symlinks for checkpoints, real
+    files for the concatenated CSVs. Idempotent: surgically replaces only the
+    files this builder owns (init.pt, last.pt, epoch_*.pt, the two history CSVs)
+    so prior plot outputs and replay artefacts in subdirs are preserved across
+    reruns (e.g. when iterating with --skip-replay)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for stale in list(out_dir.glob("epoch_*.pt")):
+        if stale.is_symlink() or stale.is_file():
+            stale.unlink()
+    for owned in ("init.pt", "last.pt", "training_history.csv", "test_history.csv"):
+        p = out_dir / owned
+        if p.exists() or p.is_symlink():
+            p.unlink()
+
+    chain = list(prepend_dirs) + [primary_dir]
+    counts = [_run_epoch_count(rd) for rd in chain]
+    offsets = [sum(counts[:i]) for i in range(len(chain))]
+
+    # init.pt — earliest run's true initial state (epoch -1 / pre-training)
+    init_src = chain[0] / "init.pt"
+    if init_src.exists():
+        _symlink_force(init_src, out_dir / "init.pt")
+
+    # last.pt — final trained state from the primary run. Cannot symlink:
+    # the saved `epoch` key reflects the primary run's internal counter
+    # (e.g. 119 for resume120), but in the merged timeline it must be
+    # offsets[-1] + that. Rewrite the key so load_snapshots places the
+    # "last" snapshot at the correct merged epoch.
+    last_src = primary_dir / "last.pt"
+    if last_src.exists():
+        sd = torch.load(last_src, map_location="cpu", weights_only=False)
+        if isinstance(sd, dict) and "epoch" in sd:
+            sd["epoch"] = int(sd["epoch"]) + offsets[-1]
+        torch.save(sd, out_dir / "last.pt")
+
+    # epoch_*.pt — merge with offsets. Skip the resume runs' "init" copies
+    # (which would duplicate the prior run's last state).
+    for i, (rd, off) in enumerate(zip(chain, offsets)):
+        for ep_file in sorted(rd.glob("epoch_*.pt")):
+            ep = int(ep_file.stem.split("_")[1])
+            new_ep = ep + off
+            dst = out_dir / f"epoch_{new_ep:03d}.pt"
+            _symlink_force(ep_file, dst)
+
+    # Concatenated histories
+    _concat_training_history(chain, offsets, out_dir / "training_history.csv")
+    _concat_test_history(chain, offsets, out_dir / "test_history.csv")
+
+    total_epochs = sum(counts)
+    chain_label = " -> ".join(rd.name for rd in chain)
+    print(f"[concat] {chain_label}  ({total_epochs} epochs total)")
+    return out_dir
 
 
 # =============================================================================
@@ -715,6 +899,11 @@ def parse_args():
                    help="Benettin perturbation magnitude (default: 1e-3)")
     p.add_argument("--lya-seed", type=int, default=0,
                    help="RNG seed for the Benettin initial perturbation (default: 0)")
+    p.add_argument("--prepend-runs", default=None,
+                   help="comma-separated list of earlier run names to concat before "
+                        "<run_name> (e.g. --prepend-runs overnight-cl250 to extend "
+                        "overnight-cl250-resume120). Builds tmp/<primary>__concat/ and "
+                        "runs all phases on the merged dir.")
     return p.parse_args()
 
 
@@ -723,6 +912,21 @@ def main():
 
     print(f"=== Phase 1: download ===")
     run_dir = ensure_local_run(args)
+
+    if args.prepend_runs:
+        print(f"\n=== Phase 1b: concat with prepended runs ===")
+        prepend_names = [s.strip() for s in args.prepend_runs.split(",") if s.strip()]
+        if args.run_name in prepend_names:
+            sys.exit(f"ERROR: --prepend-runs cannot include the primary run '{args.run_name}'")
+        prepend_dirs = []
+        for name in prepend_names:
+            sub_args = copy.copy(args)
+            sub_args.run_name = name
+            prepend_dirs.append(ensure_local_run(sub_args))
+        _validate_chain_compat(prepend_dirs + [run_dir])
+        merged_dir = Path(args.tmp_dir) / f"{args.run_name}__concat"
+        run_dir = _build_concat_run_dir(prepend_dirs, run_dir, merged_dir)
+        print(f"[concat] merged dir: {run_dir}")
 
     print(f"\n=== Phase 2: run-level plots ===")
     plot_curves_split(run_dir)
