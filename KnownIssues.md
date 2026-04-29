@@ -267,7 +267,15 @@ The masked W_in (only the ~25% input partition receives drive) doesn't change th
 
 ---
 
-## 7. `grad_checkpoint=True` + `amp=bf16` + closed-loop fails with saved-tensor metadata mismatch
+## 7. `grad_checkpoint=True` + `amp=bf16` + closed-loop fails with saved-tensor metadata mismatch — **FIXED**
+
+**Status.** Fixed in commit `e12b26f` by wrapping `_run_segment` and `_cl_run_segment` bodies in `torch.autocast(..., cache_enabled=False)` when autocast is active. See `SequenceModel._no_autocast_cache_ctx` in `train_srnn/models/sequence_model.py`.
+
+**Root cause** (confirmed via `torch.utils.checkpoint(... debug=True)` op trace on CUDA bf16): PyTorch's autocast cache stores fp32→bf16 casts of weight tensors so repeated uses of the same weight don't re-cast. The original forward populates this cache as it runs. The recompute pass starts with an empty cache and re-executes the casts, producing extra `aten._to_copy.default(..., dtype=torch.bfloat16)` saved tensors. The saved-tensor count then diverges between forward and recompute, triggering `CheckpointError` from the metadata sanity check at op 91 of the trace (the first divergence point).
+
+**Fix.** Disable the autocast cache for the duration of each segment's forward by wrapping it in `torch.autocast(device_type=..., dtype=..., cache_enabled=False)`. With cache disabled, both forward and recompute re-cast every weight use, producing identical saved-tensor counts. Cost: a small extra cast per weight use within a segment — negligible vs. the matmul itself.
+
+**Historical description (kept for context):**
 
 `torch.utils.checkpoint.checkpoint(..., use_reentrant=False)` does not reliably re-apply the ambient `torch.autocast` context during recomputation. Tensors saved during the original forward (in bf16, because autocast was active) don't match the recomputed forward (running in fp32 because the autocast context isn't propagated). The non-reentrant checkpoint's saved-tensor metadata sanity check raises `CheckpointError: tensor saved during forward is now a different size or dtype during recomputation`.
 
