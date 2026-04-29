@@ -29,8 +29,9 @@ Output layout:
             tau_evolution.png
             W_EI_evolution.png
             param_table.txt
-            timeseries_<mode>.png   (with optional Lyapunov panel)
-            lyapunov_<mode>.npz     (t_lya, local_lya, finite_lya, LLE)
+            timeseries_<ckpt>_<mode>.png   (with optional Lyapunov panel)
+            lyapunov_<ckpt>_<mode>.npz     (t_lya, local_lya, finite_lya, LLE)
+            # <ckpt> is 'init', 'last', or 'epNNN' per --replay-checkpoints
         <variant_2>/...
 """
 from __future__ import annotations
@@ -871,6 +872,58 @@ def run_per_variant(run_dir: Path, snaps, ablation_names: list[str], variants_fi
         write_param_table(out, run_dir.name, snaps, k, name)
 
 
+def _resolve_replay_checkpoints(run_dir: Path, spec: str) -> list[Path]:
+    """Resolve a comma-separated checkpoint specifier to a list of files in run_dir.
+
+    Tokens:
+        'init'                   -> run_dir/init.pt
+        'last'                   -> run_dir/last.pt
+        'epoch_NNN', 'epNNN', 'NNN' (digits) -> run_dir/epoch_<NNN with leading zeros>.pt
+        'all'                    -> init + every epoch_*.pt (numeric order) + last
+    Tokens that don't resolve to an existing file print a warning and are skipped.
+    Returned list deduplicates while preserving first-seen order.
+    """
+    tokens = [t.strip() for t in spec.split(",") if t.strip()]
+    out: list[Path] = []
+    seen: set[Path] = set()
+
+    def _add(p: Path):
+        rp = p.resolve()
+        if rp in seen:
+            return
+        if not p.exists():
+            print(f"  [replay] WARNING: checkpoint not found: {p.name} (skipping)")
+            return
+        seen.add(rp)
+        out.append(p)
+
+    for tok in tokens:
+        if tok == "init":
+            _add(run_dir / "init.pt")
+        elif tok == "last":
+            _add(run_dir / "last.pt")
+        elif tok == "all":
+            _add(run_dir / "init.pt")
+            for p in sorted(run_dir.glob("epoch_*.pt"),
+                            key=lambda q: int(q.stem.split("_")[1])):
+                _add(p)
+            _add(run_dir / "last.pt")
+        else:
+            # Try to parse an epoch index from any of: epoch_NNN, epNNN, NNN
+            digits = None
+            if tok.startswith("epoch_") and tok[len("epoch_"):].isdigit():
+                digits = tok[len("epoch_"):]
+            elif tok.startswith("ep") and tok[len("ep"):].isdigit():
+                digits = tok[len("ep"):]
+            elif tok.isdigit():
+                digits = tok
+            if digits is None:
+                print(f"  [replay] WARNING: unrecognised checkpoint token: {tok!r} (skipping)")
+                continue
+            _add(run_dir / f"epoch_{int(digits):03d}.pt")
+    return out
+
+
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("run_name", help="GCS run name (top-level folder under results-pytorch/)")
@@ -891,6 +944,10 @@ def parse_args():
                    help="replay end time in seconds (default: 30)")
     p.add_argument("--replay-plot-fs", type=float, default=25.0,
                    help="replay plot decimation rate in Hz (default: 25)")
+    p.add_argument("--replay-checkpoints", default="init,last",
+                   help="comma-separated list of checkpoints to replay. Tokens: "
+                        "'init', 'last', 'epoch_NNN' (or 'epNNN' or 'NNN'), or 'all' "
+                        "(= init + every epoch_*.pt + last). Default: init,last.")
     p.add_argument("--no-replay-lyapunov", action="store_true",
                    help="skip the Benettin LLE pass during forward-replay")
     p.add_argument("--lya-M", type=int, default=5,
@@ -942,29 +999,30 @@ def main():
 
     if not args.skip_replay:
         print(f"\n=== Phase 3b: forward-replay time-series ===")
-        ckpt_path = run_dir / "last.pt"
-        if not ckpt_path.exists():
-            print(f"  last.pt missing in {run_dir} — skipping replay phase")
+        ckpts = _resolve_replay_checkpoints(run_dir, args.replay_checkpoints)
+        if not ckpts:
+            print(f"  no replay checkpoints resolved in {run_dir} — skipping")
         else:
             if str(REPO) not in sys.path:
                 sys.path.insert(0, str(REPO))
             from scripts.plots.plot_srnn_timeseries import plot_replay
             modes = [m.strip() for m in args.replay_modes.split(",") if m.strip()]
-            for m in modes:
-                try:
-                    plot_replay(
-                        ckpt_path=ckpt_path,
-                        out_dir=run_dir,
-                        mode=m,
-                        t_range=(args.replay_t_start, args.replay_t_end),
-                        plot_fs=args.replay_plot_fs,
-                        compute_lyapunov=not args.no_replay_lyapunov,
-                        lya_M=args.lya_M,
-                        lya_d0=args.lya_d0,
-                        lya_seed=args.lya_seed,
-                    )
-                except Exception as e:
-                    print(f"  [replay] mode={m} failed: {e}")
+            for ckpt_path in ckpts:
+                for m in modes:
+                    try:
+                        plot_replay(
+                            ckpt_path=ckpt_path,
+                            out_dir=run_dir,
+                            mode=m,
+                            t_range=(args.replay_t_start, args.replay_t_end),
+                            plot_fs=args.replay_plot_fs,
+                            compute_lyapunov=not args.no_replay_lyapunov,
+                            lya_M=args.lya_M,
+                            lya_d0=args.lya_d0,
+                            lya_seed=args.lya_seed,
+                        )
+                    except Exception as e:
+                        print(f"  [replay] ckpt={ckpt_path.name} mode={m} failed: {e}")
 
     if not args.no_report:
         print(f"\n=== Phase 4: consolidated PDF report ===")

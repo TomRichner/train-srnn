@@ -11,8 +11,11 @@ Three input modes are supported:
 
 `t_start < 0` provides additional zero-input warm-up beyond the trained IC.
 
-Outputs one PNG per variant per mode at:
-    <out_dir>/<variant_name>/timeseries_<mode>.png
+Outputs per variant per mode at:
+    <out_dir>/<variant_name>/timeseries_<ckpt_tag>_<mode>.png
+    <out_dir>/<variant_name>/lyapunov_<ckpt_tag>_<mode>.npz   (when LLE enabled)
+where <ckpt_tag> is derived from the checkpoint filename:
+    init.pt -> 'init', last.pt -> 'last', epoch_050.pt -> 'ep050'.
 
 CLI:
     python scripts/plots/plot_srnn_timeseries.py <ckpt> <out_dir> \\
@@ -380,6 +383,7 @@ def render_variant(
     mode: str,
     t_warm_seconds: float,
     lya: dict | None = None,
+    ckpt_tag: str | None = None,
 ):
     """Build the timeseries figure for variant k and save to out_path.
 
@@ -454,7 +458,10 @@ def render_variant(
             ax.axvline(0.0, color="0.4", linestyle=":", linewidth=0.8)
 
     axes[-1].set_xlabel("time (s)")
-    fig.suptitle(f"{variant_name} — mode={mode}{lle_text}", fontsize=12)
+    title = f"{variant_name} — mode={mode}"
+    if ckpt_tag:
+        title += f" — ckpt={ckpt_tag}"
+    fig.suptitle(f"{title}{lle_text}", fontsize=12)
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
@@ -463,6 +470,19 @@ def render_variant(
 # ─────────────────────────────────────────────────────────────────────────
 # Public entry point
 # ─────────────────────────────────────────────────────────────────────────
+
+def _default_ckpt_tag(ckpt_path: Path) -> str:
+    """Derive a short tag from a checkpoint filename:
+        init.pt        -> 'init'
+        last.pt        -> 'last'
+        epoch_050.pt   -> 'ep050'
+        anything else  -> the bare filename stem.
+    """
+    stem = Path(ckpt_path).stem
+    if stem.startswith("epoch_"):
+        return "ep" + stem[len("epoch_"):]
+    return stem
+
 
 def plot_replay(
     ckpt_path: Path,
@@ -475,13 +495,23 @@ def plot_replay(
     lya_M: int = 5,
     lya_d0: float = 1e-3,
     lya_seed: int = 0,
+    ckpt_tag: str | None = None,
 ):
-    """Replay one mode and write per-variant figures into <out_dir>/<variant>/."""
+    """Replay one mode + checkpoint; write tagged figures into <out_dir>/<variant>/.
+
+    Outputs (per variant):
+        timeseries_<ckpt_tag>_<mode>.png
+        lyapunov_<ckpt_tag>_<mode>.npz   (when compute_lyapunov=True)
+    `ckpt_tag` defaults to a short tag derived from the checkpoint filename
+    via _default_ckpt_tag (e.g. 'init', 'last', 'ep050').
+    """
     ckpt_path = Path(ckpt_path)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if ckpt_tag is None:
+        ckpt_tag = _default_ckpt_tag(ckpt_path)
 
-    print(f"[replay] loading {ckpt_path}")
+    print(f"[replay] ckpt={ckpt_tag} loading {ckpt_path}")
     ckpt = load_checkpoint(str(ckpt_path), device=device)
     cfg = OmegaConf.create(ckpt["config"])
     ablation_names = ckpt.get("ablation_names") or []
@@ -499,7 +529,7 @@ def plot_replay(
     input_size = int(cfg.task.input_size)
 
     plot_step = max(1, int(round((1.0 / plot_fs) / h)))
-    print(f"[replay] mode={mode} t_range={t_range} h={h} plot_step={plot_step} "
+    print(f"[replay] ckpt={ckpt_tag} mode={mode} t_range={t_range} h={h} plot_step={plot_step} "
           f"(plot_fs ≈ {1.0/(plot_step*h):.2f} Hz)")
 
     inputs, T_warm, T_main = build_inputs(
@@ -526,7 +556,7 @@ def plot_replay(
             variant_dir = out_dir / name
             variant_dir.mkdir(parents=True, exist_ok=True)
             np.savez(
-                variant_dir / f"lyapunov_{mode}.npz",
+                variant_dir / f"lyapunov_{ckpt_tag}_{mode}.npz",
                 t_lya=lya["t_lya"],
                 local_lya=lya["local_lya"][:, k],
                 finite_lya=lya["finite_lya"][:, k],
@@ -536,20 +566,22 @@ def plot_replay(
                 d0=lya["d0"],
                 h=lya["h"],
                 mode=mode,
+                ckpt=ckpt_tag,
                 variant=name,
             )
-        print(f"[replay] LLE per variant: " + ", ".join(
+        print(f"[replay] ckpt={ckpt_tag} LLE per variant: " + ", ".join(
             f"{n}={lya['LLE'][k]:+.4f}" for k, n in enumerate(ablation_names)
         ))
 
     for k, name in enumerate(ablation_names):
         variant_dir = out_dir / name
         variant_dir.mkdir(parents=True, exist_ok=True)
-        out_path = variant_dir / f"timeseries_{mode}.png"
+        out_path = variant_dir / f"timeseries_{ckpt_tag}_{mode}.png"
         render_variant(
             bufs, t_seconds, k, name, cell.configs[k],
             n_E, n_I, out_path, mode, t_warm_seconds,
             lya=lya,
+            ckpt_tag=ckpt_tag,
         )
         print(f"[replay]   wrote {out_path.relative_to(out_dir.parent)}")
 
