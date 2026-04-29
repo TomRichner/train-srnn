@@ -9,10 +9,21 @@ K-batched cells like ``BatchedSRNNCell`` (output shape ``(K, B, N)``).
 """
 
 import math
+import os
 
 import torch
 import torch.nn as nn
 import torch.utils.checkpoint
+
+# Diagnostic toggle for KnownIssues #7. When True, torch.utils.checkpoint
+# emits op-level traces of saved tensors during forward and recompute when a
+# metadata mismatch fires. Has no effect on training correctness; only
+# enriches error output. **TEMPORARILY HARD-CODED TRUE for diagnostic; revert
+# to env-var gated (CKPT_DEBUG) after capturing the trace.**
+_CKPT_DEBUG = True
+if _CKPT_DEBUG:
+    torch.utils.checkpoint.set_checkpoint_debug_enabled(True)
+_ = os.environ  # silence unused import warning when toggle is hard-coded
 
 from train_srnn.utils.io_masks import (
     generate_neuron_partition,
@@ -321,6 +332,7 @@ class SequenceModel(nn.Module):
                     self._cl_run_segment,
                     x_seg, alpha_seg, state, y_prev,
                     use_reentrant=False,
+                    debug=_CKPT_DEBUG,
                 )
             else:
                 outs, state, y_prev = self._cl_run_segment(
@@ -459,7 +471,8 @@ class SequenceModel(nn.Module):
 
             if grad_checkpoint:
                 outs, state = torch.utils.checkpoint.checkpoint(
-                    self._run_segment, x_seg, state, use_reentrant=False
+                    self._run_segment, x_seg, state, use_reentrant=False,
+                    debug=_CKPT_DEBUG,
                 )
             else:
                 outs, state = self._run_segment(x_seg, state)
