@@ -97,6 +97,7 @@ class SRNNConfig:
     ode_unfolds: int = 4
     readout: str = "synaptic"
     tau_global_init: float = 1.0  # Initial value for global timescale multiplier
+    std_zero_floor: bool = False  # Rescale b -> (b - b_min)/(1 - b_min) so synaptic gain reaches 0 at saturation
 
     @property
     def n_E(self) -> int:
@@ -434,6 +435,32 @@ class SRNNCell(nn.Module):
     def _tau_b_rel_I(self) -> torch.Tensor:
         return self._tau_global() * F.softplus(self.log_tau_b_rel_I)
 
+    def _maybe_rescale_b(self, b_E, b_I):
+        """Apply (b - b_min)/(1 - b_min) rescaling when std_zero_floor=True.
+
+        b_min = tau_rel / (tau_rec + tau_rel) — the asymptote of b at r=1.
+        Maps the dynamic range [b_min, 1] to [0, 1] in the synaptic readout
+        without altering the b ODE itself.
+
+        Returns (b_E_used, b_I_used). When the flag is off or a side has no
+        STD parameters, the corresponding input is returned unchanged.
+        """
+        if not self.config.std_zero_floor:
+            return b_E, b_I
+        b_E_used = b_E
+        b_I_used = b_I
+        if b_E is not None:
+            tau_rec_E = self._tau_b_rec_E()
+            tau_rel_E = self._tau_b_rel_E()
+            b_min_E = tau_rel_E / (tau_rec_E + tau_rel_E)
+            b_E_used = (b_E - b_min_E) / (1.0 - b_min_E)
+        if b_I is not None:
+            tau_rec_I = self._tau_b_rec_I()
+            tau_rel_I = self._tau_b_rel_I()
+            b_min_I = tau_rel_I / (tau_rec_I + tau_rel_I)
+            b_I_used = (b_I - b_min_I) / (1.0 - b_min_I)
+        return b_E_used, b_I_used
+
     # ---- ODE right-hand side ----
 
     def _compute_rhs(
@@ -470,11 +497,12 @@ class SRNNCell(nn.Module):
         r = piecewise_sigmoid(x_eff - self.a_0)  # (batch, N)
 
         # 3. Synaptic output with depression
+        b_E_used, b_I_used = self._maybe_rescale_b(b_E, b_I)
         b_full = torch.ones_like(r)
-        if b_E is not None:
-            b_full = torch.cat([b_E, b_full[:, n_E:]], dim=-1)
-        if b_I is not None:
-            b_full = torch.cat([b_full[:, :n_E], b_I], dim=-1)
+        if b_E_used is not None:
+            b_full = torch.cat([b_E_used, b_full[:, n_E:]], dim=-1)
+        if b_I_used is not None:
+            b_full = torch.cat([b_full[:, :n_E], b_I_used], dim=-1)
         br = b_full * r  # (batch, N)
 
         # 4. Recurrent drive
@@ -534,11 +562,12 @@ class SRNNCell(nn.Module):
 
         r = piecewise_sigmoid(x_eff - self.a_0)
 
+        b_E_used, b_I_used = self._maybe_rescale_b(b_E, b_I)
         b_full = torch.ones_like(r)
-        if b_E is not None:
-            b_full = torch.cat([b_E, b_full[:, n_E:]], dim=-1)
-        if b_I is not None:
-            b_full = torch.cat([b_full[:, :n_E], b_I], dim=-1)
+        if b_E_used is not None:
+            b_full = torch.cat([b_E_used, b_full[:, n_E:]], dim=-1)
+        if b_I_used is not None:
+            b_full = torch.cat([b_full[:, :n_E], b_I_used], dim=-1)
         br = b_full * r
         Wbr = br @ W_eff.T
 
@@ -1032,6 +1061,17 @@ class BatchedSRNNCell(nn.Module):
         self.register_buffer("std_E_mask", std_E_mask)
         self.register_buffer("std_I_mask", std_I_mask)
 
+        # Per-variant std_zero_floor flag: (K, 1, 1) for broadcast against
+        # (K, B, n_E) / (K, B, n_I). 1.0 -> apply (b-b_min)/(1-b_min) rescaling.
+        # persistent=False so the buffer isn't part of state_dict — it's fully
+        # determined by configs (which are reconstructed from cfg.config when
+        # loading a checkpoint), and excluding it lets pre-change checkpoints
+        # load cleanly into the updated class.
+        zero_floor_flags = torch.tensor(
+            [float(c.std_zero_floor) for c in configs], dtype=torch.float32
+        ).reshape(self.K, 1, 1)
+        self.register_buffer("std_zero_floor_mask", zero_floor_flags, persistent=False)
+
         # Readout mode encoded as integer: 0=synaptic, 1=rate, 2=dendritic
         readout_map = {"synaptic": 0, "rate": 1, "dendritic": 2}
         readout_ids = torch.tensor(
@@ -1113,6 +1153,42 @@ class BatchedSRNNCell(nn.Module):
         """(K, n_I)"""
         gain = torch.exp(self.log_tau_b_rel_I_gain).view(self.K, 1)
         return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.log_tau_b_rel_I_vec)
+
+    def _compute_b_full(self, b_E: torch.Tensor, b_I: torch.Tensor) -> torch.Tensor:
+        """Build (K, B, N) effective synaptic gain from raw b_E, b_I state.
+
+        Applies the std_zero_floor rescaling per-variant when enabled (blended
+        via std_zero_floor_mask), then applies std_E_mask / std_I_mask so
+        variants with STD inactive see b_full == 1.
+
+        Reused by _batched_step_semi_implicit, _batched_compute_rhs, and
+        get_diagnostics — single source of truth for the b -> b_full math.
+        """
+        flag = self.std_zero_floor_mask  # (K, 1, 1)
+
+        # E side
+        if self.max_n_b_E > 0:
+            tau_rec_E = self._tau_b_rec_E().unsqueeze(1)  # (K, 1, n_E)
+            tau_rel_E = self._tau_b_rel_E().unsqueeze(1)
+            b_min_E = tau_rel_E / (tau_rec_E + tau_rel_E)
+            b_E_rescaled = (b_E - b_min_E) / (1.0 - b_min_E)
+            b_E_used = b_E * (1.0 - flag) + b_E_rescaled * flag
+        else:
+            b_E_used = b_E  # ones from unpack_state when no STD anywhere
+
+        # I side
+        if self.max_n_b_I > 0:
+            tau_rec_I = self._tau_b_rec_I().unsqueeze(1)
+            tau_rel_I = self._tau_b_rel_I().unsqueeze(1)
+            b_min_I = tau_rel_I / (tau_rec_I + tau_rel_I)
+            b_I_rescaled = (b_I - b_min_I) / (1.0 - b_min_I)
+            b_I_used = b_I * (1.0 - flag) + b_I_rescaled * flag
+        else:
+            b_I_used = b_I
+
+        b_full_E = b_E_used * self.std_E_mask.unsqueeze(1) + (1.0 - self.std_E_mask.unsqueeze(1))
+        b_full_I = b_I_used * self.std_I_mask.unsqueeze(1) + (1.0 - self.std_I_mask.unsqueeze(1))
+        return torch.cat([b_full_E, b_full_I], dim=-1)
 
     # ---- Direct-param effective-value helpers (a_0, c_E, c_I, c_0_E, c_0_I) ----
 
@@ -1279,10 +1355,9 @@ class BatchedSRNNCell(nn.Module):
 
         r = piecewise_sigmoid(x_eff - self._a_0().unsqueeze(1))
 
-        # b_full: variants with inactive STD see b_full == 1 regardless of b_E/b_I
-        b_full_E = b_E * self.std_E_mask.unsqueeze(1) + (1.0 - self.std_E_mask.unsqueeze(1))
-        b_full_I = b_I * self.std_I_mask.unsqueeze(1) + (1.0 - self.std_I_mask.unsqueeze(1))
-        b_full = torch.cat([b_full_E, b_full_I], dim=-1)
+        # b_full: applies std_zero_floor rescaling (when enabled) and
+        # std_E/I_mask so STD-inactive variants see b_full == 1.
+        b_full = self._compute_b_full(b_E, b_I)
         br = b_full * r
 
         out = {
@@ -1382,12 +1457,9 @@ class BatchedSRNNCell(nn.Module):
         # Firing rate
         r = piecewise_sigmoid(x_eff - self._a_0().unsqueeze(1))  # (K, B, N)
 
-        # Depression
-        # For inactive STD: b stays 1.0 (no depression)
-        # std_E_mask: (K, 1), std_I_mask: (K, 1)
-        b_full_E = b_E * self.std_E_mask.unsqueeze(1) + (1.0 - self.std_E_mask.unsqueeze(1))
-        b_full_I = b_I * self.std_I_mask.unsqueeze(1) + (1.0 - self.std_I_mask.unsqueeze(1))
-        b_full = torch.cat([b_full_E, b_full_I], dim=-1)  # (K, B, N)
+        # Synaptic gain: applies std_zero_floor rescaling (when enabled per-variant)
+        # then std_E/I_mask so STD-inactive variants see b_full == 1.
+        b_full = self._compute_b_full(b_E, b_I)  # (K, B, N)
         br = b_full * r
 
         # Recurrent drive via bmm
@@ -1476,9 +1548,7 @@ class BatchedSRNNCell(nn.Module):
 
         r = piecewise_sigmoid(x_eff - self._a_0().unsqueeze(1))
 
-        b_full_E = b_E * self.std_E_mask.unsqueeze(1) + (1.0 - self.std_E_mask.unsqueeze(1))
-        b_full_I = b_I * self.std_I_mask.unsqueeze(1) + (1.0 - self.std_I_mask.unsqueeze(1))
-        b_full = torch.cat([b_full_E, b_full_I], dim=-1)
+        b_full = self._compute_b_full(b_E, b_I)
         br = b_full * r
 
         Wbr = self._batched_recurrent_drive(br, W_eff)
