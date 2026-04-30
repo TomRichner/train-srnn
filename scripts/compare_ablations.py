@@ -18,7 +18,12 @@ from train_srnn.models.srnn_cell import (
 from train_srnn.models.rmt_matrix import RMTMatrix
 
 # ── Which variants to compare (change this list) ─────────────────────────
-VARIANT_NAMES = ["srnn", "srnn-E-only"]
+# All non-per-neuron presets; solver/h/ode_unfolds get overridden below to
+# satisfy BatchedSRNNCell's "all configs share solver/h/ode_unfolds" check.
+VARIANT_NAMES = [
+    name for name, cfg in SRNN_PRESETS.items()
+    if not cfg.per_neuron
+]
 
 # ── Shared simulation parameters ─────────────────────────────────────────
 
@@ -135,36 +140,21 @@ with torch.no_grad():
         u_t = u_ex_tensor[:, t_idx].unsqueeze(0)  # (1, N) — broadcasts to (K, 1, N)
         output, state = cell(u_t, state)
 
-        a_E, a_I, b_E, b_I, x = cell.unpack_state(state)
-        # a_E: (K, 1, n_E, max_n_a_E), b_E: (K, 1, n_E), x: (K, 1, N)
-
-        # Recompute effective potential and firing rate (matches _batched_compute_rhs)
-        x_eff = x.clone()
-        if max_n_a_E > 0:
-            c_E = F.softplus(cell.log_c_E)            # (K, n_E, max_n_a_E)
-            c_E_masked = c_E * cell.sfa_E_mask         # (K, n_E, max_n_a_E) * (K, 1, max_n_a_E)
-            sfa_E_contrib = (c_E_masked.unsqueeze(1) * a_E).sum(-1)  # (K, 1, n_E)
-            x_eff = torch.cat([x[:, :, :n_E] - sfa_E_contrib, x_eff[:, :, n_E:]], dim=-1)
-
-        if max_n_a_I > 0:
-            c_I = F.softplus(cell.log_c_I)
-            c_I_masked = c_I * cell.sfa_I_mask
-            sfa_I_contrib = (c_I_masked.unsqueeze(1) * a_I).sum(-1)
-            x_eff = torch.cat([x_eff[:, :, :n_E], x_eff[:, :, n_E:] - sfa_I_contrib], dim=-1)
-
-        r = piecewise_sigmoid(x_eff - cell.a_0.unsqueeze(1))  # (K, 1, N)
-
-        # Depression: inactive STD stays at 1.0
-        b_full_E = b_E * cell.std_E_mask.unsqueeze(1) + (1.0 - cell.std_E_mask.unsqueeze(1))
-        b_full_I = b_I * cell.std_I_mask.unsqueeze(1) + (1.0 - cell.std_I_mask.unsqueeze(1))
-        b_full = torch.cat([b_full_E, b_full_I], dim=-1)  # (K, 1, N)
+        # Use cell.get_diagnostics — single source of truth that handles
+        # the SFA / STD / std_zero_floor math identically to the solver step.
+        diag = cell.get_diagnostics(state, u_t)
+        a_E = diag["a_E"]      # (K, 1, n_E, max_n_a_E)
+        b_full = diag["b_full"]  # (K, 1, N) — already includes std_zero_floor rescaling
+        r = diag["r"]          # (K, 1, N)
+        x = diag["x"]          # (K, 1, N)
 
         # Store (squeeze batch dim)
         r_hist[:, t_idx] = r[:, 0].numpy()
         x_hist[:, t_idx] = x[:, 0].numpy()
         if max_n_a_E > 0:
             a_E_hist[:, t_idx] = a_E[:, 0].numpy()
-        b_E_hist[:, t_idx] = b_full_E[:, 0].numpy()
+        # E-side b_full only (n_E columns)
+        b_E_hist[:, t_idx] = b_full[:, 0, :n_E].numpy()
         br_hist[:, t_idx] = (b_full * r)[:, 0].numpy()
 
 # ── Sanity Checks ────────────────────────────────────────────────────────
@@ -221,7 +211,8 @@ cmap_I = make_colormap(INHIBITORY_BASE, 8)
 panel_labels = ["stim", "dendrite", "firing rate", "synaptic output", "adaptation", "depression"]
 n_panels = len(panel_labels)
 
-fig, axes = plt.subplots(n_panels, K, figsize=(10 * K, 16), sharex=True, sharey="row")
+per_col = 10 if K <= 3 else max(2.5, 30.0 / K)
+fig, axes = plt.subplots(n_panels, K, figsize=(per_col * K, 16), sharex=True, sharey="row")
 if K == 1:
     axes = axes[:, np.newaxis]
 
