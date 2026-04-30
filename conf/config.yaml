@@ -60,8 +60,12 @@ closed_loop:
   alpha_rnd_density: 0.0    # bernoulli prob per channel
   alpha_rnd_sigma: 0.0      # gaussian std
   # Half-cosine warmup ramp length in samples; 0 disables ramp (envelope=1).
-  # Match this to your eval warmup length so train/eval regimes align.
-  t_warm: 0
+  # 2500 = 2 * (window_len - bptt_len) at seeg defaults (3750 - 2500 = 1250
+  # forward-only warm-up samples = 5 s; t_warm = 10 s). The α envelope
+  # reaches full strength one forward-only-warmup-length into the BPTT
+  # region, smoothing the closed-loop handoff. Override per-task if your
+  # window_len/bptt_len differ.
+  t_warm: 2500
 
 # Resume from a previous checkpoint (model + optimizer + scheduler).
 # Local path or gs:// URL. Loaded after optimizer/scheduler are built and

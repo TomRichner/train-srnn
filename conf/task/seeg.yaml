@@ -9,8 +9,8 @@ cond: baseline       # baseline | stim
 
 # Preprocessing
 decimate: 2          # 500 Hz -> 250 Hz via pair-average
-seq_len: 3750        # 5 s warmup + 10 s predict at 250 Hz
-stride: 1250         # 5 s stride (consecutive predict regions overlap 50%)
+seq_len: 3750        # 15 s @ 250 Hz (must equal window_len when no_augment=true)
+stride: 1250         # 5 s stride — 67% overlap between consecutive 15 s windows
 
 # ODE step sizing — model YAMLs interpolate these via ${task.h} / ${task.ode_unfolds}.
 # h = 1/250 = 0.004 s makes taus in real seconds at the 250 Hz post-decimate rate.
@@ -27,6 +27,7 @@ batch_size: 24
 
 # Sequence + BPTT — top-level config picks these up via oc.select.
 # 15 s window @ 250 Hz = 3750; 10 s grad horizon = 2500; 1 s chunk = 250.
+# Forward-only warmup = window_len - bptt_len = 1250 (5 s).
 # loss_over_bptt averages MSE across every grad-region step (autoregressive).
 # stretch + palindrome augmentation off: seeg is real biological time.
 window_len: 3750
