@@ -434,8 +434,16 @@ def _save_semilogy_direct(run_dir: Path, group_label: str, variants_in_group: li
 
 
 def plot_curves_split(run_dir: Path):
-    th = load_history_by_variant(run_dir / "training_history.csv")
-    te = list(csv.DictReader(open(run_dir / "test_history.csv")))
+    csv_path = run_dir / "training_history.csv"
+    if not csv_path.exists() or csv_path.stat().st_size == 0:
+        print("  [curves] no training_history.csv — skipping (init-only run?)")
+        return
+    th = load_history_by_variant(csv_path)
+    if not th:
+        print("  [curves] training_history.csv empty — skipping")
+        return
+    test_csv = run_dir / "test_history.csv"
+    te = list(csv.DictReader(open(test_csv))) if test_csv.exists() else []
     variants = sorted(th.keys())
     skip = [v for v in variants if _is_skip(v)]
     noskip = [v for v in variants if not _is_skip(v)]
@@ -450,7 +458,11 @@ def plot_curves_split(run_dir: Path):
 # =============================================================================
 
 def plot_lr_schedule(run_dir: Path):
-    rows = list(csv.DictReader(open(run_dir / "training_history.csv")))
+    csv_path = run_dir / "training_history.csv"
+    if not csv_path.exists() or csv_path.stat().st_size == 0:
+        print("  [lr_schedule] no training_history.csv — skipping")
+        return
+    rows = list(csv.DictReader(open(csv_path)))
     if not rows:
         print("  [lr_schedule] empty training_history.csv")
         return

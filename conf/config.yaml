@@ -5,6 +5,7 @@ defaults:
 
 seed: 1
 epochs: 200
+early_exit_after_init: false  # write init.pt + last.pt then exit before training (for fresh-IC postprocess analysis)
 batch_size: 128
 lr: 3e-4
 cosine_decay: false  # if true, cosine-decay LR after hold phase to lr/20

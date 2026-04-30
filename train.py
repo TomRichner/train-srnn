@@ -501,6 +501,14 @@ def main(cfg: DictConfig) -> None:
         epoch=0, tag="init", K=K, ablation_names=ablation_names,
     )
 
+    if cfg.get("early_exit_after_init", False):
+        # Mirror init.pt -> last.pt so postprocess.py "last" lookups
+        # (param_table, --replay-checkpoints last) keep working.
+        save_checkpoint(model, optimizer, scheduler, epoch=0, cfg=cfg, tag="last")
+        log.info("early_exit_after_init=true → exiting after init/last "
+                 "checkpoints written to %s", cfg.output_dir)
+        return
+
     for epoch in range(cfg.epochs):
         # Periodic re-burn-in: track the moving unforced fixed point as
         # network parameters drift during training. Skip epoch 0 since we
