@@ -435,6 +435,14 @@ class SRNNCell(nn.Module):
     def _tau_b_rel_I(self) -> torch.Tensor:
         return self._tau_global() * F.softplus(self.log_tau_b_rel_I)
 
+    def _c_E(self) -> torch.Tensor:
+        """SFA coupling for E (post-softplus). Mirrors BatchedSRNNCell._c_E."""
+        return F.softplus(self.log_c_E)
+
+    def _c_I(self) -> torch.Tensor:
+        """SFA coupling for I (post-softplus). Mirrors BatchedSRNNCell._c_I."""
+        return F.softplus(self.log_c_I)
+
     def _maybe_rescale_b(self, b_E, b_I):
         """Apply (b - b_min)/(1 - b_min) rescaling when std_zero_floor=True.
 
