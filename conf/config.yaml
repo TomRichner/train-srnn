@@ -6,31 +6,33 @@ defaults:
 seed: 1
 epochs: 200
 early_exit_after_init: false  # write init.pt + last.pt then exit before training (for fresh-IC postprocess analysis)
-batch_size: 128
-lr: 3e-4
+# Per-task knobs that the task YAML can override via oc.select. The
+# fallbacks below apply when running tasks that don't set their own value.
+batch_size: ${oc.select:task.batch_size, 128}
+lr: 5e-4
 cosine_decay: false  # if true, cosine-decay LR after hold phase to lr/20
 grad_clip: 1.0  # gradient norm clip; 0 or null disables
-size: 32  # model hidden size
+size: 300  # model hidden size
 
-# Sequence augmentation
-stretch_lo: 0.8
-stretch_hi: 1.2
-window_len: 1024    # fixed seq_len fed to model (samples) — stable for torch.compile
-bptt_len: 512       # BPTT horizon in samples; grads flow through last bptt_len steps
-bptt_chunk_len: null  # TBPTT chunk: state.detach() every N steps in grad region; null = single graph
-loss_over_bptt: false # when true + no_augment, compute loss at every step in grad region (teacher-forced)
-grad_checkpoint: false              # wrap grad-region segments in torch.utils.checkpoint for ~5-10x activation memory savings (~30-50% wall-clock cost)
-grad_checkpoint_segment_len: null   # checkpoint segment length within grad region; null defaults to bptt_chunk_len
+# Sequence augmentation (per-task overridable)
+stretch_lo: ${oc.select:task.stretch_lo, 0.8}
+stretch_hi: ${oc.select:task.stretch_hi, 1.2}
+window_len: ${oc.select:task.window_len, 1024}    # fixed seq_len fed to model (samples) — stable for torch.compile
+bptt_len: ${oc.select:task.bptt_len, 512}         # BPTT horizon in samples; grads flow through last bptt_len steps
+bptt_chunk_len: ${oc.select:task.bptt_chunk_len, 25}   # TBPTT chunk: state.detach() every N steps in grad region; null = single graph
+loss_over_bptt: ${oc.select:task.loss_over_bptt, false} # when true + no_augment, compute loss at every step in grad region (teacher-forced)
+grad_checkpoint: true               # wrap grad-region segments in torch.utils.checkpoint for ~5-10x activation memory savings (~30-50% wall-clock cost)
+grad_checkpoint_segment_len: 25     # checkpoint segment length within grad region; null defaults to bptt_chunk_len
 burn_in: 10.0
 burn_in_every: 1              # re-run burn-in every N epochs to track moving fixed point; 0 = only at init
 freeze_ic_after_burnin: true  # freeze TrainableIC.ic after burn-in (matches truncated-BPTT reality where IC gets no grad; see KnownIssues §4)
-no_augment: false   # when true, bypass stretch+palindrome (requires task.seq_len == window_len)
+no_augment: ${oc.select:task.no_augment, false}   # when true, bypass stretch+palindrome (requires task.seq_len == window_len)
 
 # Training
 log_interval: 1  # log every N epochs
 checkpoint_interval: 10
 device: auto  # auto, cpu, cuda, mps
-compile: true  # use torch.compile
+compile: false  # use torch.compile (CUDA only — auto-disabled on MPS/CPU)
 amp: fp32      # fp32 | bf16. bf16 requires Ampere+ GPU (L4, A100, H100, RTX 30/40).
 
 # Ablation batching
