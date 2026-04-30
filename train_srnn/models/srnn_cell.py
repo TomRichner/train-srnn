@@ -94,7 +94,7 @@ class SRNNConfig:
     skip: bool = False    # Add residual y = readout(state) + x at output (autoregressive only)
     solver: str = "semi_implicit"
     h: float = 0.02
-    ode_unfolds: int = 4
+    ode_unfolds: int = 1
     readout: str = "synaptic"
     tau_global_init: float = 1.0  # Initial value for global timescale multiplier
     std_zero_floor: bool = True   # Rescale b -> (b - b_min)/(1 - b_min) so synaptic gain reaches 0 at saturation

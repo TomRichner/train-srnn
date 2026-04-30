@@ -6,3 +6,7 @@ output_size: 5
 task_type: classification
 per_timestep_labels: true
 batch_size: 16
+
+# ODE step sizing — model YAMLs interpolate via ${task.h} / ${task.ode_unfolds}.
+h: 0.02
+ode_unfolds: 1

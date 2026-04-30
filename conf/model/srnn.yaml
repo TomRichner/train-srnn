@@ -10,8 +10,8 @@ per_neuron: false
 echo: false
 skip: false
 solver: semi_implicit
-h: 0.02
-ode_unfolds: 4
+h: ${task.h}
+ode_unfolds: ${task.ode_unfolds}
 readout: synaptic
 tau_global_init: 1.0
 sparsity: 0.5

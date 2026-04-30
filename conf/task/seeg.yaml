@@ -12,6 +12,11 @@ decimate: 2          # 500 Hz -> 250 Hz via pair-average
 seq_len: 3750        # 5 s warmup + 10 s predict at 250 Hz
 stride: 1250         # 5 s stride (consecutive predict regions overlap 50%)
 
+# ODE step sizing — model YAMLs interpolate these via ${task.h} / ${task.ode_unfolds}.
+# h = 1/250 = 0.004 s makes taus in real seconds at the 250 Hz post-decimate rate.
+h: 0.004
+ode_unfolds: 1
+
 # SRNN IO — must match detected channel count (asserted in train.py).
 # Subject 939 has 89 channels; override for other subjects.
 input_size: 89
