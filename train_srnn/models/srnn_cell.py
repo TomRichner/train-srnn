@@ -97,7 +97,7 @@ class SRNNConfig:
     ode_unfolds: int = 4
     readout: str = "synaptic"
     tau_global_init: float = 1.0  # Initial value for global timescale multiplier
-    std_zero_floor: bool = False  # Rescale b -> (b - b_min)/(1 - b_min) so synaptic gain reaches 0 at saturation
+    std_zero_floor: bool = True   # Rescale b -> (b - b_min)/(1 - b_min) so synaptic gain reaches 0 at saturation
 
     @property
     def n_E(self) -> int:

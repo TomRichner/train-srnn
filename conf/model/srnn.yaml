@@ -15,4 +15,4 @@ ode_unfolds: 4
 readout: synaptic
 tau_global_init: 1.0
 sparsity: 0.5
-std_zero_floor: false
+std_zero_floor: true
