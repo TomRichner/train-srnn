@@ -1,0 +1,17 @@
+- task=seeg
+- task.seq_len=512
+- task.stride=512
+- batched_ablations=[srnn-no-adapt,srnn-e-only-skip]
+- size=16
+- epochs=1
+- batch_size=4
+- window_len=128
+- bptt_len=64
+- burn_in=0
+- burn_in_every=0
+- compile=false
+- amp=off
+- closed_loop.enabled=true
+- closed_loop.alpha_baseline=0.4
+- closed_loop.t_warm=32
+- closed_loop.teacher_forcing_batch_frac=0.0

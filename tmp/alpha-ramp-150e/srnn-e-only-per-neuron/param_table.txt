@@ -1,0 +1,20 @@
+# alpha-ramp-150e — variant srnn-e-only-per-neuron (k=0)
+# Effective values (post-transform). Means/stds computed over the indicated dimension.
+effective parameter                  init mean    final mean    init std   final std          n
+-----------------------------------------------------------------------------------------------
+tau_global (s)                              +1      +0.66543           —           —     scalar
+tau_d (s)                                 +0.1     +0.035117           0    0.008453        300
+tau_a_E (s)                            +4.8777       +1.7311       3.996       1.418        450
+tau_b_rec_E (s)                             +1      +0.35754           0     0.04294        150
+tau_b_rel_E (s)                          +0.25      +0.32035           0     0.04641        150
+W_eff (E src, signed)                 +0.23267      +0.21389     0.07641     0.07508      15048
+W_eff (I src, signed)                 -0.31062      -0.28226     0.07724     0.07799      14977
+|W_eff| (E src)                       +0.23267      +0.21389     0.07641     0.07508      15048
+|W_eff| (I src)                       +0.31062      +0.28226     0.07724     0.07799      14977
+W_in_eff (input neurons)            -0.0003386     +0.001217      0.1012      0.1355       6675
+c_E (SFA coupling)                       +0.05      +0.06368           0     0.01052        450
+c_0_E (SFA offset)                          +0      -0.28228           0      0.1187        450
+a_0 (threshold)                          +0.35      +0.17353           0     0.09971        300
+readout_weight                     -2.8854e-05    -0.0041653     0.06604      0.1689       6675
+readout_bias                                +0    -0.0014186           0      0.1764         89
+ic.ic (per-variant init)             +0.098875     -0.010233      0.3842      0.5166        900

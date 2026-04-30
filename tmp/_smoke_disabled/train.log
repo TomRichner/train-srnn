@@ -1,0 +1,12 @@
+[2026-04-29 14:39:01,532][__main__][INFO] - Using device: mps
+[2026-04-29 14:39:12,990][__main__][INFO] - Using device: mps
+[2026-04-29 14:39:42,985][__main__][INFO] - Using device: mps
+[2026-04-29 14:39:51,654][__main__][INFO] - Model parameters: 2178
+[2026-04-29 14:40:09,559][__main__][INFO] - Test [init @ epoch 0]:
+[2026-04-29 14:40:09,559][__main__][INFO] -   [srnn-no-adapt] test_loss=0.8906 test_metric=0.7356
+[2026-04-29 14:41:19,422][__main__][INFO] - Epoch 0:
+[2026-04-29 14:41:19,422][__main__][INFO] -   [srnn-no-adapt] train_loss=1.0306 train_metric=0.7852 valid_loss=0.9357 valid_metric=0.7609
+[2026-04-29 14:41:25,640][__main__][INFO] - Test [epoch_000 @ epoch 0]:
+[2026-04-29 14:41:25,641][__main__][INFO] -   [srnn-no-adapt] test_loss=0.8851 test_metric=0.7331
+[2026-04-29 14:41:31,919][__main__][INFO] - Test [last @ epoch 0]:
+[2026-04-29 14:41:31,919][__main__][INFO] -   [srnn-no-adapt] test_loss=0.8851 test_metric=0.7331

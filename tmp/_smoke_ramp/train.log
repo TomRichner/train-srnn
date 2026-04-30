@@ -1,0 +1,18 @@
+[2026-04-29 15:11:57,350][__main__][INFO] - Using device: mps
+[2026-04-29 15:11:58,543][__main__][INFO] - Model parameters: 2178
+[2026-04-29 15:12:02,842][__main__][INFO] - Closed-loop enabled: baseline=0.200 (ramp from 0.000) (jitter=0.000), rnd density=0.00 sigma=0.00, t_warm=32, pure-TF batch frac=0.00
+[2026-04-29 15:12:06,728][__main__][INFO] - Test [init @ epoch 0]:
+[2026-04-29 15:12:06,728][__main__][INFO] -   [srnn-no-adapt] test_loss=0.8906 test_metric=0.7356
+[2026-04-29 15:13:08,884][__main__][INFO] -   closed-loop[ep=0]: eff_baseline=0.000 alpha_mean=0.000 alpha_max=0.000 pure_tf_frac=0.00 over 88 batches
+[2026-04-29 15:13:11,344][__main__][INFO] - Epoch 0:
+[2026-04-29 15:13:11,344][__main__][INFO] -   [srnn-no-adapt] train_loss=1.0321 train_metric=0.7858 valid_loss=0.9373 valid_metric=0.7615
+[2026-04-29 15:13:14,994][__main__][INFO] - Test [epoch_000 @ epoch 0]:
+[2026-04-29 15:13:14,994][__main__][INFO] -   [srnn-no-adapt] test_loss=0.8866 test_metric=0.7338
+[2026-04-29 15:14:17,321][__main__][INFO] -   closed-loop[ep=1]: eff_baseline=0.100 alpha_mean=0.088 alpha_max=0.100 pure_tf_frac=0.00 over 88 batches
+[2026-04-29 15:14:19,695][__main__][INFO] - Epoch 1:
+[2026-04-29 15:14:19,695][__main__][INFO] -   [srnn-no-adapt] train_loss=1.0988 train_metric=0.8002 valid_loss=0.9310 valid_metric=0.7591
+[2026-04-29 15:15:20,053][__main__][INFO] -   closed-loop[ep=2]: eff_baseline=0.200 alpha_mean=0.176 alpha_max=0.200 pure_tf_frac=0.00 over 88 batches
+[2026-04-29 15:15:22,448][__main__][INFO] - Epoch 2:
+[2026-04-29 15:15:22,448][__main__][INFO] -   [srnn-no-adapt] train_loss=1.0922 train_metric=0.7958 valid_loss=0.9268 valid_metric=0.7572
+[2026-04-29 15:15:26,155][__main__][INFO] - Test [last @ epoch 2]:
+[2026-04-29 15:15:26,155][__main__][INFO] -   [srnn-no-adapt] test_loss=0.8766 test_metric=0.7294

@@ -1,0 +1,7 @@
+epoch,tag,variant,test_loss,test_metric,timestamp
+0,init,srnn-e-only-per-neuron,0.903629,0.731174,2026-04-29T20:19:47Z
+0,init,srnn-e-only-skip-per-neuron,0.080147,0.212545,2026-04-29T20:19:47Z
+0,epoch_000,srnn-e-only-per-neuron,0.902964,0.730860,2026-04-29T20:30:28Z
+0,epoch_000,srnn-e-only-skip-per-neuron,0.079650,0.211709,2026-04-29T20:30:28Z
+9,last,srnn-e-only-per-neuron,0.899598,0.729307,2026-04-29T22:02:04Z
+9,last,srnn-e-only-skip-per-neuron,0.078093,0.209085,2026-04-29T22:02:04Z

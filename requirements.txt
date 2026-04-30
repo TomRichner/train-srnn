@@ -7,3 +7,4 @@ pandas
 scipy
 tqdm
 h5py
+matplotlib

@@ -1,0 +1,79 @@
+Run: alpha-smoke-10e | Experiment: seeg | Model: srnn | Seed: 1
+Cleanup: delete | Skip-refresh: 0 | Workdir: /tmp/workdir
+Fetching deploy key from Secret Manager...
+Cloning into '/tmp/workdir'...
+Git commit: d8dab24  (full: d8dab240a8b460cc770a137fdb198b4615d933f0)
+Copying gs://liquidneuralnets-experiments/datasets/seeg/seeg_939_b4_awake_baseline.mat to file://train_srnn/data/seeg/seeg_939_b4_awake_baseline.mat
+Copying gs://liquidneuralnets-experiments/datasets/seeg/seeg_939_b5_awake_stim.mat to file://train_srnn/data/seeg/seeg_939_b5_awake_stim.mat
+  
+.....
+
+Average throughput: 840.4MiB/s
+Installing Hydra stack into system Python...
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+Waiting for NVIDIA driver...
+  driver ready after 10s
+GPU sanity check:
+  torch: 2.9.1+cu129
+  CUDA:  12.9
+  GPU:   NVIDIA L4  (22 GB)
+=== Training start 2026-04-29T20:18:53+00:00 ===
+[2026-04-29 20:18:56,031][__main__][INFO] - Using device: cuda
+[2026-04-29 20:18:56,055][__main__][INFO] - AMP enabled: bf16 (autocast dtype=torch.bfloat16)
+[seeg] seeg_939_b4_awake_baseline.mat: n_chan=89, n_samples=240000, sr=250.0 Hz, duration=960.0s
+[2026-04-29 20:18:57,318][__main__][INFO] - Model parameters: 81634
+[2026-04-29 20:19:04,994][__main__][INFO] - TrainableIC frozen after burn-in (freeze_ic_after_burnin=True)
+[2026-04-29 20:19:04,996][__main__][INFO] - Closed-loop enabled: baseline=0.200 (ramp from 0.000) (jitter=0.000), rnd density=0.00 sigma=0.00, t_warm=1250, pure-TF batch frac=0.00
+[2026-04-29 20:19:47,154][__main__][INFO] - Test [init @ epoch 0]:
+[2026-04-29 20:19:47,154][__main__][INFO] -   [srnn-e-only-per-neuron] test_loss=0.9036 test_metric=0.7312
+[2026-04-29 20:19:47,154][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0801 test_metric=0.2125
+[2026-04-29 20:29:19,209][__main__][INFO] -   closed-loop[ep=0]: eff_baseline=0.000 alpha_mean=0.000 alpha_max=0.000 pure_tf_frac=0.00 over 24 batches
+[2026-04-29 20:29:45,130][__main__][INFO] - Epoch 0:
+[2026-04-29 20:29:45,131][__main__][INFO] -   [srnn-e-only-per-neuron] train_loss=1.0034 train_metric=0.7685 valid_loss=1.0438 valid_metric=0.7811
+[2026-04-29 20:29:45,131][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0827 train_metric=0.2159 valid_loss=0.0809 valid_metric=0.2130
+[2026-04-29 20:30:28,312][__main__][INFO] - Test [epoch_000 @ epoch 0]:
+[2026-04-29 20:30:28,313][__main__][INFO] -   [srnn-e-only-per-neuron] test_loss=0.9030 test_metric=0.7309
+[2026-04-29 20:30:28,313][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0797 test_metric=0.2117
+[2026-04-29 20:40:07,814][__main__][INFO] -   closed-loop[ep=1]: eff_baseline=0.022 alpha_mean=0.019 alpha_max=0.022 pure_tf_frac=0.00 over 24 batches
+[2026-04-29 20:40:33,892][__main__][INFO] - Epoch 1:
+[2026-04-29 20:40:33,893][__main__][INFO] -   [srnn-e-only-per-neuron] train_loss=1.0023 train_metric=0.7680 valid_loss=1.0423 valid_metric=0.7805
+[2026-04-29 20:40:33,893][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0845 train_metric=0.2179 valid_loss=0.0800 valid_metric=0.2114
+[2026-04-29 20:50:11,909][__main__][INFO] -   closed-loop[ep=2]: eff_baseline=0.044 alpha_mean=0.037 alpha_max=0.044 pure_tf_frac=0.00 over 24 batches
+[2026-04-29 20:50:37,942][__main__][INFO] - Epoch 2:
+[2026-04-29 20:50:37,942][__main__][INFO] -   [srnn-e-only-per-neuron] train_loss=1.0011 train_metric=0.7674 valid_loss=1.0416 valid_metric=0.7802
+[2026-04-29 20:50:37,942][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0865 train_metric=0.2202 valid_loss=0.0795 valid_metric=0.2106
+[2026-04-29 21:00:16,844][__main__][INFO] -   closed-loop[ep=3]: eff_baseline=0.067 alpha_mean=0.056 alpha_max=0.067 pure_tf_frac=0.00 over 24 batches
+[2026-04-29 21:00:42,995][__main__][INFO] - Epoch 3:
+[2026-04-29 21:00:42,996][__main__][INFO] -   [srnn-e-only-per-neuron] train_loss=1.0007 train_metric=0.7672 valid_loss=1.0414 valid_metric=0.7801
+[2026-04-29 21:00:42,996][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0891 train_metric=0.2235 valid_loss=0.0794 valid_metric=0.2104
+[2026-04-29 21:10:21,779][__main__][INFO] -   closed-loop[ep=4]: eff_baseline=0.089 alpha_mean=0.074 alpha_max=0.089 pure_tf_frac=0.00 over 24 batches
+[2026-04-29 21:10:47,895][__main__][INFO] - Epoch 4:
+[2026-04-29 21:10:47,895][__main__][INFO] -   [srnn-e-only-per-neuron] train_loss=1.0004 train_metric=0.7671 valid_loss=1.0412 valid_metric=0.7800
+[2026-04-29 21:10:47,896][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0920 train_metric=0.2271 valid_loss=0.0793 valid_metric=0.2103
+[2026-04-29 21:20:28,392][__main__][INFO] -   closed-loop[ep=5]: eff_baseline=0.111 alpha_mean=0.093 alpha_max=0.111 pure_tf_frac=0.00 over 24 batches
+[2026-04-29 21:20:54,787][__main__][INFO] - Epoch 5:
+[2026-04-29 21:20:54,788][__main__][INFO] -   [srnn-e-only-per-neuron] train_loss=1.0002 train_metric=0.7670 valid_loss=1.0410 valid_metric=0.7800
+[2026-04-29 21:20:54,788][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0951 train_metric=0.2310 valid_loss=0.0792 valid_metric=0.2102
+  [periodic-upload] Epoch 5: uploading to GCS...
+[2026-04-29 21:30:34,859][__main__][INFO] -   closed-loop[ep=6]: eff_baseline=0.133 alpha_mean=0.111 alpha_max=0.133 pure_tf_frac=0.00 over 24 batches
+[2026-04-29 21:31:00,911][__main__][INFO] - Epoch 6:
+[2026-04-29 21:31:00,911][__main__][INFO] -   [srnn-e-only-per-neuron] train_loss=0.9999 train_metric=0.7669 valid_loss=1.0408 valid_metric=0.7799
+[2026-04-29 21:31:00,911][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0985 train_metric=0.2350 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-29 21:40:40,884][__main__][INFO] -   closed-loop[ep=7]: eff_baseline=0.156 alpha_mean=0.130 alpha_max=0.156 pure_tf_frac=0.00 over 24 batches
+[2026-04-29 21:41:07,007][__main__][INFO] - Epoch 7:
+[2026-04-29 21:41:07,007][__main__][INFO] -   [srnn-e-only-per-neuron] train_loss=0.9997 train_metric=0.7668 valid_loss=1.0406 valid_metric=0.7798
+[2026-04-29 21:41:07,007][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.1020 train_metric=0.2393 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-29 21:50:47,391][__main__][INFO] -   closed-loop[ep=8]: eff_baseline=0.178 alpha_mean=0.148 alpha_max=0.178 pure_tf_frac=0.00 over 24 batches
+[2026-04-29 21:51:13,491][__main__][INFO] - Epoch 8:
+[2026-04-29 21:51:13,492][__main__][INFO] -   [srnn-e-only-per-neuron] train_loss=0.9994 train_metric=0.7667 valid_loss=1.0403 valid_metric=0.7797
+[2026-04-29 21:51:13,492][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.1058 train_metric=0.2437 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-29 22:00:54,815][__main__][INFO] -   closed-loop[ep=9]: eff_baseline=0.200 alpha_mean=0.167 alpha_max=0.200 pure_tf_frac=0.00 over 24 batches
+[2026-04-29 22:01:20,923][__main__][INFO] - Epoch 9:
+[2026-04-29 22:01:20,923][__main__][INFO] -   [srnn-e-only-per-neuron] train_loss=0.9991 train_metric=0.7666 valid_loss=1.0399 valid_metric=0.7795
+[2026-04-29 22:01:20,923][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.1097 train_metric=0.2483 valid_loss=0.0792 valid_metric=0.2101
+[2026-04-29 22:02:04,366][__main__][INFO] - Test [last @ epoch 9]:
+[2026-04-29 22:02:04,366][__main__][INFO] -   [srnn-e-only-per-neuron] test_loss=0.8996 test_metric=0.7293
+[2026-04-29 22:02:04,366][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0781 test_metric=0.2091
+SUCCESS
+=== Training complete 2026-04-29T22:02:05+00:00 ===
+=== Cleanup (exit=0) 2026-04-29T22:02:05+00:00 ===

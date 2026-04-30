@@ -1,0 +1,16 @@
+[2026-04-29 16:48:58,111][__main__][INFO] - Using device: mps
+[2026-04-29 16:48:59,577][__main__][INFO] - Model parameters: 4606
+[2026-04-29 16:49:00,594][__main__][INFO] - Closed-loop enabled: baseline=0.300 (jitter=0.000), rnd density=0.00 sigma=0.00, t_warm=32, pure-TF batch frac=0.00
+[2026-04-29 16:49:11,121][__main__][INFO] - Test [init @ epoch 0]:
+[2026-04-29 16:49:11,121][__main__][INFO] -   [srnn-e-only-per-neuron] test_loss=0.8670 test_metric=0.7236
+[2026-04-29 16:49:11,121][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0906 test_metric=0.2286
+[2026-04-29 16:52:38,245][__main__][INFO] -   closed-loop[ep=0]: eff_baseline=0.300 alpha_mean=0.263 alpha_max=0.300 pure_tf_frac=0.00 over 88 batches
+[2026-04-29 16:52:44,995][__main__][INFO] - Epoch 0:
+[2026-04-29 16:52:44,995][__main__][INFO] -   [srnn-e-only-per-neuron] train_loss=0.9973 train_metric=0.7702 valid_loss=0.9092 valid_metric=0.7489
+[2026-04-29 16:52:44,995][__main__][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.0882 train_metric=0.2160 valid_loss=0.0798 valid_metric=0.2087
+[2026-04-29 16:52:55,128][__main__][INFO] - Test [epoch_000 @ epoch 0]:
+[2026-04-29 16:52:55,128][__main__][INFO] -   [srnn-e-only-per-neuron] test_loss=0.8618 test_metric=0.7213
+[2026-04-29 16:52:55,128][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0856 test_metric=0.2212
+[2026-04-29 16:53:05,292][__main__][INFO] - Test [last @ epoch 0]:
+[2026-04-29 16:53:05,292][__main__][INFO] -   [srnn-e-only-per-neuron] test_loss=0.8618 test_metric=0.7213
+[2026-04-29 16:53:05,292][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0856 test_metric=0.2212
