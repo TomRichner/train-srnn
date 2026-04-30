@@ -40,18 +40,18 @@ log = logging.getLogger(__name__)
 def amp_autocast(cfg: DictConfig):
     """Context manager that enables AMP autocast per cfg.amp.
 
-    `off` -> no-op nullcontext (bit-identical to pre-AMP code path).
+    `fp32` -> no-op nullcontext (bit-identical to pre-AMP code path).
     `bf16` -> `torch.autocast(device_type='cuda', dtype=torch.bfloat16)`.
 
     Capability + device validation happens once at startup in main();
     this helper is fast-path only.
     """
-    amp = cfg.get("amp", "off")
-    if amp == "off":
+    amp = cfg.get("amp", "fp32")
+    if amp == "fp32":
         return contextlib.nullcontext()
     if amp == "bf16":
         return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
-    raise ValueError(f"Unknown amp mode: {amp!r}. Expected 'off' or 'bf16'.")
+    raise ValueError(f"Unknown amp mode: {amp!r}. Expected 'fp32' or 'bf16'.")
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@ def run_epoch(
             cl_pure_tf_batches += int(stats["is_pure_tf"])
             cl_total_batches += 1
 
-        # Forward + loss (under AMP autocast when cfg.amp != off) -------------
+        # Forward + loss (under AMP autocast when cfg.amp != fp32) -----------
         with amp_autocast(cfg):
             logits = model(
                 batch_x_t,
@@ -340,14 +340,14 @@ def main(cfg: DictConfig) -> None:
     log.info("Using device: %s", device)
 
     # AMP capability check (fail fast at startup, not mid-training).
-    amp = cfg.get("amp", "off")
-    if amp != "off":
+    amp = cfg.get("amp", "fp32")
+    if amp != "fp32":
         if amp != "bf16":
-            raise ValueError(f"Unknown amp mode: {amp!r}. Expected 'off' or 'bf16'.")
+            raise ValueError(f"Unknown amp mode: {amp!r}. Expected 'fp32' or 'bf16'.")
         if device.type != "cuda":
             raise RuntimeError(
                 f"amp=bf16 requires a CUDA device, got device={device}. "
-                f"Set amp=off or run on a GPU."
+                f"Set amp=fp32 or run on a GPU."
             )
         if not torch.cuda.is_bf16_supported():
             cap = torch.cuda.get_device_capability(0)
@@ -355,7 +355,7 @@ def main(cfg: DictConfig) -> None:
             raise RuntimeError(
                 f"amp=bf16 requires an Ampere+ GPU (compute capability >= 8.0). "
                 f"Detected: {name} (cap {cap}). "
-                f"Use L4, A100, H100, RTX 30/40 series, or set amp=off."
+                f"Use L4, A100, H100, RTX 30/40 series, or set amp=fp32."
             )
         log.info("AMP enabled: bf16 (autocast dtype=torch.bfloat16)")
 
