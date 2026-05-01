@@ -324,20 +324,31 @@ def run_continuous_training(
     C = train_trace.shape[1]
     B = int(cfg.batch_size)
     chunk_len = int(cfg.bptt_chunk_len) if cfg.bptt_chunk_len else 250
-    # Use ceiling division so each logical epoch advances ≥ T samples per
-    # reader. With T coprime to chunk_len (e.g. T=179,989 prime, chunk_len=250),
-    # this overshoots T by `chunk_len - (T % chunk_len)` samples each epoch,
-    # giving constant phase drift mod T. For seeg defaults: 720 steps × 250
-    # = 180,000 samples advanced; T = 179,989; drift = 11 samples per epoch.
-    steps_per_epoch = (T + chunk_len - 1) // chunk_len
+    # Per-reader-sweep semantics (Mikolov RNNLM / Karpathy char-rnn / Keras
+    # stateful LSTM convention): each reader covers ~T/B samples per epoch;
+    # the B readers collectively cover one full pass through T per epoch.
+    # After B epochs ("super-epoch"), each individual reader has visited the
+    # whole trace once. With T coprime to B*chunk_len (e.g. T=179,989 prime,
+    # B*chunk_len=6,000), drift is (B*chunk_len*steps_per_epoch - T) samples
+    # per epoch — for seeg defaults: 30 steps × 6,000 = 180,000; T=179,989;
+    # drift = +11 samples per epoch.
+    steps_per_epoch = (T + B * chunk_len - 1) // (B * chunk_len)
     total_epochs = int(cfg.epochs)
-    log_interval = int(cfg.get("log_interval", 1))
-    checkpoint_interval = int(cfg.get("checkpoint_interval", 10))
+    # Default checkpoint cadence to round(B/4) so we get ~4 checkpoints per
+    # full reader-sweep (B epochs). Floor to 1 for tiny B.
+    # Honor explicit user values; only fall back when null/missing.
+    default_ckpt = max(1, round(B / 4))
+    checkpoint_interval = int(cfg.get("checkpoint_interval", None) or default_ckpt)
+    # Default log cadence to match checkpoint cadence — eval is expensive and
+    # there's no value logging more often than we checkpoint.
+    log_interval = int(cfg.get("log_interval", None) or checkpoint_interval)
 
     log.info(
-        "Continuous training: T=%d, B=%d, chunk_len=%d, steps_per_epoch=%d, "
-        "total_steps=%d, K=%s",
+        "Continuous training (per-reader-sweep): T=%d, B=%d, chunk_len=%d, "
+        "steps_per_epoch=%d, total_steps=%d, "
+        "checkpoint_interval=%d, log_interval=%d, K=%s",
         T, B, chunk_len, steps_per_epoch, steps_per_epoch * total_epochs,
+        checkpoint_interval, log_interval,
         K if K is not None else "None",
     )
 
@@ -491,9 +502,16 @@ def run_continuous_training(
             else -epoch_metric_sum / n_steps_done
         )
 
+        # Eval/CSV/checkpoint cadence: every checkpoint_interval epochs, plus
+        # the final epoch (so a run always lands a final CSV row + ckpt).
+        is_eval_epoch = ((epoch + 1) % checkpoint_interval == 0
+                        or epoch == total_epochs - 1)
+
+        wall = time.time() - epoch_start
+
         # Eval (windowed) ----------------------------------------------------
         valid_loss = valid_metric = None
-        if (epoch + 1) % log_interval == 0:
+        if is_eval_epoch:
             with timer.section("valid_eval"):
                 model.eval()
                 with torch.no_grad():
@@ -505,48 +523,57 @@ def run_continuous_training(
                 model.train()
 
         # Logging ------------------------------------------------------------
-        wall = time.time() - epoch_start
-        if K is not None:
-            log.info("Epoch %d (continuous, %.1fs):", epoch, wall)
-            for k in range(K):
-                vl = valid_loss[k] if valid_loss is not None else float("nan")
-                vm = valid_metric[k] if valid_metric is not None else float("nan")
+        if not is_eval_epoch:
+            # Train-only epoch: terse one-line log, no eval columns.
+            if K is not None:
+                tl_str = " ".join(
+                    f"[{ablation_names[k]}]={train_loss[k]:.4f}/{train_metric[k]:.4f}"
+                    for k in range(K)
+                )
+                log.info("Epoch %d (continuous, train-only, %.1fs): %s",
+                         epoch, wall, tl_str)
+            else:
                 log.info(
-                    "  [%s] train_loss=%.4f train_metric=%.4f valid_loss=%.4f valid_metric=%.4f",
-                    ablation_names[k], train_loss[k], train_metric[k], vl, vm,
+                    "Epoch %d (continuous, train-only, %.1fs):"
+                    " train_loss=%.4f train_metric=%.4f",
+                    epoch, wall, train_loss, train_metric,
                 )
         else:
-            log.info(
-                "Epoch %d (continuous, %.1fs): train_loss=%.4f train_metric=%.4f"
-                " valid_loss=%.4f valid_metric=%.4f",
-                epoch, wall, train_loss, train_metric,
-                valid_loss if valid_loss is not None else float("nan"),
-                valid_metric if valid_metric is not None else float("nan"),
-            )
+            if K is not None:
+                log.info("Epoch %d (continuous, %.1fs):", epoch, wall)
+                for k in range(K):
+                    vl = valid_loss[k] if valid_loss is not None else float("nan")
+                    vm = valid_metric[k] if valid_metric is not None else float("nan")
+                    log.info(
+                        "  [%s] train_loss=%.4f train_metric=%.4f valid_loss=%.4f valid_metric=%.4f",
+                        ablation_names[k], train_loss[k], train_metric[k], vl, vm,
+                    )
+            else:
+                log.info(
+                    "Epoch %d (continuous, %.1fs): train_loss=%.4f"
+                    " train_metric=%.4f valid_loss=%.4f valid_metric=%.4f",
+                    epoch, wall, train_loss, train_metric,
+                    valid_loss if valid_loss is not None else float("nan"),
+                    valid_metric if valid_metric is not None else float("nan"),
+                )
         if cl_active and cl_total > 0:
             log.info(
                 "  closed-loop: alpha_mean=%.3f alpha_max=%.3f pure_tf_frac=%.3f",
                 cl_alpha_sum / cl_total, cl_alpha_max, cl_pure_tf / cl_total,
             )
 
-        # CSVs ---------------------------------------------------------------
-        with timer.section("io_log"):
-            cur_lr = optimizer.param_groups[0]["lr"]
-            append_history_row(
-                cfg.output_dir, epoch,
-                train_loss=train_loss, train_metric=train_metric,
-                valid_loss=valid_loss if valid_loss is not None else (
-                    [float("nan")] * K if K is not None else float("nan")
-                ),
-                valid_metric=valid_metric if valid_metric is not None else (
-                    [float("nan")] * K if K is not None else float("nan")
-                ),
-                lr=cur_lr, K=K, ablation_names=ablation_names,
-            )
-            write_progress(cfg.output_dir, epoch + 1, total_epochs)
+        # CSVs + checkpoint + test eval — only at checkpoint boundaries -----
+        if is_eval_epoch:
+            with timer.section("io_log"):
+                cur_lr = optimizer.param_groups[0]["lr"]
+                append_history_row(
+                    cfg.output_dir, epoch,
+                    train_loss=train_loss, train_metric=train_metric,
+                    valid_loss=valid_loss, valid_metric=valid_metric,
+                    lr=cur_lr, K=K, ablation_names=ablation_names,
+                )
+                write_progress(cfg.output_dir, epoch + 1, total_epochs)
 
-        # Checkpoint + test eval ---------------------------------------------
-        if epoch % checkpoint_interval == 0:
             tag = f"epoch_{epoch:03d}"
             with timer.section("checkpoint_save"):
                 save_checkpoint(model, optimizer, scheduler, epoch, cfg, tag)

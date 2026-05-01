@@ -38,3 +38,14 @@ loss_over_bptt: true
 stretch_lo: 1.0
 stretch_hi: 1.0
 no_augment: true
+
+# SEEG defaults to the stateful continuous-batching trainer. Override
+# with `continuous_train=false` on the CLI for the windowed path.
+continuous_train: true
+
+# Continuous trainer cadence overrides: null -> trainer defaults
+# checkpoint_interval to round(B/4) (= 6 for batch_size=24), giving ~4
+# eval/CSV/ckpt events per full reader-sweep through T. log_interval
+# falls back to checkpoint_interval. Set explicit values to override.
+checkpoint_interval: null
+log_interval: null
