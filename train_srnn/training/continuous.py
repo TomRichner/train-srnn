@@ -33,6 +33,7 @@ from train_srnn.training.closed_loop import (
     sample_per_reader_jitter,
     summarize_alpha,
 )
+from train_srnn.utils.cell_loop import empty_time_buffer, mark_cudagraph_step
 from train_srnn.utils.checkpoint import (
     append_history_row,
     append_test_history_row,
@@ -209,23 +210,33 @@ def _forward_chunk_pure_tf(
     chunk_x : (B, T, C)
     state   : (B, S) or (K, B, S)
     Returns : (logits, new_state) where logits has shape (B, T, O) or (K, B, T, O).
+
+    Pre-allocates ``hidden_seq`` lazily on the first iteration (so it
+    picks up the cell's output dtype, which differs from chunk_x under
+    AMP autocast) and writes per-step outputs by slice-assign. This is
+    the CUDA-graph-friendly equivalent of an ``append + torch.stack``
+    accumulator: avoids holding refs to graph-owned output buffers
+    across iterations under ``compile(mode='reduce-overhead')``.
     """
-    hidden_outs = []
-    x_in_outs = []
-    for t in range(chunk_x.shape[1]):
-        x_t = chunk_x[:, t, :]
-        h_t, state = cell(x_t, state)
-        # Clone state so the next call sees a fresh tensor with canonical
-        # (contiguous) strides at a fresh memory address. Required for
-        # torch.compile(mode="reduce-overhead") to avoid CUDA-graph aliasing
-        # AND to keep Dynamo from recompiling on stride variation. ~1 memcpy
-        # per step; negligible vs. saved kernel-launch overhead.
+    T = chunk_x.shape[1]
+    hidden_seq: torch.Tensor | None = None
+    for t in range(T):
+        # Tells the cudagraph trees allocator the previous step's outputs
+        # are no longer in use (so it may recycle them). No-op outside
+        # CUDA-graph capture.
+        mark_cudagraph_step()
+        h_t, state = cell(chunk_x[:, t, :], state)
+        # Clone state: it's both an output of call t and the input of call
+        # t+1, so it cannot be recycled by mark_cudagraph_step. The clone
+        # produces a fresh non-graph-owned tensor with canonical strides
+        # and breaks aliasing — required for reduce-overhead, and also
+        # keeps Dynamo from recompiling on stride variation.
         state = state.clone()
-        hidden_outs.append(h_t)
-        x_in_outs.append(x_t)
-    hidden_seq = torch.stack(hidden_outs, dim=-2)
-    # x_in_seq matches hidden_seq's leading dims for skip residual
-    if hidden_seq.dim() == 4:  # K-batched -> hidden (K, B, T, N), need (K, B, T, C)
+        if hidden_seq is None:
+            hidden_seq = empty_time_buffer(h_t, T)
+        hidden_seq[..., t, :] = h_t
+    # x_in_seq matches hidden_seq's leading dims for the skip residual.
+    if hidden_seq.dim() == 4:  # K-batched -> hidden (K, B, T, N)
         x_in_seq = chunk_x.unsqueeze(0).expand(hidden_seq.shape[0], -1, -1, -1)
     else:
         x_in_seq = chunk_x
@@ -244,24 +255,31 @@ def _forward_chunk_closed_loop(
     y_prev       : (B, C) or (K, B, C) — last-step prediction (zeros at t=0)
     alpha_chunk  : (B, T, C)              — per-reader, per-step, per-channel α
     Returns      : (logits, new_state, new_y_prev)
+
+    Same pre-alloc + slice-assign pattern as _forward_chunk_pure_tf. The
+    blended ``x_in_t`` must be retained for the per-step skip residual
+    (unlike the pure-TF path where x_in_t == chunk_x[:, t, :]), so it
+    gets its own pre-allocated buffer.
     """
-    hidden_outs = []
-    x_in_outs = []
-    for t in range(chunk_x.shape[1]):
-        alpha_t = alpha_chunk[:, t, :]              # (B, C)
-        x_real_t = chunk_x[:, t, :]                  # (B, C)
-        # Blend: when y_prev is (K, B, C), result broadcasts to (K, B, C).
-        # When y_prev is (B, C), result is (B, C).
+    T = chunk_x.shape[1]
+    hidden_seq: torch.Tensor | None = None
+    x_in_seq: torch.Tensor | None = None
+    for t in range(T):
+        mark_cudagraph_step()
+        alpha_t = alpha_chunk[:, t, :]          # (B, C)
+        x_real_t = chunk_x[:, t, :]              # (B, C)
+        # Blend broadcasts to whatever y_prev is: (B, C) or (K, B, C).
         x_in_t = (1.0 - alpha_t) * x_real_t + alpha_t * y_prev
         h_t, state = cell(x_in_t, state)
-        # See note in _forward_chunk_pure_tf: clone for compile compatibility.
         state = state.clone()
-        y_t = model._readout_one(h_t, x_in_t)
-        hidden_outs.append(h_t)
-        x_in_outs.append(x_in_t)
-        y_prev = y_t.clone()
-    hidden_seq = torch.stack(hidden_outs, dim=-2)
-    x_in_seq = torch.stack(x_in_outs, dim=-2)
+        # _readout_one is einsum/linear (not graph-owned), so its output
+        # is a fresh allocation — no clone needed for the y_prev carry.
+        y_prev = model._readout_one(h_t, x_in_t)
+        if hidden_seq is None:
+            hidden_seq = empty_time_buffer(h_t, T)
+            x_in_seq = empty_time_buffer(x_in_t, T)
+        hidden_seq[..., t, :] = h_t
+        x_in_seq[..., t, :] = x_in_t
     logits = _readout_chunk(model, hidden_seq, x_in_seq)
     return logits, state, y_prev
 

@@ -3,6 +3,8 @@
 import torch
 import torch.nn as nn
 
+from train_srnn.utils.cell_loop import mark_cudagraph_step
+
 
 class TrainableIC(nn.Module):
     """Trainable initial state for RNN cells.
@@ -69,10 +71,11 @@ def compute_burn_in(cell, input_size, burn_in_seconds=30.0, device="cpu"):
 
         zero_input = torch.zeros(1, input_size, device=device)
         for _ in range(n_steps):
+            mark_cudagraph_step()
             _, state = cell(zero_input, state)
             # Clone for compatibility with torch.compile(mode="reduce-overhead"):
-            # the compiled cell's CUDA graph holds output buffers; passing the
-            # raw output back as next input triggers an aliasing error.
+            # state is both an output of the compiled cell and the next call's
+            # input, so it cannot be recycled by mark_cudagraph_step.
             state = state.clone()
 
     # Squeeze out the batch dimension and return on CPU.

@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 import torch.utils.checkpoint
 
+from train_srnn.utils.cell_loop import empty_time_buffer, mark_cudagraph_step
 from train_srnn.utils.io_masks import (
     generate_neuron_partition,
     make_input_mask,
@@ -170,21 +171,35 @@ class SequenceModel(nn.Module):
     def _run_segment(self, x_seg: torch.Tensor, state: torch.Tensor):
         """Run the cell over a contiguous time slice.
 
-        Returns a stacked outputs tensor with a time axis inserted just
-        before the feature axis: ``(B, T_seg, E)`` for single cells,
+        Returns an outputs tensor with a time axis inserted just before
+        the feature axis: ``(B, T_seg, E)`` for single cells,
         ``(K, B, T_seg, E)`` for K-batched cells.
+
+        Uses lazy pre-allocation + slice-assign instead of an
+        ``append + torch.stack`` accumulator: the buffer is allocated
+        from the cell's t=0 output (so it inherits the cell's dtype
+        under AMP autocast) and each step writes directly into its slot.
+        Slice-assign is autograd-safe (dispatches to ``index_put_``) and
+        composes cleanly with ``torch.utils.checkpoint`` — both the
+        forward pass and the recompute pass allocate their own buffer.
         """
-        outputs = []
+        T_seg = x_seg.shape[1]
+        out_seq: torch.Tensor | None = None
         with self._no_autocast_cache_ctx():
-            for t in range(x_seg.shape[1]):
+            for t in range(T_seg):
+                # Mark previous step's outputs as recyclable (no-op outside
+                # CUDA-graph capture). Required for compile(mode="reduce-overhead").
+                mark_cudagraph_step()
                 out, state = self.cell(x_seg[:, t, :], state)
-                # Clone state so the next compiled-cell call sees a fresh
-                # tensor (canonical strides + non-aliased memory). Required
-                # for torch.compile(mode="reduce-overhead"). No-op cost when
-                # not compiled. See continuous.py for the trainer-side analog.
+                # Clone state: it's both an output of step t and the input of
+                # step t+1, so it cannot be recycled. The clone breaks aliasing
+                # and gives canonical strides — required for reduce-overhead
+                # and keeps Dynamo from recompiling on stride variation.
                 state = state.clone()
-                outputs.append(out)
-        return torch.stack(outputs, dim=-2), state
+                if out_seq is None:
+                    out_seq = empty_time_buffer(out, T_seg)
+                out_seq[..., t, :] = out
+        return out_seq, state
 
     # ------------------------------------------------------------------
     def _readout_one(self, out_t: torch.Tensor, x_in_t: torch.Tensor) -> torch.Tensor:
@@ -249,21 +264,27 @@ class SequenceModel(nn.Module):
         Wrapped in ``torch.utils.checkpoint.checkpoint(...)`` from the
         forward path when ``grad_checkpoint=True``. Pure function of inputs:
         no RNG, no side effects.
+
+        Uses the same pre-alloc + slice-assign pattern as ``_run_segment``.
+        ``y_prev`` is carried directly without a clone — ``_readout_one``
+        produces a fresh allocation each step (it's einsum/linear, not the
+        compiled cell), so there's no aliasing concern.
         """
-        y_outs: list[torch.Tensor] = []
+        T_seg = x_seg.shape[1]
+        y_outs: torch.Tensor | None = None
         with self._no_autocast_cache_ctx():
-            for t in range(x_seg.shape[1]):
+            for t in range(T_seg):
+                mark_cudagraph_step()
                 x_real_t = x_seg[:, t, :]
                 alpha_t = alpha_seg[t]
                 x_in_t = (1.0 - alpha_t) * x_real_t + alpha_t * y_prev
                 out_t, state = self.cell(x_in_t, state)
-                # See _run_segment: clone for compile compatibility.
                 state = state.clone()
-                y_t = self._readout_one(out_t, x_in_t)
-                y_outs.append(y_t)
-                y_prev = y_t.clone()
-        y_stacked = torch.stack(y_outs, dim=-2)
-        return y_stacked, state, y_prev
+                y_prev = self._readout_one(out_t, x_in_t)
+                if y_outs is None:
+                    y_outs = empty_time_buffer(y_prev, T_seg)
+                y_outs[..., t, :] = y_prev
+        return y_outs, state, y_prev
 
     # ------------------------------------------------------------------
     def _forward_closed_loop(
