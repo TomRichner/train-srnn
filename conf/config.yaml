@@ -23,8 +23,8 @@ window_len: ${oc.select:task.window_len, 1024}    # fixed seq_len fed to model (
 bptt_len: ${oc.select:task.bptt_len, 512}         # BPTT horizon in samples; grads flow through last bptt_len steps
 bptt_chunk_len: ${oc.select:task.bptt_chunk_len, 25}   # TBPTT chunk: state.detach() every N steps in grad region; null = single graph
 loss_over_bptt: ${oc.select:task.loss_over_bptt, false} # when true + no_augment, compute loss at every step in grad region (teacher-forced)
-grad_checkpoint: true               # wrap grad-region segments in torch.utils.checkpoint for ~5-10x activation memory savings (~30-50% wall-clock cost)
-grad_checkpoint_segment_len: 25     # checkpoint segment length within grad region; null defaults to bptt_chunk_len
+grad_checkpoint: true               # wrap grad-region segments in torch.utils.checkpoint for activation-memory savings. Combined with compile=true the recompute is essentially free (verified May 2026 at K=2/30: 11.7s/epoch matches no-checkpoint baseline).
+grad_checkpoint_segment_len: 5      # checkpoint segment length within grad region; null defaults to bptt_chunk_len. 5 chosen because under compile=true the recompute cost is absorbed by the compiled graph, so lower seg_len buys proportionally more activation-memory headroom at zero wall-clock cost.
 burn_in: 10.0
 burn_in_every: 1              # re-run burn-in every N epochs to track moving fixed point; 0 = only at init
 freeze_ic_after_burnin: true  # freeze TrainableIC.ic after burn-in (matches truncated-BPTT reality where IC gets no grad; see KnownIssues §4)
@@ -34,10 +34,10 @@ no_augment: ${oc.select:task.no_augment, false}   # when true, bypass stretch+pa
 log_interval: ${oc.select:task.log_interval, 1}              # log every N epochs (continuous trainer: null → defaults to checkpoint_interval)
 checkpoint_interval: ${oc.select:task.checkpoint_interval, 10}  # ckpt every N epochs (continuous trainer: null → defaults to round(B/4))
 device: auto  # auto, cpu, cuda, mps
-compile: false  # use torch.compile (CUDA only — auto-disabled on MPS/CPU)
-compile_mode: null    # passed as torch.compile(mode=...). Options: default, reduce-overhead, max-autotune. null = library default.
+compile: true   # use torch.compile (CUDA only — auto-disabled on MPS/CPU). Default mode (compile_mode=null) is the only supported one — see KnownIssues §8 (reduce-overhead/max-autotune incompatible with autograd-over-Python-loop BPTT).
+compile_mode: null    # passed as torch.compile(mode=...). Stay at null (default mode); reduce-overhead/max-autotune fail in continuous training (KnownIssues §8).
 compile_dynamic: null # passed as torch.compile(dynamic=...). false = static shapes (smaller graph, faster compile). null = library default (autodetect).
-compile_cell: false   # when true, compile model.cell instead of full model. REQUIRED for continuous trainer to actually accelerate the hot loop (the trainer calls model.cell directly).
+compile_cell: true    # compile model.cell instead of full model. REQUIRED for continuous trainer to actually accelerate the hot loop (the trainer calls model.cell directly).
 compile_log_recompiles: false # when true, enable torch._dynamo recompile logging for diagnosing compile churn.
 amp: fp32      # fp32 | bf16. bf16 requires Ampere+ GPU (L4, A100, H100, RTX 30/40).
 
