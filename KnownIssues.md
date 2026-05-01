@@ -329,3 +329,45 @@ The `train_srnn/utils/cell_loop.py:mark_cudagraph_step()` calls in our loop bodi
 3. **Fused custom Triton kernel for the SRNN cell forward** — replaces ~50 separate ops with one kernel. Eliminates launch overhead at the source, no interaction with cuda graphs. ~weeks of work; defer until cell architecture is stable.
 
 **Decision.** Not worth pursuing until a measured wall-clock breakdown at production K=6 size=300 B=24 (or larger B) shows kernel-launch overhead is ≥ 20% of step time. See `tmp/notes/cuda_graphs_options.md` for the full analysis. The `compile_mode` knobs remain in `conf/config.yaml` for forward compatibility but should be left at `null` (default mode) until that measurement happens.
+
+---
+
+## 9. Per-step host syncs in the continuous trainer's per-K loss/metric path
+
+**Summary.** The continuous trainer issues `2·K` forced host syncs **per training step** in its per-K bookkeeping. At K=6 with B=48 (15 steps/epoch on full T) that's ~180 syncs/epoch. Each sync blocks the host until prior CUDA work finishes, serializing the trainer's Python loop with the GPU's queue.
+
+**Where.** `train_srnn/training/continuous.py`:
+- `_compute_loss` (line 301): `per_k = [l.item() for l in losses]` — K calls to `Tensor.item()` per chunk step.
+- `_per_k_metric` (line 315): list-comp doing `float(... .item())` per K — another K calls per chunk step.
+
+Both are called inside the per-step inner loop of `run_continuous_training`. Each `.item()` walks down to `aten._local_scalar_dense` which forces `cudaStreamSynchronize`. The K losses are needed only for **per-epoch** logging and CSV emission, not for backward (the `loss.sum()` used for `loss.backward()` stays on GPU).
+
+**Impact.** Bounded — at K=6 size=300 B=48 production we see GPU compute util at 91% / memory util at 100% (i.e. queue is mostly full despite the syncs), so eliminating them would buy on the order of 5–10% wall-clock, not 50%. The cost is more visible at smaller scales where the queue can drain between syncs.
+
+**Fix sketch.** Keep per-K losses and metrics as **GPU tensors** through the epoch:
+- `_compute_loss`: return `(loss_for_backward, per_k_loss_tensor)` where `per_k_loss_tensor` is `torch.stack(losses)` shape `(K,)`, no `.item()` calls.
+- `_per_k_metric`: return a `(K,)` tensor of negative-MAE values, computed via vectorized abs+mean over the K axis (no Python comprehension).
+- In `run_continuous_training`, accumulate `epoch_loss_sum_k` / `epoch_metric_sum_k` as in-place tensor adds (`tensor += per_k_loss_tensor`), starting from a single zero `(K,)` tensor at epoch start.
+- At epoch end, do **one** `tensor.tolist()` (or per-K `.item()`) for logging — that's K syncs per epoch, not per step.
+
+The `loss.item()` at line 525 in the non-K path is fine (one sync per step at K=None, much smaller workload).
+
+**Why not fix now.** Production runs already saturate the GPU; fixing this is a modest cleanup, not a critical bug. Tracked here so the next time the trainer's metrics pipeline is touched, the fix lands.
+
+---
+
+## 10. `_effective_W` is rebuilt every cell call (250× per chunk)
+
+**Summary.** `SRNNCell._effective_W` (line 296) and `BatchedSRNNCell._effective_W` (line 1108) materialize the full effective recurrent weight matrix from `W_raw`, `dales_sign`/`dales_signs`, `sparsity_mask`/`sparsity_masks`, `W_raw_gain`, and `softplus(...)` on **every cell call**. With `chunk_len=250` and a single optimizer step per chunk, the matrix is rebuilt 250× per step even though `W_raw` only changes once per `optimizer.step()`.
+
+**Cost.** At K=6 N=300 (production), `W_eff` is `(6, 300, 300) = 540K` bf16 elements = 1.08 MB per materialization. Per chunk step: 250 × 1.08 MB ≈ 270 MB of avoidable scratch traffic for the matrix construction (read W_raw, mask, signs, write W_eff, all element-wise on N²). Per epoch (15 steps): ~4 GB. Plus the `softplus` + element-wise ops themselves run 250×.
+
+**Why this exists.** When the cell was designed, the inner ode_unfolds loop genuinely needed a freshly-broadcast W_eff for each substep (different state, same params). Hoisting outside the cell wasn't trivial because `_effective_W` lives on the cell module and uses parameters owned by it. The 250× repeat across timesteps within one chunk is an artifact of the per-timestep cell-call pattern that the trainer uses.
+
+**Fix options** (none required; tracked for opportunistic improvement):
+
+1. **Hoist W_eff into the chunk function.** Compute `W_eff = cell._effective_W()` once at the top of `_forward_chunk_pure_tf` / `_forward_chunk_closed_loop` and pass it into the cell as an arg. Requires modifying the cell forward signature `cell(input, state) -> (output, state)` to accept an optional pre-computed W_eff, falling back to `self._effective_W()` if not provided. Mechanically clean (~30 LOC). Saves 249/250 of the rebuild traffic per chunk step.
+2. **Caching with version counter.** Store `_W_eff_cached` on the cell + a version int that increments on every parameter mutation (via `register_post_accumulate_grad_hook` on `W_raw` or in optimizer wrapping). Only recompute when stale. More invasive than (1) and the stale-check itself isn't free.
+3. **Ignore.** Inductor under default-mode `torch.compile` may already CSE the redundant materializations within one compiled trace, in which case the extra HBM traffic is mostly an illusion. Worth checking via `TORCH_LOGS=output_code` before doing (1).
+
+**Worth fixing?** Probably yes via option (1) once measured savings are ≥ 5%, but verify (3) first to avoid duplicating an Inductor optimization. Same caveat as §9: the GPU is already saturated, so the absolute wall-clock win is bounded.
