@@ -35,6 +35,8 @@ log_interval: ${oc.select:task.log_interval, 1}              # log every N epoch
 checkpoint_interval: ${oc.select:task.checkpoint_interval, 10}  # ckpt every N epochs (continuous trainer: null → defaults to round(B/4))
 device: auto  # auto, cpu, cuda, mps
 compile: false  # use torch.compile (CUDA only — auto-disabled on MPS/CPU)
+compile_mode: null    # passed as torch.compile(mode=...). Options: default, reduce-overhead, max-autotune. null = library default.
+compile_dynamic: null # passed as torch.compile(dynamic=...). false = static shapes (smaller graph, faster compile). null = library default (autodetect).
 amp: fp32      # fp32 | bf16. bf16 requires Ampere+ GPU (L4, A100, H100, RTX 30/40).
 
 # Ablation batching

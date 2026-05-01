@@ -397,7 +397,15 @@ def main(cfg: DictConfig) -> None:
 
     # 5. Optional torch.compile -----------------------------------------------
     if cfg.compile and device.type == "cuda":
-        model = torch.compile(model)
+        compile_kwargs = {}
+        cm = cfg.get("compile_mode", None)
+        if cm:
+            compile_kwargs["mode"] = str(cm)
+        cd = cfg.get("compile_dynamic", None)
+        if cd is not None:
+            compile_kwargs["dynamic"] = bool(cd)
+        log.info("torch.compile kwargs: %s", compile_kwargs or "(defaults)")
+        model = torch.compile(model, **compile_kwargs)
 
     # 6. Optimizer + LR schedule ----------------------------------------------
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
