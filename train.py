@@ -396,29 +396,29 @@ def main(cfg: DictConfig) -> None:
     ablation_names = getattr(model, "ablation_names", None)
 
     # 5. Optional torch.compile -----------------------------------------------
+    # Cell-level compile is deferred to the continuous trainer (so that eval,
+    # which calls SequenceModel.forward → self.cell, sees the eager cell and
+    # doesn't pollute the compile cache with eval-only shape/grad-mode
+    # configurations). Model-level compile (cfg.compile_cell=false) still
+    # happens here.
     if cfg.compile and device.type == "cuda":
-        compile_kwargs = {}
-        cm = cfg.get("compile_mode", None)
-        if cm:
-            compile_kwargs["mode"] = str(cm)
-        cd = cfg.get("compile_dynamic", None)
-        if cd is not None:
-            compile_kwargs["dynamic"] = bool(cd)
-        compile_cell = bool(cfg.get("compile_cell", False))
         if bool(cfg.get("compile_log_recompiles", False)):
             import torch._logging as _torch_logging
             _torch_logging.set_logs(recompiles=True)
             log.info("Dynamo recompile logging enabled")
-        log.info("torch.compile kwargs: %s; compile_cell=%s",
-                 compile_kwargs or "(defaults)", compile_cell)
-        if compile_cell:
-            # Compile only the cell (per-step kernel). Critical for the
-            # continuous trainer, which calls model.cell directly in a Python
-            # for-loop — wrapping `model` doesn't accelerate that path because
-            # model.forward is never invoked during training.
-            model.cell = torch.compile(model.cell, **compile_kwargs)
-        else:
+        if not bool(cfg.get("compile_cell", False)):
+            compile_kwargs = {}
+            cm = cfg.get("compile_mode", None)
+            if cm:
+                compile_kwargs["mode"] = str(cm)
+            cd = cfg.get("compile_dynamic", None)
+            if cd is not None:
+                compile_kwargs["dynamic"] = bool(cd)
+            log.info("torch.compile (model-level) kwargs: %s",
+                     compile_kwargs or "(defaults)")
             model = torch.compile(model, **compile_kwargs)
+        else:
+            log.info("torch.compile (cell-level) deferred to continuous trainer")
 
     # 6. Optimizer + LR schedule ----------------------------------------------
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)

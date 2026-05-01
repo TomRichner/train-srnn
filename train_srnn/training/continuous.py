@@ -362,6 +362,23 @@ def run_continuous_training(
 
     # ---- One-time setup ----
     cell = model.cell
+    # Cell-level torch.compile lives here (not in train.py) so that eval — which
+    # calls SequenceModel.forward → self.cell with different shapes (windowed
+    # batch) and grad mode (no_grad) — sees the eager cell and doesn't trigger
+    # extra recompiles in the cache. Only the trainer's hot loop sees compiled.
+    if (bool(cfg.get("compile", False))
+            and bool(cfg.get("compile_cell", False))
+            and device.type == "cuda"):
+        compile_kwargs = {}
+        cm = cfg.get("compile_mode", None)
+        if cm:
+            compile_kwargs["mode"] = str(cm)
+        cd = cfg.get("compile_dynamic", None)
+        if cd is not None:
+            compile_kwargs["dynamic"] = bool(cd)
+        log.info("Compiling cell (continuous trainer scope only); kwargs=%s",
+                 compile_kwargs or "(defaults)")
+        cell = torch.compile(cell, **compile_kwargs)
     cl_active = bool(closed_loop_cfg is not None and closed_loop_cfg.enabled)
 
     # IC -> broadcast initial state. Then freeze IC (continuous: no grad
