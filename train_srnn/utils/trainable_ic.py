@@ -70,6 +70,10 @@ def compute_burn_in(cell, input_size, burn_in_seconds=30.0, device="cpu"):
         zero_input = torch.zeros(1, input_size, device=device)
         for _ in range(n_steps):
             _, state = cell(zero_input, state)
+            # Clone for compatibility with torch.compile(mode="reduce-overhead"):
+            # the compiled cell's CUDA graph holds output buffers; passing the
+            # raw output back as next input triggers an aliasing error.
+            state = state.clone()
 
     # Squeeze out the batch dimension and return on CPU.
     if isinstance(state, tuple):
