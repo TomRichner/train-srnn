@@ -524,10 +524,16 @@ def main(cfg: DictConfig) -> None:
                 "task.train_trace_max_len in seeg.yaml?)")
         else:
             from train_srnn.training.continuous import run_continuous_training
+            import time as _time
+            _t0 = _time.perf_counter()
             train_trace_t = torch.tensor(dataset["train_trace"],
                                           dtype=torch.float32, device=device)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+            _trace_xfer_s = _time.perf_counter() - _t0
             log.info("Dispatching to continuous trainer "
-                     "(train_trace shape=%s)", tuple(train_trace_t.shape))
+                     "(train_trace shape=%s, GPU upload %.3fs)",
+                     tuple(train_trace_t.shape), _trace_xfer_s)
             run_continuous_training(
                 model=model,
                 train_trace=train_trace_t,

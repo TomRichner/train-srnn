@@ -7,6 +7,7 @@ seed: 1
 epochs: 200
 early_exit_after_init: false  # write init.pt + last.pt then exit before training (for fresh-IC postprocess analysis)
 continuous_train: false       # SEEG-only: stateful continuous-batching trainer (B parallel readers around the trace ring)
+continuous_profile: false     # opt-in per-phase timing breakdown for the continuous trainer (CUDA Events on GPU; perf_counter fallback on MPS/CPU)
 # Per-task knobs that the task YAML can override via oc.select. The
 # fallbacks below apply when running tasks that don't set their own value.
 batch_size: ${oc.select:task.batch_size, 128}

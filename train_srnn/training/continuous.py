@@ -15,8 +15,10 @@ See plan: ~/.claude/plans/1-i-don-t-care-quiet-melody.md
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
+from collections import defaultdict
 from typing import Optional
 
 import numpy as np
@@ -39,6 +41,111 @@ from train_srnn.utils.checkpoint import (
 )
 
 log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Profiling helper
+# ---------------------------------------------------------------------------
+
+class ContinuousTimer:
+    """Phase-wise wall-clock timer for the continuous trainer (opt-in).
+
+    On CUDA, uses async ``torch.cuda.Event(enable_timing=True)`` pairs so the
+    instrumentation doesn't force per-section host-GPU sync (which would
+    defeat the async dispatch we're trying to measure). One global
+    ``torch.cuda.synchronize()`` is issued only when ``report()`` is called,
+    once per epoch.
+
+    On CPU / MPS, falls back to ``time.perf_counter()`` accumulators. Note
+    that on MPS this measures host-side dispatch latency, not actual MPS
+    kernel execution — but the real measurement we care about is on CUDA.
+
+    When ``enabled=False`` (the default off-state), every ``section()`` call
+    is a thin no-op generator that yields once, and ``report()`` returns
+    immediately. No CUDA events are allocated; no overhead.
+
+    Usage per epoch:
+        timer.epoch_start()
+        for step in ...:
+            with timer.section("forward"):
+                ...
+        with timer.section("valid_eval"):
+            ...
+        timer.report(log)
+
+    Caveat: under ``grad_checkpoint=true`` the forward is recomputed during
+    backward; the cuda.Event recorded in the ``forward`` section captures
+    only the first pass, while ``backward`` captures backward + recompute.
+    The report header notes this so the numbers are not misread.
+    """
+
+    def __init__(self, device: torch.device, enabled: bool = True):
+        self.enabled = enabled
+        self.device = device
+        self.is_cuda = enabled and device.type == "cuda"
+        self._cuda_events: dict[str, list[tuple[torch.cuda.Event, torch.cuda.Event]]] = defaultdict(list)
+        self._cpu_totals: dict[str, float] = defaultdict(float)
+        self._epoch_start_wall: float | None = None
+
+    def epoch_start(self) -> None:
+        if not self.enabled:
+            return
+        self._cuda_events.clear()
+        self._cpu_totals.clear()
+        self._epoch_start_wall = time.perf_counter()
+
+    @contextlib.contextmanager
+    def section(self, name: str):
+        if not self.enabled:
+            yield
+            return
+        if self.is_cuda:
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
+            try:
+                yield
+            finally:
+                end.record()
+                self._cuda_events[name].append((start, end))
+        else:
+            t0 = time.perf_counter()
+            try:
+                yield
+            finally:
+                self._cpu_totals[name] += time.perf_counter() - t0
+
+    def report(self, logger: logging.Logger, *, label: str = "") -> None:
+        if not self.enabled or self._epoch_start_wall is None:
+            return
+        if self.is_cuda:
+            torch.cuda.synchronize()
+            totals = {
+                name: sum(s.elapsed_time(e) for s, e in evts) / 1000.0
+                for name, evts in self._cuda_events.items()
+            }
+        else:
+            totals = dict(self._cpu_totals)
+        wall = time.perf_counter() - self._epoch_start_wall
+        rows = sorted(totals.items(), key=lambda kv: -kv[1])
+        backend = "cuda.Event" if self.is_cuda else "perf_counter"
+        suffix = f" [{label}]" if label else ""
+        logger.info(
+            "Phase breakdown%s — total wall %.1fs (backend=%s; under "
+            "grad_checkpoint=true, forward is recomputed during backward "
+            "so backward includes recompute)",
+            suffix, wall, backend,
+        )
+        for name, t in rows:
+            logger.info("  %-18s %8.2fs  (%5.2f%%)",
+                        name, t, 100.0 * t / max(wall, 1e-9))
+        accounted = sum(totals.values())
+        unaccounted = wall - accounted
+        logger.info(
+            "  %-18s %8.2fs  (%5.2f%%)",
+            "(unaccounted)", unaccounted,
+            100.0 * unaccounted / max(wall, 1e-9),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -273,9 +380,18 @@ def run_continuous_training(
 
     grad_clip = float(cfg.get("grad_clip", 0.0) or 0.0)
 
+    # Optional per-phase profiler (off by default).
+    profile_enabled = bool(cfg.get("continuous_profile", False))
+    timer = ContinuousTimer(device, enabled=profile_enabled)
+    if profile_enabled:
+        log.info("Profiling enabled: per-phase timing breakdown will print "
+                 "after each epoch (backend=%s).",
+                 "cuda.Event" if timer.is_cuda else "perf_counter")
+
     # ---- Per-epoch loop ----
     for epoch in range(total_epochs):
         epoch_start = time.time()
+        timer.epoch_start()
         epoch_loss_sum = 0.0   # for logging (per-K when K is not None)
         epoch_loss_sum_k = [0.0] * K if K is not None else None
         epoch_metric_sum_k = [0.0] * K if K is not None else None
@@ -299,19 +415,21 @@ def run_continuous_training(
         model.train()
 
         for step in range(steps_per_epoch):
-            chunk_x, chunk_y = _gather_chunks(train_trace, positions, chunk_len, T)
+            with timer.section("chunk_gather"):
+                chunk_x, chunk_y = _gather_chunks(train_trace, positions, chunk_len, T)
 
             # α schedule for this chunk
             alpha_chunk = None
             if cl_active:
-                alpha_chunk = sample_continuous_alpha(
-                    closed_loop_cfg, epoch=epoch, total_epochs=total_epochs,
-                    B=B, chunk_len=chunk_len, C=C,
-                    channel_phases=channel_phases,
-                    per_reader_jitter=per_reader_jitter,
-                    device=device, generator=closed_loop_gen,
-                    dtype=train_trace.dtype,
-                )
+                with timer.section("alpha_sample"):
+                    alpha_chunk = sample_continuous_alpha(
+                        closed_loop_cfg, epoch=epoch, total_epochs=total_epochs,
+                        B=B, chunk_len=chunk_len, C=C,
+                        channel_phases=channel_phases,
+                        per_reader_jitter=per_reader_jitter,
+                        device=device, generator=closed_loop_gen,
+                        dtype=train_trace.dtype,
+                    )
                 stats = summarize_alpha(alpha_chunk if alpha_chunk is None else
                                         alpha_chunk.reshape(-1, C))
                 cl_alpha_sum += stats["alpha_mean"]
@@ -320,23 +438,28 @@ def run_continuous_training(
                 cl_total += 1
 
             # Forward + loss
-            with amp_autocast_fn(cfg):
-                if alpha_chunk is None:
-                    logits, state = _forward_chunk_pure_tf(model, cell, chunk_x, state)
-                else:
-                    logits, state, y_prev = _forward_chunk_closed_loop(
-                        model, cell, chunk_x, state, y_prev, alpha_chunk,
-                    )
-                loss, per_k_loss = _compute_loss(logits, chunk_y, criterion, cfg, K)
+            with timer.section("forward"):
+                with amp_autocast_fn(cfg):
+                    if alpha_chunk is None:
+                        logits, state = _forward_chunk_pure_tf(model, cell, chunk_x, state)
+                    else:
+                        logits, state, y_prev = _forward_chunk_closed_loop(
+                            model, cell, chunk_x, state, y_prev, alpha_chunk,
+                        )
+            with timer.section("loss"):
+                with amp_autocast_fn(cfg):
+                    loss, per_k_loss = _compute_loss(logits, chunk_y, criterion, cfg, K)
 
             # Backward + step
-            optimizer.zero_grad()
-            loss.backward()
-            if grad_clip > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
-            optimizer.step()
-            if scheduler is not None:
-                scheduler.step()
+            with timer.section("backward"):
+                optimizer.zero_grad()
+                loss.backward()
+            with timer.section("optim_step"):
+                if grad_clip > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
+                optimizer.step()
+                if scheduler is not None:
+                    scheduler.step()
 
             # Metrics
             if K is not None:
@@ -349,13 +472,13 @@ def run_continuous_training(
                 epoch_metric_sum += _per_k_metric(logits, chunk_y, cfg, None)
             n_steps_done += 1
 
-            # Detach state + y_prev for next chunk (truncated BPTT boundary)
-            state = state.detach()
-            if y_prev is not None:
-                y_prev = y_prev.detach()
-
-            # Advance positions (wrap mod T)
-            positions = (positions + chunk_len) % T
+            with timer.section("detach"):
+                # Detach state + y_prev for next chunk (truncated BPTT boundary)
+                state = state.detach()
+                if y_prev is not None:
+                    y_prev = y_prev.detach()
+                # Advance positions (wrap mod T)
+                positions = (positions + chunk_len) % T
 
         # ---- Epoch-end ----
         train_loss = (
@@ -371,14 +494,15 @@ def run_continuous_training(
         # Eval (windowed) ----------------------------------------------------
         valid_loss = valid_metric = None
         if (epoch + 1) % log_interval == 0:
-            model.eval()
-            with torch.no_grad():
-                valid_loss, valid_metric = run_epoch_fn(
-                    model, valid_x, valid_y,
-                    None, None, criterion,
-                    cfg, rng, device, training=False, K=K,
-                )
-            model.train()
+            with timer.section("valid_eval"):
+                model.eval()
+                with torch.no_grad():
+                    valid_loss, valid_metric = run_epoch_fn(
+                        model, valid_x, valid_y,
+                        None, None, criterion,
+                        cfg, rng, device, training=False, K=K,
+                    )
+                model.train()
 
         # Logging ------------------------------------------------------------
         wall = time.time() - epoch_start
@@ -406,28 +530,34 @@ def run_continuous_training(
             )
 
         # CSVs ---------------------------------------------------------------
-        cur_lr = optimizer.param_groups[0]["lr"]
-        append_history_row(
-            cfg.output_dir, epoch,
-            train_loss=train_loss, train_metric=train_metric,
-            valid_loss=valid_loss if valid_loss is not None else (
-                [float("nan")] * K if K is not None else float("nan")
-            ),
-            valid_metric=valid_metric if valid_metric is not None else (
-                [float("nan")] * K if K is not None else float("nan")
-            ),
-            lr=cur_lr, K=K, ablation_names=ablation_names,
-        )
-        write_progress(cfg.output_dir, epoch + 1, total_epochs)
+        with timer.section("io_log"):
+            cur_lr = optimizer.param_groups[0]["lr"]
+            append_history_row(
+                cfg.output_dir, epoch,
+                train_loss=train_loss, train_metric=train_metric,
+                valid_loss=valid_loss if valid_loss is not None else (
+                    [float("nan")] * K if K is not None else float("nan")
+                ),
+                valid_metric=valid_metric if valid_metric is not None else (
+                    [float("nan")] * K if K is not None else float("nan")
+                ),
+                lr=cur_lr, K=K, ablation_names=ablation_names,
+            )
+            write_progress(cfg.output_dir, epoch + 1, total_epochs)
 
         # Checkpoint + test eval ---------------------------------------------
         if epoch % checkpoint_interval == 0:
             tag = f"epoch_{epoch:03d}"
-            save_checkpoint(model, optimizer, scheduler, epoch, cfg, tag)
-            eval_and_log_test_fn(
-                model, test_x, test_y, criterion, cfg, rng, device,
-                epoch=epoch, tag=tag, K=K, ablation_names=ablation_names,
-            )
+            with timer.section("checkpoint_save"):
+                save_checkpoint(model, optimizer, scheduler, epoch, cfg, tag)
+            with timer.section("test_eval"):
+                eval_and_log_test_fn(
+                    model, test_x, test_y, criterion, cfg, rng, device,
+                    epoch=epoch, tag=tag, K=K, ablation_names=ablation_names,
+                )
+
+        # Per-phase profiler report (no-op when continuous_profile=false)
+        timer.report(log, label=f"epoch {epoch}")
 
     # ---- Final ----
     save_checkpoint(model, optimizer, scheduler, total_epochs - 1, cfg, "last")
