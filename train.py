@@ -405,6 +405,10 @@ def main(cfg: DictConfig) -> None:
         if cd is not None:
             compile_kwargs["dynamic"] = bool(cd)
         compile_cell = bool(cfg.get("compile_cell", False))
+        if bool(cfg.get("compile_log_recompiles", False)):
+            import torch._logging as _torch_logging
+            _torch_logging.set_logs(recompiles=True)
+            log.info("Dynamo recompile logging enabled")
         log.info("torch.compile kwargs: %s; compile_cell=%s",
                  compile_kwargs or "(defaults)", compile_cell)
         if compile_cell:

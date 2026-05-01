@@ -215,6 +215,12 @@ def _forward_chunk_pure_tf(
     for t in range(chunk_x.shape[1]):
         x_t = chunk_x[:, t, :]
         h_t, state = cell(x_t, state)
+        # Clone state so the next call sees a fresh tensor with canonical
+        # (contiguous) strides at a fresh memory address. Required for
+        # torch.compile(mode="reduce-overhead") to avoid CUDA-graph aliasing
+        # AND to keep Dynamo from recompiling on stride variation. ~1 memcpy
+        # per step; negligible vs. saved kernel-launch overhead.
+        state = state.clone()
         hidden_outs.append(h_t)
         x_in_outs.append(x_t)
     hidden_seq = torch.stack(hidden_outs, dim=-2)
@@ -248,10 +254,12 @@ def _forward_chunk_closed_loop(
         # When y_prev is (B, C), result is (B, C).
         x_in_t = (1.0 - alpha_t) * x_real_t + alpha_t * y_prev
         h_t, state = cell(x_in_t, state)
+        # See note in _forward_chunk_pure_tf: clone for compile compatibility.
+        state = state.clone()
         y_t = model._readout_one(h_t, x_in_t)
         hidden_outs.append(h_t)
         x_in_outs.append(x_in_t)
-        y_prev = y_t
+        y_prev = y_t.clone()
     hidden_seq = torch.stack(hidden_outs, dim=-2)
     x_in_seq = torch.stack(x_in_outs, dim=-2)
     logits = _readout_chunk(model, hidden_seq, x_in_seq)
