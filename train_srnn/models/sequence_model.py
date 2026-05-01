@@ -178,6 +178,11 @@ class SequenceModel(nn.Module):
         with self._no_autocast_cache_ctx():
             for t in range(x_seg.shape[1]):
                 out, state = self.cell(x_seg[:, t, :], state)
+                # Clone state so the next compiled-cell call sees a fresh
+                # tensor (canonical strides + non-aliased memory). Required
+                # for torch.compile(mode="reduce-overhead"). No-op cost when
+                # not compiled. See continuous.py for the trainer-side analog.
+                state = state.clone()
                 outputs.append(out)
         return torch.stack(outputs, dim=-2), state
 
@@ -252,9 +257,11 @@ class SequenceModel(nn.Module):
                 alpha_t = alpha_seg[t]
                 x_in_t = (1.0 - alpha_t) * x_real_t + alpha_t * y_prev
                 out_t, state = self.cell(x_in_t, state)
+                # See _run_segment: clone for compile compatibility.
+                state = state.clone()
                 y_t = self._readout_one(out_t, x_in_t)
                 y_outs.append(y_t)
-                y_prev = y_t
+                y_prev = y_t.clone()
         y_stacked = torch.stack(y_outs, dim=-2)
         return y_stacked, state, y_prev
 
