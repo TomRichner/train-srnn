@@ -37,6 +37,7 @@ device: auto  # auto, cpu, cuda, mps
 compile: false  # use torch.compile (CUDA only — auto-disabled on MPS/CPU)
 compile_mode: null    # passed as torch.compile(mode=...). Options: default, reduce-overhead, max-autotune. null = library default.
 compile_dynamic: null # passed as torch.compile(dynamic=...). false = static shapes (smaller graph, faster compile). null = library default (autodetect).
+compile_cell: false   # when true, compile model.cell instead of full model. REQUIRED for continuous trainer to actually accelerate the hot loop (the trainer calls model.cell directly).
 amp: fp32      # fp32 | bf16. bf16 requires Ampere+ GPU (L4, A100, H100, RTX 30/40).
 
 # Ablation batching

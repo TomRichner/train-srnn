@@ -404,8 +404,17 @@ def main(cfg: DictConfig) -> None:
         cd = cfg.get("compile_dynamic", None)
         if cd is not None:
             compile_kwargs["dynamic"] = bool(cd)
-        log.info("torch.compile kwargs: %s", compile_kwargs or "(defaults)")
-        model = torch.compile(model, **compile_kwargs)
+        compile_cell = bool(cfg.get("compile_cell", False))
+        log.info("torch.compile kwargs: %s; compile_cell=%s",
+                 compile_kwargs or "(defaults)", compile_cell)
+        if compile_cell:
+            # Compile only the cell (per-step kernel). Critical for the
+            # continuous trainer, which calls model.cell directly in a Python
+            # for-loop — wrapping `model` doesn't accelerate that path because
+            # model.forward is never invoked during training.
+            model.cell = torch.compile(model.cell, **compile_kwargs)
+        else:
+            model = torch.compile(model, **compile_kwargs)
 
     # 6. Optimizer + LR schedule ----------------------------------------------
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
