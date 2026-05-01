@@ -297,3 +297,35 @@ CPU bf16 autocast tests added in `scripts/test_closed_loop_grad_checkpoint.py:te
 **Workaround for now.** Run closed-loop + checkpoint with `amp=off`. At `size=150 bs=12 bptt_chunk_len=125` on L4 this fits comfortably. At production scale (`size=300 bs=24 bptt=2500`) the memory hit may force smaller batch_size; can also drop `bptt_chunk_len` further (e.g. 64 or 32) which directly reduces per-chunk activation memory without needing checkpointing.
 
 **Real fix probably requires.** Reproducing locally with CUDA, running with `torch.utils.checkpoint.set_checkpoint_debug_enabled(True)` to get the per-op trace of what's saved, then narrowing to the offending op. May also require filing a PyTorch issue if the bug is upstream. Out of scope for the closed-loop training work; tracked here for the next person who hits the symptom.
+
+---
+
+## 8. `torch.compile(mode="reduce-overhead")` and `mode="max-autotune")` are unsupported in continuous training
+
+**Summary.** Both modes attempt to wrap each compiled-cell invocation in a CUDA graph (via `cudagraph_trees`). On the BPTT-over-Python-loop training pattern this codebase uses (T cell calls inside `_forward_chunk_pure_tf` / `_forward_chunk_closed_loop` followed by one `loss.backward()`), this is **structurally incompatible** with PyTorch's current `cudagraph_trees` implementation. Default mode (kernel fusion / Inductor codegen, no CUDA graphs) works; only the graph-capture modes fail.
+
+**Symptom.** Run `compile=true compile_cell=true compile_mode=reduce-overhead` (or `max-autotune`) and either:
+- Forward fails with `static input data pointer changed` / aliasing errors (no `cudagraph_mark_step_begin()` between iterations), or
+- Backward fails with `RuntimeError: Error: accessing tensor output of CUDAGraphs that has been overwritten by a subsequent run` (with `cudagraph_mark_step_begin()` between iterations — the call that fixes the forward).
+
+The `train_srnn/utils/cell_loop.py:mark_cudagraph_step()` calls in our loop bodies ARE called — they are required for the forward to not alias — but they invalidate intermediates that the deferred backward still needs. There is no setting of "yes invalidate forward outputs / no don't invalidate backward intermediates" available in the API.
+
+**Root cause** (PyTorch limitation, not ours). `cudagraph_trees`' allocator can recycle a graph's output buffers between invocations OR keep saved-for-backward intermediates alive across invocations, but not both for the same workload. PyTorch docs: *"Memory for activations that are saved in the forward cannot be reclaimed in the backward."* The trees machinery's training heuristic assumes forward + backward + step *per* invocation, not T forwards followed by one backward.
+
+**Status upstream.** Open issues with no maintainer fix as of PyTorch 2.11:
+- pytorch/pytorch [#148439](https://github.com/pytorch/pytorch/issues/148439) — accessing overwritten output
+- pytorch/pytorch [#158551](https://github.com/pytorch/pytorch/issues/158551) — clone + mark_step_begin both insufficient
+- pytorch/pytorch [#169545](https://github.com/pytorch/pytorch/issues/169545) — compile + cudagraph + gradient accumulation fails
+
+**What works today.**
+- `compile=false` — eager mode, no compile.
+- `compile=true compile_mode=null` (default mode) — Inductor kernel fusion + Triton codegen, no CUDA graphs. Confirmed working at K=2/30 (~11s/epoch steady-state on L4) and K=6/300 (production).
+
+**What we did anyway.** The cell_loop refactor (`train_srnn/utils/cell_loop.py`, commit `065dfb6`) replaced `outputs.append(out) ... torch.stack(outputs, dim=-2)` with a pre-allocated `torch.empty(..., T, F)` buffer and slice-assign `out_seq[..., t, :] = out`, plus `mark_cudagraph_step()` at the top of each loop body. This is the pattern PyTorch's docs recommend for CUDA-graph-friendly loops — we are aligned with the API contract; the bug is below us. If/when PyTorch fixes the underlying limitation, our code is already in the correct shape.
+
+**If we ever need CUDA graphs in training** — known-working alternatives, none implemented here:
+1. **Manual `torch.cuda.graph()` capture wrapped in a custom `torch.autograd.Function`** — NVIDIA's RNN-T pattern (`docs.nvidia.com/dl-cuda-graph/examples/rnnt.html`). Captures the entire BPTT chunk's forward and backward as two graphs sharing a memory pool, exposed to autograd as one fused op. ~300–500 LOC; the only documented working pattern.
+2. **Larger `torch.compile` scope** — compile `_forward_chunk_pure_tf` (the whole chunk loop) instead of just `cell`. Dynamo unrolls the Python loop into one ~12,500-op graph; if the trace completes, the chunk becomes a single forward + single backward, which `cudagraph_trees` *does* handle. Compile-time may blow up at production scale (size=300, K=6); needs a 1-day spike to verify feasibility. **Cheapest first experiment if launch overhead is measured to dominate.**
+3. **Fused custom Triton kernel for the SRNN cell forward** — replaces ~50 separate ops with one kernel. Eliminates launch overhead at the source, no interaction with cuda graphs. ~weeks of work; defer until cell architecture is stable.
+
+**Decision.** Not worth pursuing until a measured wall-clock breakdown at production K=6 size=300 B=24 (or larger B) shows kernel-launch overhead is ≥ 20% of step time. See `tmp/notes/cuda_graphs_options.md` for the full analysis. The `compile_mode` knobs remain in `conf/config.yaml` for forward compatibility but should be left at `null` (default mode) until that measurement happens.
