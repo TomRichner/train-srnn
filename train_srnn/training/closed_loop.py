@@ -48,7 +48,10 @@ class ClosedLoopConfig:
     alpha_rnd_density: float = 0.0
     alpha_rnd_sigma: float = 0.0
     # Half-cosine warmup ramp length in samples; 0 = no ramp (envelope=1).
+    # Used only by the windowed-mode sampler; continuous mode ignores this.
     t_warm: int = 0
+    # Continuous-mode only: per-channel rotation period for alpha_rnd (epochs).
+    alpha_rnd_period_epochs: int = 10
 
 
 def effective_alpha_baseline(cfg: ClosedLoopConfig, epoch: int,
@@ -135,6 +138,92 @@ def sample_alpha_schedule(
     alpha[0].zero_()
 
     return alpha
+
+
+def init_channel_phases(C: int, seed: int, device, dtype=torch.float32) -> torch.Tensor:
+    """Per-channel phase ∈ [0, 1) drawn once per training run.
+
+    Used by the continuous-mode α sampler's per-channel rotation envelope.
+    Deterministic given (C, seed) so repeat training runs use the same
+    rotation pattern.
+    """
+    g = torch.Generator(device="cpu").manual_seed(int(seed))
+    return torch.rand(C, generator=g, dtype=dtype).to(device=device)
+
+
+def sample_per_reader_jitter(
+    cfg: ClosedLoopConfig,
+    B: int,
+    device,
+    generator: torch.Generator | None = None,
+    dtype=torch.float32,
+) -> torch.Tensor:
+    """One per-epoch draw: (B,) uniform in [-jitter, +jitter].
+
+    Continuous-mode helper: each reader gets its own jitter offset, fixed
+    for the duration of the epoch. Returns zeros if jitter is disabled.
+    """
+    if cfg.alpha_baseline_jitter <= 0.0:
+        return torch.zeros(B, device=device, dtype=dtype)
+    u = torch.rand(B, device=device, generator=generator, dtype=dtype) * 2.0 - 1.0
+    return u * float(cfg.alpha_baseline_jitter)
+
+
+def sample_continuous_alpha(
+    cfg: ClosedLoopConfig,
+    epoch: int,
+    total_epochs: int,
+    B: int,
+    chunk_len: int,
+    C: int,
+    channel_phases: torch.Tensor,    # (C,) ∈ [0, 1) — fixed per training run
+    per_reader_jitter: torch.Tensor, # (B,) — fixed per epoch
+    device,
+    generator: torch.Generator | None = None,
+    dtype=torch.float32,
+) -> torch.Tensor | None:
+    """Sample one (B, chunk_len, C) α schedule for a continuous-mode chunk.
+
+    Differences vs. the windowed sampler:
+      - Drops `t_warm` (no within-window envelope).
+      - Per-reader baseline (jitter is per-reader, fixed for the epoch).
+      - Per-channel rotation envelope:
+            chan_env[c] = α_rnd_sigma · sin²(π · (epoch/period − φ_c))
+        with φ_c drawn once at training start.
+      - Per-step Gaussian noise scaled by chan_env, fresh each chunk.
+
+    Returns None for pure-TF chunks (when enabled and the coin flip hits).
+    """
+    if not cfg.enabled:
+        return None
+
+    # Pure-TF chunk coin flip -------------------------------------------------
+    if cfg.teacher_forcing_batch_frac > 0.0:
+        u = torch.rand((), device=device, generator=generator)
+        if u.item() < cfg.teacher_forcing_batch_frac:
+            return None
+
+    # Per-reader baseline (epoch-ramp + jitter) -------------------------------
+    target_scalar = effective_alpha_baseline(cfg, epoch, total_epochs)
+    alpha_target = (torch.full((B,), target_scalar, device=device, dtype=dtype)
+                    + per_reader_jitter.to(device=device, dtype=dtype))
+
+    # Per-channel rotation envelope (deterministic from epoch + phases) -------
+    period = max(1, int(cfg.alpha_rnd_period_epochs))
+    phase = channel_phases.to(device=device, dtype=dtype)
+    rot = math.pi * (epoch / period - phase)        # (C,)
+    chan_env = float(cfg.alpha_rnd_sigma) * torch.sin(rot) ** 2  # (C,)
+
+    # Per-step Gaussian rnd, scaled by channel envelope -----------------------
+    if float(cfg.alpha_rnd_sigma) > 0.0:
+        alpha_rnd = (torch.randn(B, chunk_len, C, generator=generator,
+                                 device=device, dtype=dtype)
+                     * chan_env.view(1, 1, C))
+    else:
+        alpha_rnd = torch.zeros(B, chunk_len, C, device=device, dtype=dtype)
+
+    alpha = alpha_target.view(B, 1, 1) + alpha_rnd
+    return alpha.clamp_(0.0, 1.0)
 
 
 def summarize_alpha(alpha: torch.Tensor | None) -> dict[str, float]:

@@ -509,6 +509,43 @@ def main(cfg: DictConfig) -> None:
                  "checkpoints written to %s", cfg.output_dir)
         return
 
+    # Continuous trace-circular trainer (SEEG only). Bypasses the windowed
+    # epoch loop below; uses its own inner step structure with B parallel
+    # readers around the trace ring. See plan + continuous.py.
+    if cfg.get("continuous_train", False):
+        if cfg.task.name != "seeg":
+            log.warning(
+                "continuous_train=true is only supported for SEEG; task=%s "
+                "falls back to the windowed loop.", cfg.task.name)
+        elif "train_trace" not in dataset:
+            log.warning(
+                "continuous_train=true but dataset has no 'train_trace' key; "
+                "falls back to the windowed loop. (Did you set "
+                "task.train_trace_max_len in seeg.yaml?)")
+        else:
+            from train_srnn.training.continuous import run_continuous_training
+            train_trace_t = torch.tensor(dataset["train_trace"],
+                                          dtype=torch.float32, device=device)
+            log.info("Dispatching to continuous trainer "
+                     "(train_trace shape=%s)", tuple(train_trace_t.shape))
+            run_continuous_training(
+                model=model,
+                train_trace=train_trace_t,
+                valid_x=valid_x, valid_y=valid_y,
+                test_x=test_x, test_y=test_y,
+                optimizer=optimizer, scheduler=scheduler, criterion=criterion,
+                cfg=cfg,
+                closed_loop_cfg=cl_cfg,
+                closed_loop_gen=cl_gen,
+                rng=rng,
+                device=device,
+                K=K, ablation_names=ablation_names,
+                eval_and_log_test_fn=eval_and_log_test,
+                run_epoch_fn=run_epoch,
+                amp_autocast_fn=amp_autocast,
+            )
+            return
+
     for epoch in range(cfg.epochs):
         # Periodic re-burn-in: track the moving unforced fixed point as
         # network parameters drift during training. Skip epoch 0 since we

@@ -6,6 +6,7 @@ defaults:
 seed: 1
 epochs: 200
 early_exit_after_init: false  # write init.pt + last.pt then exit before training (for fresh-IC postprocess analysis)
+continuous_train: false       # SEEG-only: stateful continuous-batching trainer (B parallel readers around the trace ring)
 # Per-task knobs that the task YAML can override via oc.select. The
 # fallbacks below apply when running tasks that don't set their own value.
 batch_size: ${oc.select:task.batch_size, 128}
@@ -65,7 +66,12 @@ closed_loop:
   # reaches full strength one forward-only-warmup-length into the BPTT
   # region, smoothing the closed-loop handoff. Override per-task if your
   # window_len/bptt_len differ.
+  # Used only by the windowed-mode sampler; continuous mode ignores this.
   t_warm: 2500
+  # Continuous-mode only: per-channel rotation period for alpha_rnd (epochs).
+  # Each channel has a fixed phase drawn from cfg.seed; its alpha_rnd
+  # amplitude follows alpha_rnd_sigma * sin²(π · (epoch/period - φ_c)).
+  alpha_rnd_period_epochs: 10
 
 # Resume from a previous checkpoint (model + optimizer + scheduler).
 # Local path or gs:// URL. Loaded after optimizer/scheduler are built and

@@ -629,7 +629,8 @@ def load_cheetah(data_dir="data/cheetah"):
 
 def load_seeg(data_dir="train_srnn/data/seeg",
               subject_id="939", block=4, sleep="awake", cond="baseline",
-              decimate=2, seq_len=1375, stride=125):
+              decimate=2, seq_len=1375, stride=125,
+              train_trace_max_len=None):
     """Load one SEEG recording as an autoregressive task.
 
     Filename convention matches `run_srnn_export.m`:
@@ -670,6 +671,12 @@ def load_seeg(data_dir="train_srnn/data/seeg",
     valid_trace = data[t1:t2]
     test_trace = data[t2:]
 
+    # Optionally truncate the train trace to a length coprime to the chunk
+    # size used in continuous training (179,989 = prime, gives 11-sample
+    # phase drift per logical epoch when chunk_len=250). Affects only train.
+    if train_trace_max_len is not None and train_trace.shape[0] > train_trace_max_len:
+        train_trace = train_trace[:train_trace_max_len]
+
     mu = train_trace.mean(axis=0, keepdims=True)
     sd = train_trace.std(axis=0, keepdims=True)
     sd[sd < 1e-8] = 1.0
@@ -698,6 +705,9 @@ def load_seeg(data_dir="train_srnn/data/seeg",
         "train": (tr_x, tr_y),
         "valid": (va_x, va_y),
         "test": (te_x, te_y),
+        # Raw post-zscore train trace for continuous-mode training.
+        # Shape (T_train, n_chan), already truncated if train_trace_max_len.
+        "train_trace": train_trace,
         "meta": {
             "input_size": n_chan,
             "output_size": n_chan,
