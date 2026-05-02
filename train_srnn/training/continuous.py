@@ -219,13 +219,22 @@ def _forward_chunk_pure_tf(
     across iterations under ``compile(mode='reduce-overhead')``.
     """
     T = chunk_x.shape[1]
+    # Hoist effective recurrent weight: SRNN cells rebuild W_eff from W_raw
+    # via softplus + Dale signs + sparsity_mask on every forward call. W_raw
+    # is constant across this chunk (only changes at optimizer.step), so
+    # build once and pass in. Other cell types (LSTM/LTC/CTRNN) don't have
+    # _effective_W; fall through to the original signature.
+    W_eff = cell._effective_W() if hasattr(cell, "_effective_W") else None
     hidden_seq: torch.Tensor | None = None
     for t in range(T):
         # Tells the cudagraph trees allocator the previous step's outputs
         # are no longer in use (so it may recycle them). No-op outside
         # CUDA-graph capture.
         mark_cudagraph_step()
-        h_t, state = cell(chunk_x[:, t, :], state)
+        if W_eff is not None:
+            h_t, state = cell(chunk_x[:, t, :], state, W_eff=W_eff)
+        else:
+            h_t, state = cell(chunk_x[:, t, :], state)
         # Clone state: it's both an output of call t and the input of call
         # t+1, so it cannot be recycled by mark_cudagraph_step. The clone
         # produces a fresh non-graph-owned tensor with canonical strides
@@ -262,6 +271,8 @@ def _forward_chunk_closed_loop(
     gets its own pre-allocated buffer.
     """
     T = chunk_x.shape[1]
+    # Hoist W_eff once per chunk (see _forward_chunk_pure_tf for rationale).
+    W_eff = cell._effective_W() if hasattr(cell, "_effective_W") else None
     hidden_seq: torch.Tensor | None = None
     x_in_seq: torch.Tensor | None = None
     for t in range(T):
@@ -270,7 +281,10 @@ def _forward_chunk_closed_loop(
         x_real_t = chunk_x[:, t, :]              # (B, C)
         # Blend broadcasts to whatever y_prev is: (B, C) or (K, B, C).
         x_in_t = (1.0 - alpha_t) * x_real_t + alpha_t * y_prev
-        h_t, state = cell(x_in_t, state)
+        if W_eff is not None:
+            h_t, state = cell(x_in_t, state, W_eff=W_eff)
+        else:
+            h_t, state = cell(x_in_t, state)
         state = state.clone()
         # _readout_one is einsum/linear (not graph-owned), so its output
         # is a fresh allocation — no clone needed for the y_prev carry.

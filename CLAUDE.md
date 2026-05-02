@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PyTorch 2.2+ / Hydra reimplementation of liquid time-constant and spiking RNN experiments (originally TF 1.x). Trains RNN cells (LSTM, LTC, CTRNN, NODE, CTGRU, SRNN + ablations) on 9 sequence tasks (HAR, sMNIST, gesture, occupancy, ozone, person, power, traffic, cheetah).
 
+**Active focus.** Day-to-day work targets the **seeg** task with the **SRNN cell run as K-batched ablations** via `BatchedSRNNCell` (continuous trainer in `train_srnn/training/continuous.py`). The other 9-task / 6-cell matrix is kept passing but is not the development frontier — don't optimize for it, and don't run the full 90-combo `smoke_test.sh` as a default integration check (it costs 30–60 min on local CPU). See **Test strategy** below for what to run instead.
+
 Companion docs in the repo are authoritative deep references — read them when working on non-trivial changes:
 - `README.md` — model/task tables, CLI usage
 - `pytorch_hydra_code_data_structure.md` — exhaustive structure, tensor shapes, SRNN state layout, cloud infra
@@ -37,19 +39,35 @@ Create with `git worktree add ../train-srnn-<feature> -b <feature>`; remove with
 # one-time, shared across all worktrees
 uv pip install -r requirements.txt   # into /Users/richner.thomas/Desktop/local_venv/srnn-train/.venv
 
-# Train (Hydra overrides on the command line)
-python train.py model=srnn task=har seed=1
+# Primary path: seeg + SRNN K-batched ablations (continuous trainer)
+python train.py task=seeg model=srnn seed=1 \
+    batched_ablations='[srnn-e-only-per-neuron,srnn-e-only-skip-per-neuron]'
+
+# Other tasks/cells still work — kept passing, not the active frontier
 python train.py model=lstm task=smnist epochs=100 size=64
 python train.py model=ltc task=gesture device=cuda
-
-# Run K SRNN ablations in parallel via BatchedSRNNCell (torch.bmm)
-python train.py task=har batched_ablations='[srnn,srnn-no-adapt,srnn-E-only]'
-
-# Smoke test all model x task combos (2 epochs each)
-bash smoke_test.sh
 ```
 
-There is no separate lint/test runner — `smoke_test.sh` is the integration check. MATLAB MCP tools are available but not part of this Python project.
+## Test strategy
+
+There is no pytest runner. The primary integration checks are **targeted scripts under `scripts/test_*.py`**, not the full model×task smoke matrix. They run on local CPU in seconds-to-minutes and exercise the SRNN/SequenceModel/continuous-trainer codepaths that all active work touches.
+
+Run these before pushing changes that touch SRNN cells, `SequenceModel`, or `train_srnn/training/continuous.py`:
+
+```bash
+PYTHONPATH=. python scripts/test_closed_loop_grad_checkpoint.py   # 9 tests, ~30s
+PYTHONPATH=. python scripts/test_effective_w_hoist.py             # 4 tests, ~10s
+PYTHONPATH=. python scripts/test_closed_loop_forward.py
+PYTHONPATH=. python scripts/test_srnn_defaults.py
+```
+
+Each script is a self-contained suite that runs paired models / paired forward paths and asserts byte-identical (or tight-tolerance) forward outputs and per-parameter gradients. Add new tests in this style when adding a code path.
+
+`smoke_test.sh` (90 model×task combos × 2 epochs at size=8) still exists and works, but **don't run it as a default integration check** — it costs 30–60 min on local CPU and reproves things the targeted scripts already cover. Use it only when intentionally validating the broad cell×task matrix (e.g. before a release of the non-SRNN cells).
+
+The real production signal — does this change move the seeg loss curve or epoch wall-clock? — comes from a **GPU dispatch on a cloud VM**, not from local CPU runs. See `cloud/submit.sh` and the dispatch examples in `effectiveWPlan.md` / `CompileChunkOutline.md` for the canonical 4-epoch K=2 size=30 non-regression run.
+
+MATLAB MCP tools are available but not part of this Python project.
 
 ## Architecture
 

@@ -168,12 +168,25 @@ class SequenceModel(nn.Module):
                 break
         return contextlib.nullcontext()
 
-    def _run_segment(self, x_seg: torch.Tensor, state: torch.Tensor):
+    def _run_segment(
+        self,
+        x_seg: torch.Tensor,
+        state: torch.Tensor,
+        W_eff: torch.Tensor | None = None,
+    ):
         """Run the cell over a contiguous time slice.
 
         Returns an outputs tensor with a time axis inserted just before
         the feature axis: ``(B, T_seg, E)`` for single cells,
         ``(K, B, T_seg, E)`` for K-batched cells.
+
+        ``W_eff`` is an optional pre-computed effective recurrent weight
+        passed down from ``forward``. SRNN cells rebuild this on every
+        cell call from W_raw + softplus + Dale signs + sparsity_mask;
+        since W_raw is constant across the whole forward pass, hoisting
+        the construction up here saves T_seg materializations per
+        segment. None → cell recomputes internally (fallback for non-SRNN
+        cells).
 
         Uses lazy pre-allocation + slice-assign instead of an
         ``append + torch.stack`` accumulator: the buffer is allocated
@@ -190,7 +203,10 @@ class SequenceModel(nn.Module):
                 # Mark previous step's outputs as recyclable (no-op outside
                 # CUDA-graph capture). Required for compile(mode="reduce-overhead").
                 mark_cudagraph_step()
-                out, state = self.cell(x_seg[:, t, :], state)
+                if W_eff is not None:
+                    out, state = self.cell(x_seg[:, t, :], state, W_eff=W_eff)
+                else:
+                    out, state = self.cell(x_seg[:, t, :], state)
                 # Clone state: it's both an output of step t and the input of
                 # step t+1, so it cannot be recycled. The clone breaks aliasing
                 # and gives canonical strides — required for reduce-overhead
@@ -250,6 +266,7 @@ class SequenceModel(nn.Module):
         alpha_seg: torch.Tensor,     # (T_seg, C)
         state: torch.Tensor,         # (B, S) or (K, B, S)
         y_prev: torch.Tensor,        # (B, C) or (K, B, C); zeros at t=0
+        W_eff: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Closed-loop unroll over one contiguous time slice.
 
@@ -278,7 +295,10 @@ class SequenceModel(nn.Module):
                 x_real_t = x_seg[:, t, :]
                 alpha_t = alpha_seg[t]
                 x_in_t = (1.0 - alpha_t) * x_real_t + alpha_t * y_prev
-                out_t, state = self.cell(x_in_t, state)
+                if W_eff is not None:
+                    out_t, state = self.cell(x_in_t, state, W_eff=W_eff)
+                else:
+                    out_t, state = self.cell(x_in_t, state)
                 state = state.clone()
                 y_prev = self._readout_one(out_t, x_in_t)
                 if y_outs is None:
@@ -353,12 +373,21 @@ class SequenceModel(nn.Module):
 
         grad_start = bptt_start_idx if bptt_start_idx is not None else 0
 
+        # Hoist effective recurrent weight once for the whole forward pass:
+        # SRNN cells rebuild W_eff from W_raw on every cell call; W_raw is
+        # constant across the whole pass, so build once here and thread
+        # through every segment. Computed outside no_grad so gradients can
+        # flow back through W_eff -> W_raw in the grad-region segments.
+        # None for cells without _effective_W (LSTM/LTC/CTRNN).
+        W_eff = (self.cell._effective_W()
+                 if hasattr(self.cell, "_effective_W") else None)
+
         # 1) Warmup region (no_grad) — never checkpointed (no graph anyway).
         if grad_start > 0:
             with torch.no_grad():
                 outs, state, y_prev = self._cl_run_segment(
                     x[:, :grad_start, :], alpha_schedule[:grad_start],
-                    state, y_prev,
+                    state, y_prev, W_eff,
                 )
             all_y.append(outs)
             state = state.detach()
@@ -383,12 +412,12 @@ class SequenceModel(nn.Module):
             if grad_checkpoint:
                 outs, state, y_prev = torch.utils.checkpoint.checkpoint(
                     self._cl_run_segment,
-                    x_seg, alpha_seg, state, y_prev,
+                    x_seg, alpha_seg, state, y_prev, W_eff,
                     use_reentrant=False,
                 )
             else:
                 outs, state, y_prev = self._cl_run_segment(
-                    x_seg, alpha_seg, state, y_prev
+                    x_seg, alpha_seg, state, y_prev, W_eff,
                 )
 
             all_y.append(outs)
@@ -498,11 +527,22 @@ class SequenceModel(nn.Module):
         # in segments of size `seg_len`, optionally wrapped in checkpoint().
         all_outputs: list[torch.Tensor] = []
 
+        # Hoist effective recurrent weight once for the whole forward pass:
+        # SRNN cells rebuild W_eff from W_raw on every cell call; W_raw is
+        # constant across the whole pass, so build once here and thread
+        # through every segment. Computed outside no_grad so gradients can
+        # flow back through W_eff -> W_raw in the grad-region segments.
+        # None for cells without _effective_W (LSTM/LTC/CTRNN).
+        W_eff = (self.cell._effective_W()
+                 if hasattr(self.cell, "_effective_W") else None)
+
         # 1. Warmup region (no_grad) — never needs checkpointing.
         grad_start = bptt_start_idx if bptt_start_idx is not None else 0
         if grad_start > 0:
             with torch.no_grad():
-                outs, state = self._run_segment(x[:, :grad_start, :], state)
+                outs, state = self._run_segment(
+                    x[:, :grad_start, :], state, W_eff,
+                )
             all_outputs.append(outs)
             state = state.detach()
 
@@ -523,10 +563,11 @@ class SequenceModel(nn.Module):
 
             if grad_checkpoint:
                 outs, state = torch.utils.checkpoint.checkpoint(
-                    self._run_segment, x_seg, state, use_reentrant=False,
+                    self._run_segment, x_seg, state, W_eff,
+                    use_reentrant=False,
                 )
             else:
-                outs, state = self._run_segment(x_seg, state)
+                outs, state = self._run_segment(x_seg, state, W_eff)
 
             all_outputs.append(outs)
             steps_since_detach += (end - t)

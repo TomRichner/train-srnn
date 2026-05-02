@@ -731,13 +731,21 @@ class SRNNCell(nn.Module):
     # ---- Forward ----
 
     def forward(
-        self, inputs: torch.Tensor, state: torch.Tensor
+        self,
+        inputs: torch.Tensor,
+        state: torch.Tensor,
+        W_eff: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Parameters
         ----------
         inputs : (batch, input_size)
         state  : (batch, state_size)
+        W_eff  : optional pre-computed effective recurrent weight (N, N).
+            When the caller knows W_raw is constant across many cell calls
+            (e.g. per-timestep loop within one BPTT chunk), it can hoist
+            self._effective_W() up one level and pass the result in to avoid
+            rebuilding the matrix on every call. None → recompute internally.
 
         Returns
         -------
@@ -746,7 +754,8 @@ class SRNNCell(nn.Module):
         """
         cfg = self.config
         a_E, a_I, b_E, b_I, x = self.unpack_state(state)
-        W_eff = self._effective_W()
+        if W_eff is None:
+            W_eff = self._effective_W()
         # Apply W_in_mask to input weight rows (zero input to non-input neurons),
         # then scale by W_in_gain (pooled optimization knob).
         W_in_eff = self.W_in
@@ -1691,12 +1700,15 @@ class BatchedSRNNCell(nn.Module):
         self,
         inputs: torch.Tensor,
         state: torch.Tensor,
+        W_eff: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Parameters
         ----------
         inputs : (K, batch, input_size) or (batch, input_size)
         state  : (K, batch, max_state_dim)
+        W_eff  : optional pre-computed effective recurrent weight (K, N, N).
+            See SRNNCell.forward for rationale.
 
         Returns
         -------
@@ -1704,7 +1716,8 @@ class BatchedSRNNCell(nn.Module):
         new_state : (K, batch, max_state_dim)
         """
         a_E, a_I, b_E, b_I, x = self.unpack_state(state)
-        W_eff = self._effective_W()  # (K, N, N)
+        if W_eff is None:
+            W_eff = self._effective_W()  # (K, N, N)
         u = self._batched_input_drive(inputs)  # (K, B, N)
         dt = self.h / self.ode_unfolds
 
