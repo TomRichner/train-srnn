@@ -308,3 +308,169 @@ a PR (if `ship` or `scale-test`) or `git worktree remove` this branch
 - Updating the rest of the codebase (other tasks, `train.py`, etc.).
 - `make_graphed_callables` or the NVIDIA RNN-T pattern (those are
   Option 2, not Option 3 — see `tmp/notes/cuda_graphs_options.md`).
+
+---
+
+## Verdict — `ship` (with scale-test follow-up)
+
+Run on 2026-05-02 against the keep-alive VM
+`continuous-k2-smoke-srnn-seeg-seed1` (L4, fp32). All dispatches at
+K=2 size=30 B=24 half-T=89989, 4 epochs, `closed_loop.enabled=false`,
+`grad_checkpoint=false`.
+
+### T1 (default mode chunk-compile) — passed
+
+- Commit: `369d856` (after the train.py defer-when-compile_chunk fix)
+- Compile time (epoch 0): **2026 s = 33:46**
+- Steady-state (epoch 2 train-only): **10.5 s/epoch**
+- Loss curves: byte-identical to the cell-compile baseline.
+- vs cell-compile baseline (commit `a747471`, 11.6 s/epoch): **~9.5% faster**.
+
+T1's gain comes purely from cross-cell-call kernel fusion in Inductor —
+no CUDA graphs in default mode. Modest because most of the dense math
+was already getting fused intra-cell.
+
+### T2 (reduce-overhead) — three attempts, all instructive
+
+**T2 #1 (commit `369d856`)** — failed at chunk recording.
+`RuntimeError: accessing tensor output of CUDAGraphs that has been
+overwritten by a subsequent run`. Source: `pack_state` (the cell's
+`new_state`). Root cause: the trainer used bare `state.detach()` between
+chunks, which returns a new view of the same storage —
+`mark_cudagraph_step()` then invalidated that buffer before chunk N+1
+read it.
+
+**T2 #2 (commit `254e454`)** — added `state.detach().clone()` (and same
+for `y_prev`) at the chunk boundary. Got past chunk recording (no
+aliasing error), through the ~30-min compile, and started running.
+Failed at `loss.backward()` on the first chunk:
+
+```
+UserWarning: The CUDA Graph is empty.
+RuntimeError: Trying to backward through the graph a second time
+  (or directly access saved tensors after they have already been freed)
+```
+
+Root cause: the trainer's hot loop crossed the autograd / cudagraph
+boundary twice — eager `criterion(logits, ...)` between the compiled
+forward and `loss.backward()`, and `_per_k_metric(logits, ...)` accessing
+graph-owned `logits` *after* backward returned.
+
+**T2 #3 (commit `4be34da`)** — moved loss + per-K metric computation
+*inside* the compiled chunk function (new `_attach_loss_and_metric` +
+`_forward_chunk_pure_tf_with_loss` / `_forward_chunk_closed_loop_with_loss`
+wrappers). Trainer now consumes only a scalar loss + tiny `(K,)`
+loss/metric tensors; logits never crosses the autograd boundary.
+Per-step `.item()` syncs eliminated by switching the per-K accumulators
+to on-device tensors with one `.tolist()` per epoch (also fixes
+`KnownIssues.md §9`).
+
+**T2 #3 result: passed.**
+
+- Commit: `4be34da`
+- Compile time (epoch 0): **2267.5 s = 37:48** (~12% slower than T1's
+  default-mode compile, attributable to cudagraph_trees capture work
+  on top of Inductor codegen)
+- Steady-state (epoch 2 train-only): **8.0 s/epoch**
+- Loss values across all 4 epochs: **byte-identical to T1** and to the
+  cell-compile baseline (1.0035→1.0026 / 0.0862→0.0854 over the run).
+- vs T1: **~24% faster**
+- vs cell-compile baseline: **~31% faster**
+
+### Architectural takeaways
+
+The combination that unlocks `compile_mode="reduce-overhead"` for the
+autograd-over-Python-loop BPTT pattern (the regime KnownIssues §8
+documented as blocked) is:
+
+1. **Compile the chunk function, not the cell.** Dynamo unrolls the
+   250-step loop into one graph; cudagraph_trees sees one
+   forward + one backward + one optimizer step per invocation
+   (its documented "happy path"), not 250 cell calls × 1 backward.
+2. **Carry tensors must clone, not just detach, at the chunk boundary.**
+   Bare `.detach()` returns a view of graph-owned static memory;
+   `.detach().clone()` produces private storage that survives the next
+   `mark_cudagraph_step()`. PyTorch issue
+   [#104435](https://github.com/pytorch/pytorch/issues/104435)
+   distinguishes the two.
+3. **Loss + metric computation must live inside the compiled region.**
+   The autograd boundary at `logits → criterion` (eager) breaks
+   cudagraph_trees' ability to capture the backward as one unit. Loss
+   inside the compiled fn means `loss.backward()` walks a graph that
+   is wholly inside cudagraph_trees' control.
+4. **No `.item()` calls inside the per-step loop.** Each forces a host
+   sync that interleaves with cudagraph capture/replay. Per-K
+   accumulators must be on-device tensors with sync-once-per-epoch.
+
+This list of preconditions is the actionable checklist for any future
+codebase trying to unlock `reduce-overhead` for similar patterns.
+PyTorch issues
+[#148439](https://github.com/pytorch/pytorch/issues/148439),
+[#158551](https://github.com/pytorch/pytorch/issues/158551), and
+[#169545](https://github.com/pytorch/pytorch/issues/169545) all
+describe failures of variants where one of these preconditions wasn't
+met.
+
+### Decision: ship + scale-test
+
+`compile_chunk: false` stays the default in `conf/config.yaml` for now,
+because the 37-min compile cost is a real iteration tax that's only
+worth paying for runs longer than ~10 epochs at K=2 size=30. For
+production runs at K=6 size=300 with hundreds of epochs, the answer
+hinges on a scale-test.
+
+**Immediate ship:** the refactor lands on main as-is. `compile_chunk=true`
+becomes the right default for any K=2 dev-loop run that does ≥ 10 epochs
+(amortizes the compile). Documented as such in the config comment.
+
+**Scale-test follow-up (separate worktree, separate plan):** dispatch
+the same config but at `size=300 K=6 B=24` (or larger B), 4 epochs.
+Measure compile time and steady-state. Open questions:
+
+- Compile time at production scale could plausibly be 1–3 hours
+  (chunk-graph op count grows roughly with size² × K for the dense
+  matmuls). If it exceeds the run length, chunk-compile is worse than
+  cell-compile at that scale.
+- Steady-state win at production scale is expected to shrink to ~5–10%
+  (small-kernel launch overhead dominates at K=2 size=30 but not at
+  size=300).
+- `cudagraph_trees` memory pre-allocation may be substantial at
+  production scale; OOM risk needs verification.
+
+If the scale-test confirms net wins, `compile_chunk: true` becomes the
+production default. If not, the K=2 dev-loop value stands and we keep
+the flag opt-in.
+
+### Side-effect fixes that landed with the spike
+
+- **`KnownIssues.md §9` (per-step `.item()` host syncs):** resolved by
+  the tensor-accumulator refactor in T2 #3. The trainer now does ~1
+  sync per epoch (the `.tolist()` at log time) instead of 2K syncs per
+  step. ~120 syncs eliminated per 4-epoch K=2 run; multiplies at K=6.
+- **`train.py` model-level compile fork:** added `compile_chunk` to the
+  defer-to-trainer condition (was only `compile_cell`). Without this,
+  burn-in / eval / train hit the cell forward through three different
+  parent compile contexts, fragmenting the cache.
+- **Cloud `--branch` knob:** `cloud/submit.sh` and `cloud/startup_gpu.sh`
+  now accept a `branch` metadata key (default `main`). Lets future
+  feature branches be tested against the keep-alive VM without manual
+  SSH-and-checkout. Backwards-compatible.
+- **`SRNNCell.num_units` / `BatchedSRNNCell.num_units`:** added as
+  public attributes (alias of `self.config.num_units` / `self.N`,
+  matching the existing `LSTMCellWrapper.num_units`). Lets the chunk
+  function pre-allocate output buffers from cell metadata uniformly.
+
+### Open follow-ups (out of scope for this spike)
+
+- Production-scale validation: see "scale-test follow-up" above.
+- Closed-loop verification at scale: T1/T2 disabled closed-loop. The
+  closed-loop wrapper was refactored for completeness but its
+  compile-correctness on GPU is untested. Should be a one-dispatch
+  follow-up.
+- `KnownIssues.md §10`: already resolved by the hoist commit `47f0da8`
+  that landed before the spike began.
+- `compile_chunk` + `grad_checkpoint=true` composition: untested. The
+  compiled chunk function calls the cell directly (no checkpoint
+  wrapping), so checkpoint-vs-compile-chunk should be cleanly orthogonal,
+  but worth a smoke run before flipping the default.
+
