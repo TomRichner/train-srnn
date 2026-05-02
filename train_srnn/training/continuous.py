@@ -186,20 +186,29 @@ def _readout_chunk(model, hidden_seq: torch.Tensor, x_in_seq: torch.Tensor) -> t
     Returns    : (B, T, O) or (K, B, T, O)
 
     SequenceModel._readout_one applies output_mask, readout_weight,
-    readout_bias, and (for batched) skip flags. We call it per t because
-    it's already designed for one timestep; loop is small (T ≤ chunk_len).
+    readout_bias, and (for batched) skip flags. Per-step buffer is
+    pre-allocated from t=0's output (CUDA-graph-friendly: avoids
+    list-append + stack inside a compiled trace).
     """
     T = hidden_seq.shape[-2]
-    outs = []
-    for t in range(T):
-        if hidden_seq.dim() == 4:    # (K, B, T, N)
+    if hidden_seq.dim() == 4:        # (K, B, T, N)
+        h0 = hidden_seq[:, :, 0, :]
+        x0 = x_in_seq[:, :, 0, :] if x_in_seq.dim() == 4 else x_in_seq[:, 0, :]
+    else:                             # (B, T, N)
+        h0 = hidden_seq[:, 0, :]
+        x0 = x_in_seq[:, 0, :]
+    y0 = model._readout_one(h0, x0)
+    out_seq = empty_time_buffer(y0, T)
+    out_seq[..., 0, :] = y0
+    for t in range(1, T):
+        if hidden_seq.dim() == 4:
             h_t = hidden_seq[:, :, t, :]
             x_t = x_in_seq[:, :, t, :] if x_in_seq.dim() == 4 else x_in_seq[:, t, :]
-        else:                         # (B, T, N)
+        else:
             h_t = hidden_seq[:, t, :]
             x_t = x_in_seq[:, t, :]
-        outs.append(model._readout_one(h_t, x_t))
-    return torch.stack(outs, dim=-2)
+        out_seq[..., t, :] = model._readout_one(h_t, x_t)
+    return out_seq
 
 
 def _forward_chunk_pure_tf(
@@ -211,12 +220,14 @@ def _forward_chunk_pure_tf(
     state   : (B, S) or (K, B, S)
     Returns : (logits, new_state) where logits has shape (B, T, O) or (K, B, T, O).
 
-    Pre-allocates ``hidden_seq`` lazily on the first iteration (so it
-    picks up the cell's output dtype, which differs from chunk_x under
-    AMP autocast) and writes per-step outputs by slice-assign. This is
-    the CUDA-graph-friendly equivalent of an ``append + torch.stack``
-    accumulator: avoids holding refs to graph-owned output buffers
-    across iterations under ``compile(mode='reduce-overhead')``.
+    Pre-allocates ``hidden_seq`` upfront from cell metadata (no lazy-None
+    branch — Dynamo would specialize on the None on first iter and
+    recompile every chunk). Slice-assign is autograd-safe via
+    ``index_put_``. Inter-step ``mark_cudagraph_step()`` is *not* called
+    here: the trainer marks once per chunk (chunk-level boundary), and
+    inside a single compiled chunk graph there are no per-step output
+    buffers to recycle anyway. ``state.clone()`` is preserved — it
+    breaks chunk-to-chunk output aliasing under reduce-overhead.
     """
     T = chunk_x.shape[1]
     # Hoist effective recurrent weight: SRNN cells rebuild W_eff from W_raw
@@ -225,24 +236,16 @@ def _forward_chunk_pure_tf(
     # build once and pass in. Other cell types (LSTM/LTC/CTRNN) don't have
     # _effective_W; fall through to the original signature.
     W_eff = cell._effective_W() if hasattr(cell, "_effective_W") else None
-    hidden_seq: torch.Tensor | None = None
+    hidden_seq = torch.empty(
+        state.shape[:-1] + (T, cell.num_units),
+        device=state.device, dtype=state.dtype,
+    )
     for t in range(T):
-        # Tells the cudagraph trees allocator the previous step's outputs
-        # are no longer in use (so it may recycle them). No-op outside
-        # CUDA-graph capture.
-        mark_cudagraph_step()
         if W_eff is not None:
             h_t, state = cell(chunk_x[:, t, :], state, W_eff=W_eff)
         else:
             h_t, state = cell(chunk_x[:, t, :], state)
-        # Clone state: it's both an output of call t and the input of call
-        # t+1, so it cannot be recycled by mark_cudagraph_step. The clone
-        # produces a fresh non-graph-owned tensor with canonical strides
-        # and breaks aliasing — required for reduce-overhead, and also
-        # keeps Dynamo from recompiling on stride variation.
         state = state.clone()
-        if hidden_seq is None:
-            hidden_seq = empty_time_buffer(h_t, T)
         hidden_seq[..., t, :] = h_t
     # x_in_seq matches hidden_seq's leading dims for the skip residual.
     if hidden_seq.dim() == 4:  # K-batched -> hidden (K, B, T, N)
@@ -273,10 +276,18 @@ def _forward_chunk_closed_loop(
     T = chunk_x.shape[1]
     # Hoist W_eff once per chunk (see _forward_chunk_pure_tf for rationale).
     W_eff = cell._effective_W() if hasattr(cell, "_effective_W") else None
-    hidden_seq: torch.Tensor | None = None
-    x_in_seq: torch.Tensor | None = None
+    # Pre-allocate from y_prev's leading shape: the alpha-blend output has
+    # the same leading dims as y_prev (broadcast result of alpha_t * y_prev),
+    # which matches the cell output's leading dims.
+    hidden_seq = torch.empty(
+        y_prev.shape[:-1] + (T, cell.num_units),
+        device=state.device, dtype=state.dtype,
+    )
+    x_in_seq = torch.empty(
+        y_prev.shape[:-1] + (T, chunk_x.shape[-1]),
+        device=state.device, dtype=state.dtype,
+    )
     for t in range(T):
-        mark_cudagraph_step()
         alpha_t = alpha_chunk[:, t, :]          # (B, C)
         x_real_t = chunk_x[:, t, :]              # (B, C)
         # Blend broadcasts to whatever y_prev is: (B, C) or (K, B, C).
@@ -289,9 +300,6 @@ def _forward_chunk_closed_loop(
         # _readout_one is einsum/linear (not graph-owned), so its output
         # is a fresh allocation — no clone needed for the y_prev carry.
         y_prev = model._readout_one(h_t, x_in_t)
-        if hidden_seq is None:
-            hidden_seq = empty_time_buffer(h_t, T)
-            x_in_seq = empty_time_buffer(x_in_t, T)
         hidden_seq[..., t, :] = h_t
         x_in_seq[..., t, :] = x_in_t
     logits = _readout_chunk(model, hidden_seq, x_in_seq)
@@ -394,13 +402,16 @@ def run_continuous_training(
 
     # ---- One-time setup ----
     cell = model.cell
+    # Compile fork: by default these point at the eager module-level
+    # functions; under compile_chunk=true they get wrapped by torch.compile
+    # so Dynamo traces the whole BPTT loop into one graph.
+    chunk_pure_tf_fn = _forward_chunk_pure_tf
+    chunk_closed_loop_fn = _forward_chunk_closed_loop
     # Cell-level torch.compile lives here (not in train.py) so that eval — which
     # calls SequenceModel.forward → self.cell with different shapes (windowed
     # batch) and grad mode (no_grad) — sees the eager cell and doesn't trigger
     # extra recompiles in the cache. Only the trainer's hot loop sees compiled.
-    if (bool(cfg.get("compile", False))
-            and bool(cfg.get("compile_cell", False))
-            and device.type == "cuda"):
+    if bool(cfg.get("compile", False)) and device.type == "cuda":
         compile_kwargs = {}
         cm = cfg.get("compile_mode", None)
         if cm:
@@ -408,9 +419,24 @@ def run_continuous_training(
         cd = cfg.get("compile_dynamic", None)
         if cd is not None:
             compile_kwargs["dynamic"] = bool(cd)
-        log.info("Compiling cell (continuous trainer scope only); kwargs=%s",
-                 compile_kwargs or "(defaults)")
-        cell = torch.compile(cell, **compile_kwargs)
+
+        if bool(cfg.get("compile_chunk", False)):
+            # Whole-chunk compile: Dynamo unrolls the BPTT loop into one
+            # graph. Cell-level compile would be redundant (and confuse the
+            # cache), so warn and skip if both flags are set.
+            if bool(cfg.get("compile_cell", False)):
+                log.warning(
+                    "compile_chunk=true overrides compile_cell=true "
+                    "(chunk-level compile inlines the cell)"
+                )
+            log.info("Compiling chunk forward fns; kwargs=%s",
+                     compile_kwargs or "(defaults)")
+            chunk_pure_tf_fn = torch.compile(_forward_chunk_pure_tf, **compile_kwargs)
+            chunk_closed_loop_fn = torch.compile(_forward_chunk_closed_loop, **compile_kwargs)
+        elif bool(cfg.get("compile_cell", False)):
+            log.info("Compiling cell (continuous trainer scope only); kwargs=%s",
+                     compile_kwargs or "(defaults)")
+            cell = torch.compile(cell, **compile_kwargs)
     cl_active = bool(closed_loop_cfg is not None and closed_loop_cfg.enabled)
 
     # IC -> broadcast initial state. Then freeze IC (continuous: no grad
@@ -483,6 +509,12 @@ def run_continuous_training(
         model.train()
 
         for step in range(steps_per_epoch):
+            # Chunk-level CUDA-graph step boundary: signals to cudagraph_trees
+            # that the previous chunk's compiled-graph outputs are no longer
+            # in use. No-op outside CUDA-graph capture (i.e. when not running
+            # under compile_chunk + reduce-overhead). Required for the
+            # reduce-overhead path to avoid chunk-to-chunk output aliasing.
+            mark_cudagraph_step()
             with timer.section("chunk_gather"):
                 chunk_x, chunk_y = _gather_chunks(train_trace, positions, chunk_len, T)
 
@@ -509,9 +541,9 @@ def run_continuous_training(
             with timer.section("forward"):
                 with amp_autocast_fn(cfg):
                     if alpha_chunk is None:
-                        logits, state = _forward_chunk_pure_tf(model, cell, chunk_x, state)
+                        logits, state = chunk_pure_tf_fn(model, cell, chunk_x, state)
                     else:
-                        logits, state, y_prev = _forward_chunk_closed_loop(
+                        logits, state, y_prev = chunk_closed_loop_fn(
                             model, cell, chunk_x, state, y_prev, alpha_chunk,
                         )
             with timer.section("loss"):

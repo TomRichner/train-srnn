@@ -187,6 +187,10 @@ class SRNNCell(nn.Module):
         self.config = config
         self.input_size = input_size
         N = config.num_units
+        # Public attribute mirroring LSTMCellWrapper.num_units; lets callers
+        # pre-allocate output buffers from cell metadata without poking at
+        # cell.config.
+        self.num_units = N
         n_E = config.n_E
         n_I = config.n_I
 
@@ -829,6 +833,9 @@ class BatchedSRNNCell(nn.Module):
 
         self.K = len(configs)
         self.N = N
+        # Alias for cross-cell uniform metadata access (matches SRNNCell and
+        # LSTMCellWrapper).
+        self.num_units = N
         self.input_size = input_size
         self.configs = configs
 
