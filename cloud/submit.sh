@@ -24,12 +24,15 @@ shift 5
 
 CLEANUP="keep"
 SKIP_REFRESH=0
+BRANCH="main"
 EXTRA_ARGS=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --cleanup=*)    CLEANUP="${1#--cleanup=}"; shift ;;
         --cleanup)      CLEANUP="${2:?--cleanup needs a value}"; shift 2 ;;
         --skip-refresh) SKIP_REFRESH=1; shift ;;
+        --branch=*)     BRANCH="${1#--branch=}"; shift ;;
+        --branch)       BRANCH="${2:?--branch needs a value}"; shift 2 ;;
         *)              EXTRA_ARGS="$EXTRA_ARGS $1"; shift ;;
     esac
 done
@@ -67,7 +70,7 @@ echo "$EXTRA_ARGS" > "$TRAIN_ARGS_FILE"
 echo "Updating metadata on $VM_NAME ($VM_ZONE)..."
 gcloud compute instances add-metadata "$VM_NAME" \
     --zone="$VM_ZONE" --project="$GCP_PROJECT" \
-    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,cleanup=$CLEANUP,skip-refresh=$SKIP_REFRESH" \
+    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,cleanup=$CLEANUP,skip-refresh=$SKIP_REFRESH,branch=$BRANCH" \
     --metadata-from-file="train-args=$TRAIN_ARGS_FILE,startup-script=$SCRIPT_DIR/startup_gpu.sh" --quiet
 rm -f "$TRAIN_ARGS_FILE"
 
@@ -92,7 +95,7 @@ esac
 RESULTS_PREFIX="$GCP_BUCKET/results-pytorch/$RUN_NAME/$MODEL/$EXPERIMENT/seed$SEED"
 LOG_PATH="/var/log/training-${RUN_NAME}-${SEED}.log"
 echo
-echo "Dispatched. cleanup=$CLEANUP skip-refresh=$SKIP_REFRESH"
+echo "Dispatched. cleanup=$CLEANUP skip-refresh=$SKIP_REFRESH branch=$BRANCH"
 echo "Results:   $RESULTS_PREFIX/"
 echo "Tail log:  gcloud compute ssh $VM_NAME --zone=$VM_ZONE -- sudo tail -f $LOG_PATH"
 echo "Status:    gcloud storage cat $RESULTS_PREFIX/run_metadata.json   # appears at end of run"
