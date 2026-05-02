@@ -21,6 +21,7 @@ case "$CLEANUP" in
     *) echo "WARN: unknown cleanup=$CLEANUP, defaulting to delete"; CLEANUP="delete" ;;
 esac
 SKIP_REFRESH=$(curl -sf -H "$META_HEADER" "$META_URL/skip-refresh" || echo "0")
+BRANCH=$(curl -sf -H "$META_HEADER" "$META_URL/branch" || echo "main")
 
 # Per-run log path so re-dispatches don't accumulate into one file.
 LOG="/var/log/training-${RUN_NAME}-${SEED}.log"
@@ -39,7 +40,7 @@ fi
 WATCHER_PID=""
 
 echo "Run: $RUN_NAME | Experiment: $EXPERIMENT | Model: $MODEL | Seed: $SEED"
-echo "Cleanup: $CLEANUP | Skip-refresh: $SKIP_REFRESH | Workdir: $WORKDIR"
+echo "Cleanup: $CLEANUP | Skip-refresh: $SKIP_REFRESH | Branch: $BRANCH | Workdir: $WORKDIR"
 
 # Cleanup handler
 cleanup() {
@@ -141,12 +142,16 @@ SSHEOF
     chmod 600 "$SSH_DIR/config"
 
     # Clone with retry — or git fetch + reset if a checkout already exists.
+    # Honors the per-run "branch" metadata key (default: main); lets feature
+    # branches be tested without merging to main first.
     if [ -d "$WORKDIR/.git" ]; then
-        echo "Existing repo at $WORKDIR; refreshing via git fetch + reset"
-        ( cd "$WORKDIR" && git fetch --depth 1 origin main && git reset --hard origin/main )
+        echo "Existing repo at $WORKDIR; refreshing via git fetch + reset to origin/$BRANCH"
+        ( cd "$WORKDIR" \
+            && git fetch --depth 1 origin "$BRANCH" \
+            && git reset --hard "origin/$BRANCH" )
     else
         for attempt in 1 2 3; do
-            if git clone --depth 1 "$REPO_URL" "$WORKDIR" 2>&1; then
+            if git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$WORKDIR" 2>&1; then
                 break
             fi
             echo "Clone attempt $attempt failed, retrying in 30s..."
