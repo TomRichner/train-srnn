@@ -406,7 +406,20 @@ def main(cfg: DictConfig) -> None:
             import torch._logging as _torch_logging
             _torch_logging.set_logs(recompiles=True)
             log.info("Dynamo recompile logging enabled")
-        if not bool(cfg.get("compile_cell", False)):
+        # Model-level compile is the fallback when the trainer doesn't compile
+        # finer-grained sub-modules itself. The continuous trainer handles
+        # cell-level (compile_cell) and chunk-level (compile_chunk, the
+        # CompileChunkOutline.md spike) compile internally — when either is
+        # set, defer to the trainer so we don't end up with two overlapping
+        # compile wrappers fighting over the cell forward (causes spurious
+        # Dynamo recompiles when burn-in / eval / train hit the same cell
+        # forward through different parent graphs).
+        if (bool(cfg.get("compile_cell", False))
+                or bool(cfg.get("compile_chunk", False))):
+            log.info("torch.compile (model-level) deferred to continuous "
+                     "trainer (compile_cell=%s, compile_chunk=%s)",
+                     cfg.get("compile_cell"), cfg.get("compile_chunk"))
+        else:
             compile_kwargs = {}
             cm = cfg.get("compile_mode", None)
             if cm:
@@ -417,8 +430,6 @@ def main(cfg: DictConfig) -> None:
             log.info("torch.compile (model-level) kwargs: %s",
                      compile_kwargs or "(defaults)")
             model = torch.compile(model, **compile_kwargs)
-        else:
-            log.info("torch.compile (cell-level) deferred to continuous trainer")
 
     # 6. Optimizer + LR schedule ----------------------------------------------
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
