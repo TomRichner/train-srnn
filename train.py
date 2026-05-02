@@ -422,13 +422,40 @@ def main(cfg: DictConfig) -> None:
 
     # 6. Optimizer + LR schedule ----------------------------------------------
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
-    steps_per_epoch = len(train_x) // cfg.batch_size + 1
+
+    # Steps-per-epoch must match the trainer that will actually fire
+    # ``scheduler.step()``. The continuous trainer steps once per BPTT chunk
+    # (15 calls/epoch at seeg defaults); the windowed trainer steps once per
+    # mini-batch (~3 calls/epoch at seeg). Sizing the warmup against the
+    # wrong cadence — as we previously did with the windowed formula — made
+    # warmup absurdly short for continuous runs (~0.4 epochs at B=48).
+    if cfg.get("continuous_train", False) and "train_trace" in dataset:
+        T_train = int(dataset["train_trace"].shape[0])
+        chunk_len = int(cfg.bptt_chunk_len) if cfg.bptt_chunk_len else 250
+        steps_per_epoch = (T_train + cfg.batch_size * chunk_len - 1) \
+                          // (cfg.batch_size * chunk_len)
+        # Default to round(B/2) epochs of warmup — long enough that Adam's
+        # moment estimates have time to settle before the model sees full
+        # max_lr, capped at 20% of the run for very short jobs.
+        default_warmup_epochs = max(1, round(cfg.batch_size / 2))
+    else:
+        steps_per_epoch = len(train_x) // cfg.batch_size + 1
+        # Windowed trainer historical default: warmup over 2 epochs.
+        default_warmup_epochs = 2
+
     total_steps = cfg.epochs * steps_per_epoch
-    # Warmup over min(2 epochs, 20% of training), whichever is shorter.
-    warmup_frac = min(2 * steps_per_epoch / max(1, total_steps), 0.2)
+    warmup_epochs = cfg.get("warmup_epochs", None) or default_warmup_epochs
+    warmup_frac = min(warmup_epochs * steps_per_epoch / max(1, total_steps), 0.2)
     scheduler = WarmupHoldCosineSchedule(
         optimizer, total_steps, max_lr=cfg.lr, warmup_frac=warmup_frac,
         cosine_decay=cfg.get("cosine_decay", False),
+    )
+    log.info(
+        "LR schedule: warmup_epochs=%d (warmup_frac=%.4f, %d scheduler steps), "
+        "total_steps=%d (steps_per_epoch=%d), max_lr=%.3e, cosine_decay=%s",
+        warmup_epochs, warmup_frac,
+        int(warmup_frac * total_steps), total_steps, steps_per_epoch,
+        cfg.lr, cfg.get("cosine_decay", False),
     )
 
     # 7. Loss function --------------------------------------------------------

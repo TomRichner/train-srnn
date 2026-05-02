@@ -13,6 +13,9 @@ continuous_profile: false     # opt-in per-phase timing breakdown for the contin
 batch_size: ${oc.select:task.batch_size, 128}
 lr: 5e-4
 cosine_decay: false  # if true, cosine-decay LR after hold phase to lr/20
+warmup_epochs: null  # number of epochs of linear LR warmup (start_lr=1e-8 → lr).
+                    # null = automatic: round(B/2) for continuous trainer,
+                    # 2 for windowed trainer. Capped at 20% of total_steps.
 grad_clip: 1.0  # gradient norm clip; 0 or null disables
 size: 300  # model hidden size
 
