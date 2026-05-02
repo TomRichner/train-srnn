@@ -573,10 +573,22 @@ def run_continuous_training(
             n_steps_done += 1
 
             with timer.section("detach"):
-                # Detach state + y_prev for next chunk (truncated BPTT boundary)
-                state = state.detach()
+                # Detach + clone for next chunk (truncated BPTT boundary).
+                # The clone is critical under compile_chunk + reduce-overhead:
+                # the chunk function's output state lives in cudagraph_trees-
+                # owned static buffers, and mark_cudagraph_step() at the top
+                # of the next iteration invalidates those buffers. Bare
+                # .detach() returns a new view of the same storage — see
+                # PyTorch issue #104435: it suppresses the aliasing error
+                # message but the tensor still gets overwritten. .clone()
+                # produces a fresh tensor with private storage, the canonical
+                # fix the cudagraph_trees error message recommends.
+                # Cost: one (B, S) memcpy per chunk = ~2 KB at K=2 size=30,
+                # ~30 KB at K=6 size=300. Trivial. Functionally a no-op for
+                # the eager and default-mode-compile paths.
+                state = state.detach().clone()
                 if y_prev is not None:
-                    y_prev = y_prev.detach()
+                    y_prev = y_prev.detach().clone()
                 # Advance positions (wrap mod T)
                 positions = (positions + chunk_len) % T
 
