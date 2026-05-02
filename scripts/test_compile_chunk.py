@@ -34,8 +34,11 @@ from omegaconf import OmegaConf
 
 from train_srnn.models.factory import build_batched_model, build_model
 from train_srnn.training.continuous import (
+    _attach_loss_and_metric,
     _forward_chunk_closed_loop,
+    _forward_chunk_closed_loop_with_loss,
     _forward_chunk_pure_tf,
+    _forward_chunk_pure_tf_with_loss,
     _readout_chunk,
 )
 
@@ -429,6 +432,159 @@ def test_chunk_compile_no_recompiles_cpu():
     assert "recompil" not in log_text, (
         f"Dynamo recompiled on identical-shape calls 2/3:\n{buf.getvalue()}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Loss-in-chunk wrapper equivalence
+# ---------------------------------------------------------------------------
+
+def _ref_with_loss_pure_tf(model, cell, chunk_x, chunk_y, state, criterion,
+                            *, K, task_type):
+    """Reference: split flow — eager forward + standalone loss/metric.
+    The production _forward_chunk_pure_tf_with_loss must be byte-identical
+    to this on every output."""
+    logits, state = _forward_chunk_pure_tf(model, cell, chunk_x, state)
+    loss, pkl, pkm = _attach_loss_and_metric(
+        logits, chunk_y, criterion, K=K, task_type=task_type,
+    )
+    return loss, pkl, pkm, state
+
+
+def test_pure_tf_with_loss_equivalence_single():
+    """SRNNCell with-loss wrapper byte-identical to split forward + attach."""
+    import copy
+    cfg, m_a, m_b = _build_pair(batched=False)
+    chunk_x, state, _, _ = _make_inputs(cfg, m_a, B=4, T=8, with_alpha=False)
+    chunk_y = torch.randn(*chunk_x.shape)
+    criterion = torch.nn.MSELoss()
+
+    _zero_grads(m_a, m_b)
+
+    loss_a, pkl_a, pkm_a, state_a = _ref_with_loss_pure_tf(
+        m_a, m_a.cell, chunk_x, chunk_y, state.clone(), criterion,
+        K=None, task_type="regression",
+    )
+    loss_a.backward()
+    grads_a = _grads(m_a)
+
+    loss_b, pkl_b, pkm_b, state_b = _forward_chunk_pure_tf_with_loss(
+        m_b, m_b.cell, chunk_x, chunk_y, state.clone(), criterion,
+        K=None, task_type="regression",
+    )
+    loss_b.backward()
+    grads_b = _grads(m_b)
+
+    assert torch.equal(loss_a, loss_b), (
+        f"loss diverges: {(loss_a - loss_b).abs().max().item():.3e}"
+    )
+    assert torch.equal(pkl_a, pkl_b)
+    assert torch.equal(pkm_a, pkm_b)
+    assert torch.equal(state_a, state_b)
+    _assert_grads_byte_identical(grads_a, grads_b)
+
+
+def test_pure_tf_with_loss_equivalence_batched():
+    """K=2 BatchedSRNNCell with-loss wrapper byte-identical to split."""
+    cfg, m_a, m_b = _build_pair(batched=True)
+    chunk_x, state, _, _ = _make_inputs(cfg, m_a, B=4, T=8, with_alpha=False)
+    chunk_y = torch.randn(*chunk_x.shape)
+    criterion = torch.nn.MSELoss()
+    K = m_a.cell.K
+
+    _zero_grads(m_a, m_b)
+
+    loss_a, pkl_a, pkm_a, state_a = _ref_with_loss_pure_tf(
+        m_a, m_a.cell, chunk_x, chunk_y, state.clone(), criterion,
+        K=K, task_type="regression",
+    )
+    loss_a.backward()
+    grads_a = _grads(m_a)
+
+    loss_b, pkl_b, pkm_b, state_b = _forward_chunk_pure_tf_with_loss(
+        m_b, m_b.cell, chunk_x, chunk_y, state.clone(), criterion,
+        K=K, task_type="regression",
+    )
+    loss_b.backward()
+    grads_b = _grads(m_b)
+
+    assert torch.equal(loss_a, loss_b)
+    assert torch.equal(pkl_a, pkl_b)
+    assert torch.equal(pkm_a, pkm_b)
+    assert pkl_b.shape == (K,)
+    assert pkm_b.shape == (K,)
+    assert torch.equal(state_a, state_b)
+    _assert_grads_byte_identical(grads_a, grads_b)
+
+
+def test_closed_loop_with_loss_equivalence_batched():
+    """K=2 closed-loop with-loss wrapper byte-identical to split."""
+    cfg, m_a, m_b = _build_pair(batched=True)
+    chunk_x, state, y_prev, alpha = _make_inputs(cfg, m_a, B=4, T=8, with_alpha=True)
+    chunk_y = torch.randn(*chunk_x.shape)
+    criterion = torch.nn.MSELoss()
+    K = m_a.cell.K
+
+    _zero_grads(m_a, m_b)
+
+    # Reference: split closed-loop fwd + attach
+    logits_a, sa, ya = _forward_chunk_closed_loop(
+        m_a, m_a.cell, chunk_x, state.clone(), y_prev.clone(), alpha,
+    )
+    loss_a, pkl_a, pkm_a = _attach_loss_and_metric(
+        logits_a, chunk_y, criterion, K=K, task_type="regression",
+    )
+    loss_a.backward()
+    grads_a = _grads(m_a)
+
+    loss_b, pkl_b, pkm_b, sb, yb = _forward_chunk_closed_loop_with_loss(
+        m_b, m_b.cell, chunk_x, chunk_y, state.clone(),
+        y_prev.clone(), alpha, criterion,
+        K=K, task_type="regression",
+    )
+    loss_b.backward()
+    grads_b = _grads(m_b)
+
+    assert torch.equal(loss_a, loss_b)
+    assert torch.equal(pkl_a, pkl_b)
+    assert torch.equal(pkm_a, pkm_b)
+    assert torch.equal(sa, sb)
+    assert torch.equal(ya, yb)
+    _assert_grads_byte_identical(grads_a, grads_b)
+
+
+def test_with_loss_compile_traceable_cpu():
+    """torch.compile(_forward_chunk_pure_tf_with_loss) traces and runs on CPU.
+    Tests the actual T2 #3 compile target, including criterion + tensor-only
+    loss/metric. Output matches eager within fp32 ULP."""
+    if not _has_compile():
+        print("[skip] torch.compile not available")
+        return
+    import torch._dynamo as dynamo
+    dynamo.reset()
+
+    cfg, m_a, m_b = _build_pair(batched=False)
+    chunk_x, state, _, _ = _make_inputs(cfg, m_a, B=2, T=6, with_alpha=False)
+    chunk_y = torch.randn(*chunk_x.shape)
+    criterion = torch.nn.MSELoss()
+
+    with torch.no_grad():
+        eager_loss, eager_pkl, eager_pkm, eager_state = _forward_chunk_pure_tf_with_loss(
+            m_a, m_a.cell, chunk_x, chunk_y, state.clone(), criterion,
+            K=None, task_type="regression",
+        )
+    compiled_fn = torch.compile(_forward_chunk_pure_tf_with_loss)
+    with torch.no_grad():
+        c_loss, c_pkl, c_pkm, c_state = compiled_fn(
+            m_b, m_b.cell, chunk_x, chunk_y, state.clone(), criterion,
+            K=None, task_type="regression",
+        )
+
+    assert torch.allclose(eager_loss, c_loss, atol=1e-6, rtol=1e-5), (
+        f"compiled loss drifted: {(eager_loss - c_loss).abs().max().item():.3e}"
+    )
+    assert torch.allclose(eager_pkl, c_pkl, atol=1e-6, rtol=1e-5)
+    assert torch.allclose(eager_pkm, c_pkm, atol=1e-6, rtol=1e-5)
+    assert torch.allclose(eager_state, c_state, atol=1e-6, rtol=1e-5)
 
 
 # ---------------------------------------------------------------------------

@@ -343,6 +343,102 @@ def _per_k_metric(logits, target, cfg, K: Optional[int]) -> list[float] | float:
 
 
 # ---------------------------------------------------------------------------
+# Loss-inside-chunk variants: used by the continuous trainer's hot loop so
+# the chunk-compile + reduce-overhead path keeps the autograd graph closed
+# inside cudagraph_trees. The plain _forward_chunk_pure_tf /
+# _forward_chunk_closed_loop above stay unchanged for testability and for
+# any external callers that prefer to compute loss separately.
+# ---------------------------------------------------------------------------
+
+def _attach_loss_and_metric(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    criterion,
+    *,
+    K: Optional[int],
+    task_type: str,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Compute (loss_scalar, per_k_loss, per_k_metric) — all tensor-only.
+
+    Per-K tensors have shape (K,) when K is not None, or (1,) for the
+    single-cell path (uniform downstream handling). Metric is negative
+    mean-absolute-error for regression (so "higher is better" matches
+    run_epoch's convention; the trainer flips sign at log time); for
+    classification it's a placeholder (the trainer doesn't track per-step
+    accuracy here — windowed eval covers that).
+
+    No .item() calls — designed to be inlined into a torch.compile'd
+    chunk function so the autograd graph crosses no boundary. Also fixes
+    KnownIssues §9 (per-step .item() syncs) when used from the trainer.
+    """
+    if K is not None:
+        per_k_losses = []
+        per_k_metrics = []
+        for k in range(K):
+            logits_k = logits[k]
+            if task_type == "regression" and logits_k.shape[-1] == 1:
+                logits_k = logits_k.squeeze(-1)
+            per_k_losses.append(criterion(logits_k, target))
+            per_k_metrics.append(-torch.mean(torch.abs(logits_k - target)))
+        per_k_loss = torch.stack(per_k_losses)
+        per_k_metric = torch.stack(per_k_metrics)
+        loss = per_k_loss.sum()
+        return loss, per_k_loss, per_k_metric
+
+    if task_type == "regression" and logits.shape[-1] == 1:
+        logits = logits.squeeze(-1)
+    loss = criterion(logits, target)
+    if task_type == "regression":
+        mae = -torch.mean(torch.abs(logits - target))
+    else:
+        mae = loss.detach()  # classification: per-step accuracy not tracked here
+    return loss, loss.detach().unsqueeze(0), mae.unsqueeze(0)
+
+
+def _forward_chunk_pure_tf_with_loss(
+    model, cell, chunk_x, chunk_y, state, criterion,
+    *,
+    K: Optional[int],
+    task_type: str,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Loss-inclusive variant of _forward_chunk_pure_tf.
+
+    Returns ``(loss_scalar, per_k_loss, per_k_metric, new_state)``.
+
+    Used as the compile target under compile_chunk=true so backward stays
+    inside the compiled region — logits never crosses the autograd
+    boundary, only the scalar loss does. This addresses the
+    backward-side cudagraph_trees + autograd interaction that fails with
+    the split forward/loss pattern (see CompileChunkOutline.md verdict).
+    """
+    logits, state = _forward_chunk_pure_tf(model, cell, chunk_x, state)
+    loss, per_k_loss, per_k_metric = _attach_loss_and_metric(
+        logits, chunk_y, criterion, K=K, task_type=task_type,
+    )
+    return loss, per_k_loss, per_k_metric, state
+
+
+def _forward_chunk_closed_loop_with_loss(
+    model, cell, chunk_x, chunk_y, state, y_prev, alpha_chunk, criterion,
+    *,
+    K: Optional[int],
+    task_type: str,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Loss-inclusive variant of _forward_chunk_closed_loop.
+
+    Returns ``(loss_scalar, per_k_loss, per_k_metric, new_state, new_y_prev)``.
+    See _forward_chunk_pure_tf_with_loss for rationale.
+    """
+    logits, state, y_prev = _forward_chunk_closed_loop(
+        model, cell, chunk_x, state, y_prev, alpha_chunk,
+    )
+    loss, per_k_loss, per_k_metric = _attach_loss_and_metric(
+        logits, chunk_y, criterion, K=K, task_type=task_type,
+    )
+    return loss, per_k_loss, per_k_metric, state, y_prev
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -402,11 +498,15 @@ def run_continuous_training(
 
     # ---- One-time setup ----
     cell = model.cell
-    # Compile fork: by default these point at the eager module-level
-    # functions; under compile_chunk=true they get wrapped by torch.compile
-    # so Dynamo traces the whole BPTT loop into one graph.
-    chunk_pure_tf_fn = _forward_chunk_pure_tf
-    chunk_closed_loop_fn = _forward_chunk_closed_loop
+    # Compile fork. The with-loss wrappers compute loss + per-K metric
+    # inline so the trainer's hot loop only consumes a scalar loss + tiny
+    # (K,) tensors — under compile_chunk=true this keeps the autograd
+    # graph wholly inside cudagraph_trees' view (logits never crosses the
+    # boundary). Used on all paths (eager / cell-compile / chunk-compile)
+    # for uniform downstream code; the loss/metric math is identical to
+    # the legacy split flow.
+    chunk_pure_tf_fn = _forward_chunk_pure_tf_with_loss
+    chunk_closed_loop_fn = _forward_chunk_closed_loop_with_loss
     # Cell-level torch.compile lives here (not in train.py) so that eval — which
     # calls SequenceModel.forward → self.cell with different shapes (windowed
     # batch) and grad mode (no_grad) — sees the eager cell and doesn't trigger
@@ -429,15 +529,20 @@ def run_continuous_training(
                     "compile_chunk=true overrides compile_cell=true "
                     "(chunk-level compile inlines the cell)"
                 )
-            log.info("Compiling chunk forward fns; kwargs=%s",
+            log.info("Compiling chunk forward+loss fns; kwargs=%s",
                      compile_kwargs or "(defaults)")
-            chunk_pure_tf_fn = torch.compile(_forward_chunk_pure_tf, **compile_kwargs)
-            chunk_closed_loop_fn = torch.compile(_forward_chunk_closed_loop, **compile_kwargs)
+            chunk_pure_tf_fn = torch.compile(
+                _forward_chunk_pure_tf_with_loss, **compile_kwargs
+            )
+            chunk_closed_loop_fn = torch.compile(
+                _forward_chunk_closed_loop_with_loss, **compile_kwargs
+            )
         elif bool(cfg.get("compile_cell", False)):
             log.info("Compiling cell (continuous trainer scope only); kwargs=%s",
                      compile_kwargs or "(defaults)")
             cell = torch.compile(cell, **compile_kwargs)
     cl_active = bool(closed_loop_cfg is not None and closed_loop_cfg.enabled)
+    task_type = str(cfg.task.task_type)
 
     # IC -> broadcast initial state. Then freeze IC (continuous: no grad
     # ever flows back to it; KnownIssues §4).
@@ -483,13 +588,17 @@ def run_continuous_training(
                  "cuda.Event" if timer.is_cuda else "perf_counter")
 
     # ---- Per-epoch loop ----
+    # Accumulator widths: K for batched, 1 for single-cell. The trainer
+    # always uses tensor accumulators (one sync per epoch via .tolist()
+    # at log time) — fixes KnownIssues §9 (per-step .item() syncs) and is
+    # required for compile_chunk + reduce-overhead (any per-step .item()
+    # would force a host sync that breaks cudagraph_trees graph capture).
+    ks = K if K is not None else 1
     for epoch in range(total_epochs):
         epoch_start = time.time()
         timer.epoch_start()
-        epoch_loss_sum = 0.0   # for logging (per-K when K is not None)
-        epoch_loss_sum_k = [0.0] * K if K is not None else None
-        epoch_metric_sum_k = [0.0] * K if K is not None else None
-        epoch_metric_sum = 0.0
+        epoch_loss_sum_t = torch.zeros(ks, device=device)
+        epoch_metric_sum_t = torch.zeros(ks, device=device)
         n_steps_done = 0
         cl_alpha_sum = 0.0
         cl_alpha_max = 0.0
@@ -537,18 +646,22 @@ def run_continuous_training(
                 cl_pure_tf += int(stats["is_pure_tf"])
                 cl_total += 1
 
-            # Forward + loss
+            # Forward + loss + metric, all inside the (compiled) chunk fn.
+            # logits never leave the compiled region — only scalar loss +
+            # tiny (K,) tensors do. This keeps the autograd graph closed
+            # under cudagraph_trees when compile_chunk + reduce-overhead.
             with timer.section("forward"):
                 with amp_autocast_fn(cfg):
                     if alpha_chunk is None:
-                        logits, state = chunk_pure_tf_fn(model, cell, chunk_x, state)
-                    else:
-                        logits, state, y_prev = chunk_closed_loop_fn(
-                            model, cell, chunk_x, state, y_prev, alpha_chunk,
+                        loss, per_k_loss_t, per_k_metric_t, state = chunk_pure_tf_fn(
+                            model, cell, chunk_x, chunk_y, state, criterion,
+                            K=K, task_type=task_type,
                         )
-            with timer.section("loss"):
-                with amp_autocast_fn(cfg):
-                    loss, per_k_loss = _compute_loss(logits, chunk_y, criterion, cfg, K)
+                    else:
+                        loss, per_k_loss_t, per_k_metric_t, state, y_prev = chunk_closed_loop_fn(
+                            model, cell, chunk_x, chunk_y, state, y_prev, alpha_chunk,
+                            criterion, K=K, task_type=task_type,
+                        )
 
             # Backward + step
             with timer.section("backward"):
@@ -561,15 +674,11 @@ def run_continuous_training(
                 if scheduler is not None:
                     scheduler.step()
 
-            # Metrics
-            if K is not None:
-                metric_k = _per_k_metric(logits, chunk_y, cfg, K)
-                for k in range(K):
-                    epoch_loss_sum_k[k] += per_k_loss[k]
-                    epoch_metric_sum_k[k] += metric_k[k]
-            else:
-                epoch_loss_sum += loss.item()
-                epoch_metric_sum += _per_k_metric(logits, chunk_y, cfg, None)
+            # Tensor-accumulate per-K loss + metric (one sync per epoch at
+            # log time via .tolist()). Detach to break the autograd link
+            # to the freed graph; .add_ keeps the accumulator on-device.
+            epoch_loss_sum_t.add_(per_k_loss_t.detach())
+            epoch_metric_sum_t.add_(per_k_metric_t.detach())
             n_steps_done += 1
 
             with timer.section("detach"):
@@ -593,15 +702,16 @@ def run_continuous_training(
                 positions = (positions + chunk_len) % T
 
         # ---- Epoch-end ----
-        train_loss = (
-            [s / n_steps_done for s in epoch_loss_sum_k] if K is not None
-            else epoch_loss_sum / n_steps_done
-        )
-        # Metric is MAE (positive) — _per_k_metric returns negative; flip.
-        train_metric = (
-            [-m / n_steps_done for m in epoch_metric_sum_k] if K is not None
-            else -epoch_metric_sum / n_steps_done
-        )
+        # One sync per epoch: tolist() drains the (K,) or (1,) tensor.
+        loss_list = epoch_loss_sum_t.tolist()
+        metric_list = epoch_metric_sum_t.tolist()
+        if K is not None:
+            train_loss = [s / n_steps_done for s in loss_list]
+            # Metric is stored as negative MAE — flip to positive at log time.
+            train_metric = [-m / n_steps_done for m in metric_list]
+        else:
+            train_loss = loss_list[0] / n_steps_done
+            train_metric = -metric_list[0] / n_steps_done
 
         # Eval/CSV/checkpoint cadence: every checkpoint_interval epochs, plus
         # the final epoch (so a run always lands a final CSV row + ckpt).
