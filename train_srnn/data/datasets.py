@@ -630,7 +630,7 @@ def load_cheetah(data_dir="data/cheetah"):
 def load_seeg(data_dir="train_srnn/data/seeg",
               subject_id="939", block=4, sleep="awake", cond="baseline",
               decimate=2, seq_len=1375, stride=125,
-              train_trace_max_len=None):
+              train_trace_max_len=None, filter_tag=None):
     """Load one SEEG recording as an autoregressive task.
 
     Filename convention matches `run_srnn_export.m`:
@@ -650,7 +650,8 @@ def load_seeg(data_dir="train_srnn/data/seeg",
     """
     import h5py
 
-    fname = f"seeg_{subject_id}_b{block}_{sleep}_{cond}.mat"
+    suffix = f"_{filter_tag}" if filter_tag else ""
+    fname = f"seeg_{subject_id}_b{block}_{sleep}_{cond}{suffix}.mat"
     path = os.path.join(data_dir, fname)
     with h5py.File(path, "r") as f:
         data = np.array(f["data_filt"]).T.astype(np.float32)  # (T, C)

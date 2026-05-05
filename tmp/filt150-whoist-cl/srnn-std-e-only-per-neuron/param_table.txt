@@ -1,0 +1,17 @@
+# filt150-whoist-cl — variant srnn-std-e-only-per-neuron (k=4)
+# Effective values (post-transform). Means/stds computed over the indicated dimension.
+effective parameter                  init mean    final mean    init std   final std          n
+-----------------------------------------------------------------------------------------------
+tau_global (s)                              +1      +0.53603           —           —     scalar
+tau_d (s)                                 +0.1     +0.020048           0    0.005587        300
+tau_b_rec_E (s)                             +1      +0.57696           0     0.06774        150
+tau_b_rel_E (s)                          +0.25      +0.34857           0     0.05015        150
+W_eff (E src, signed)                 +0.23267       +0.2054     0.07641     0.07192      15048
+W_eff (I src, signed)                 -0.31062      -0.27018     0.07724     0.07255      14977
+|W_eff| (E src)                       +0.23267       +0.2054     0.07641     0.07192      15048
+|W_eff| (I src)                       +0.31062      +0.27018     0.07724     0.07255      14977
+W_in_eff (input neurons)           +0.00019944    -0.0013044     0.09994      0.1025       6675
+a_0 (threshold)                          +0.35      -0.11619           0      0.1064        300
+readout_weight                     +0.00074661    +0.0088996     0.06657      0.1846       6675
+readout_bias                                +0     -0.064354           0      0.1847         89
+ic.ic (per-variant init)             +0.090819     +0.090819      0.3835      0.3835        900

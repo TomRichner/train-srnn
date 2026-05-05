@@ -7,6 +7,11 @@ block: 4
 sleep: awake         # awake | asleep
 cond: baseline       # baseline | stim
 
+# Filter suffix appended to the .mat filename. Set to null to read raw files.
+# bp0p1-50 = 3rd-order Butterworth zero-phase bandpass 0.1-50 Hz applied at
+# native 500 Hz before decimation (see scripts/preprocess_seeg_filter.py).
+filter_tag: bp0p1-50
+
 # Preprocessing
 decimate: 2          # 500 Hz -> 250 Hz via pair-average
 seq_len: 3750        # 15 s @ 250 Hz (must equal window_len when no_augment=true)
