@@ -47,6 +47,14 @@ amp: fp32      # fp32 | bf16. bf16 requires Ampere+ GPU (L4, A100, H100, RTX 30/
 # Ablation batching
 batched_ablations: null  # list of model variant names to run in parallel via bmm
 
+# Freeze specific SRNN parameters at their init values (no Adam updates).
+# Logical names map to one or more nn.Parameter attrs on model.cell; missing
+# attrs are skipped to handle SRNNCell (flat names) vs BatchedSRNNCell
+# (_vec/_scalar pairs). Valid keys: a_0, W_raw, W_in, W_raw_gain, W_in_gain,
+# tau_global, tau_d, tau_a_E, c_E, c_0_E, tau_a_I, c_I, c_0_I,
+# tau_b_rec_E, tau_b_rel_E, tau_b_rec_I, tau_b_rel_I.
+freeze_params: []
+
 # Closed-loop variable teacher forcing.
 # When enabled, training batches are unrolled with a per-channel blend of
 # real input and the model's previous prediction:

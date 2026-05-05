@@ -33,6 +33,59 @@ from train_srnn.utils.trainable_ic import compute_burn_in
 log = logging.getLogger(__name__)
 
 
+# Logical name -> list of attribute names on model.cell. Each attr that
+# resolves to a real nn.Parameter is set requires_grad_(False). Both halves
+# of the BatchedSRNNCell `_vec`/`_scalar`(/`_gain`) split are listed so a
+# single logical name fully pins the value regardless of which cell built.
+FREEZE_NAME_MAP: dict[str, list[str]] = {
+    "a_0":         ["a_0", "a_0_vec", "a_0_scalar"],
+    "W_raw":       ["W_raw"],
+    "W_in":        ["W_in"],
+    "W_raw_gain":  ["W_raw_gain"],
+    "W_in_gain":   ["W_in_gain"],
+    "tau_global":  ["log_tau_global", "log_tau_global_vec", "log_tau_global_gain"],
+    "tau_d":       ["log_tau_d", "log_tau_d_vec", "log_tau_d_gain"],
+    "tau_a_E":     ["log_tau_a_E", "log_tau_a_E_lo", "log_tau_a_E_hi",
+                    "log_tau_a_E_vec", "log_tau_a_E_gain"],
+    "c_E":         ["log_c_E", "log_c_E_vec", "log_c_E_gain"],
+    "c_0_E":       ["c_0_E", "c_0_E_vec", "c_0_E_scalar"],
+    "tau_a_I":     ["log_tau_a_I", "log_tau_a_I_lo", "log_tau_a_I_hi",
+                    "log_tau_a_I_vec", "log_tau_a_I_gain"],
+    "c_I":         ["log_c_I", "log_c_I_vec", "log_c_I_gain"],
+    "c_0_I":       ["c_0_I", "c_0_I_vec", "c_0_I_scalar"],
+    "tau_b_rec_E": ["log_tau_b_rec_E", "log_tau_b_rec_E_vec", "log_tau_b_rec_E_gain"],
+    "tau_b_rel_E": ["log_tau_b_rel_E", "log_tau_b_rel_E_vec", "log_tau_b_rel_E_gain"],
+    "tau_b_rec_I": ["log_tau_b_rec_I", "log_tau_b_rec_I_vec", "log_tau_b_rec_I_gain"],
+    "tau_b_rel_I": ["log_tau_b_rel_I", "log_tau_b_rel_I_vec", "log_tau_b_rel_I_gain"],
+}
+
+
+def _apply_freeze_params(model, freeze_list):
+    if not freeze_list:
+        return
+    cell = model.cell
+    frozen_attrs: list[str] = []
+    for logical in freeze_list:
+        if logical not in FREEZE_NAME_MAP:
+            raise ValueError(
+                f"freeze_params: unknown '{logical}'. "
+                f"Valid: {sorted(FREEZE_NAME_MAP)}"
+            )
+        hits = 0
+        for attr in FREEZE_NAME_MAP[logical]:
+            p = getattr(cell, attr, None)
+            if isinstance(p, nn.Parameter):
+                p.requires_grad_(False)
+                frozen_attrs.append(f"cell.{attr}")
+                hits += 1
+        if hits == 0:
+            raise ValueError(
+                f"freeze_params: '{logical}' resolved to no Parameters on this cell "
+                f"— ablation may have dropped it."
+            )
+    log.info("Frozen params (logical=%s, attrs=%s)", list(freeze_list), frozen_attrs)
+
+
 # ---------------------------------------------------------------------------
 # AMP / autocast
 # ---------------------------------------------------------------------------
@@ -389,7 +442,10 @@ def main(cfg: DictConfig) -> None:
     else:
         model = build_model(cfg)
     model = model.to(device)
+    _apply_freeze_params(model, list(cfg.get("freeze_params", []) or []))
     log.info("Model parameters: %d", sum(p.numel() for p in model.parameters()))
+    log.info("Trainable parameters: %d",
+             sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     # Extract K and ablation names before possible torch.compile wrapping
     K = getattr(model, "_K", None)
