@@ -1,0 +1,17 @@
+# overnight-run2-Whoist-cl — variant srnn-std-e-only-skip-per-neuron (k=5)
+# Effective values (post-transform). Means/stds computed over the indicated dimension.
+effective parameter                  init mean    final mean    init std   final std          n
+-----------------------------------------------------------------------------------------------
+tau_global (s)                              +1      +0.30196           —           —     scalar
+tau_d (s)                                 +0.1    +0.0057643           0    0.004652        300
+tau_b_rec_E (s)                             +1      +0.33406           0      0.1223        150
+tau_b_rel_E (s)                          +0.25      +0.47352           0      0.2022        150
+W_eff (E src, signed)                 +0.23267      +0.16328     0.07641     0.08844      15048
+W_eff (I src, signed)                 -0.31062      -0.20913     0.07724      0.0967      14977
+|W_eff| (E src)                       +0.23267      +0.16328     0.07641     0.08844      15048
+|W_eff| (I src)                       +0.31062      +0.20913     0.07724      0.0967      14977
+W_in_eff (input neurons)           +0.00036119   +0.00022384     0.09956     0.02544       6675
+a_0 (threshold)                          +0.35      -0.33197           0      0.1515        300
+readout_weight                     +0.00055372   -0.00094974     0.06572       0.279       6675
+readout_bias                                +0     -0.034855           0      0.1837         89
+ic.ic (per-variant init)             +0.083543     +0.083543       0.384       0.384        900

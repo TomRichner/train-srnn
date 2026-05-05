@@ -1,0 +1,20 @@
+# prod-1hr-b48-k6-bf16 — variant srnn-e-only-per-neuron (k=0)
+# Effective values (post-transform). Means/stds computed over the indicated dimension.
+effective parameter                  init mean    final mean    init std   final std          n
+-----------------------------------------------------------------------------------------------
+tau_global (s)                              +1      +0.84426           —           —     scalar
+tau_d (s)                                 +0.1     +0.062495           0    0.005043        300
+tau_a_E (s)                            +4.8777       +4.0495       3.996       3.315        450
+tau_b_rec_E (s)                             +1      +0.77674           0      0.0319        150
+tau_b_rel_E (s)                          +0.25      +0.28402           0     0.01541        150
+W_eff (E src, signed)                 +0.23267      +0.25018     0.07641      0.0832      15048
+W_eff (I src, signed)                 -0.31062      -0.33081     0.07724     0.08365      14977
+|W_eff| (E src)                       +0.23267      +0.25018     0.07641      0.0832      15048
+|W_eff| (I src)                       +0.31062      +0.33081     0.07724     0.08365      14977
+W_in_eff (input neurons)            -0.0003386   +7.8613e-05      0.1012      0.1224       6675
+c_E (SFA coupling)                       +0.05     +0.057177           0    0.003967        450
+c_0_E (SFA offset)                          +0      -0.22391           0     0.05036        450
+a_0 (threshold)                          +0.35      +0.15498           0     0.06464        300
+readout_weight                     -2.8854e-05    -0.0032506     0.06604      0.0984       6675
+readout_bias                                +0    -0.0050603           0      0.0857         89
+ic.ic (per-variant init)              +0.10386      +0.10386      0.3828      0.3828        900

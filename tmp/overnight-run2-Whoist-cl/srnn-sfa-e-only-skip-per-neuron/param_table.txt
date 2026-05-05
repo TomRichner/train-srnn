@@ -1,0 +1,26 @@
+# overnight-run2-Whoist-cl — variant srnn-sfa-e-only-skip-per-neuron (k=3)
+# Effective values (post-transform). Means/stds computed over the indicated dimension.
+effective parameter                  init mean    final mean    init std   final std          n
+-----------------------------------------------------------------------------------------------
+tau_global (s)                              +1      +0.23219           —           —     scalar
+tau_d (s)                                 +0.1    +0.0045342           0    0.003217        300
+tau_a_E[j=0] (s)                         +0.25    +0.0096115           0     0.00601        150
+tau_a_E[j=1] (s)                       +4.3832      +0.17008           0     0.03157        150
+tau_a_E[j=2] (s)                           +10      +0.41005           0     0.02651        150
+tau_b_rec_E (s)                             +1      +0.23219           0           0        150
+tau_b_rel_E (s)                          +0.25     +0.058049           0           0        150
+W_eff (E src, signed)                 +0.23267      +0.16382     0.07641     0.06763      15048
+W_eff (I src, signed)                 -0.31062       -0.2183     0.07724     0.07632      14977
+|W_eff| (E src)                       +0.23267      +0.16382     0.07641     0.06763      15048
+|W_eff| (I src)                       +0.31062       +0.2183     0.07724     0.07632      14977
+W_in_eff (input neurons)            -0.0011621   +9.8282e-05     0.09962     0.03324       6675
+c_E[j=0] (SFA coupling)                  +0.05     +0.086196           0     0.07554        150
+c_E[j=1] (SFA coupling)                  +0.05     +0.060895           0     0.02387        150
+c_E[j=2] (SFA coupling)                  +0.05      +0.05807           0     0.01763        150
+c_0_E[j=0] (SFA offset)                     +0      -0.22624           0      0.1635        150
+c_0_E[j=1] (SFA offset)                     +0      -0.20968           0      0.2551        150
+c_0_E[j=2] (SFA offset)                     +0      -0.20093           0      0.2754        150
+a_0 (threshold)                          +0.35      +0.18645           0      0.1337        300
+readout_weight                     +0.00016801     -0.010457      0.0673      0.2114       6675
+readout_bias                                +0      +0.10138           0      0.2415         89
+ic.ic (per-variant init)              +0.09231      +0.09231      0.5294      0.5294        900

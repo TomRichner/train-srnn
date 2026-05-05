@@ -721,8 +721,27 @@ def write_param_table(out_dir: Path, run_label: str, snaps, k, name):
 
     t0 = effective_taus(init_ms, k); t1 = effective_taus(last_ms, k)
     rows.append(("tau_global (s)", f"{t0['tau_global']:+.5g}", f"{t1['tau_global']:+.5g}", "—", "—", "scalar"))
+
+    def _active_js(ms, side: str) -> list[int]:
+        m = ms.get(f"cell.sfa_{side}_mask")
+        if m is None:
+            return []
+        v = m[k, 0, :].numpy()
+        if v.size <= 1:
+            return []
+        return [int(j) for j in np.where(v != 0)[0]]
+
+    # Per-timescale tau_a_E / tau_a_I (rest of taus collapsed)
     for key in ("tau_d", "tau_a_E", "tau_a_I", "tau_b_rec_E", "tau_b_rel_E", "tau_b_rec_I", "tau_b_rel_I"):
-        if key in t0:
+        if key not in t0:
+            continue
+        if key == "tau_a_E":
+            for j in _active_js(last_ms, "E"):
+                add(f"tau_a_E[j={j}] (s)", t0[key][:, j], t1[key][:, j])
+        elif key == "tau_a_I":
+            for j in _active_js(last_ms, "I"):
+                add(f"tau_a_I[j={j}] (s)", t0[key][:, j], t1[key][:, j])
+        else:
             add(f"{key} (s)", t0[key], t1[key])
 
     # W_eff (split E / I source)
@@ -740,14 +759,19 @@ def write_param_table(out_dir: Path, run_label: str, snaps, k, name):
     Win0 = effective_W_in(init_ms, k); Win1 = effective_W_in(last_ms, k)
     add("W_in_eff (input neurons)", Win0[Win0 != 0], Win1[Win1 != 0])
 
-    # SFA & STD couplings + offsets
+    # SFA couplings + offsets, split per-timescale (active only)
     for side in ("E", "I"):
+        active = _active_js(last_ms, side)
+        if not active:
+            continue
         c0 = effective_c(init_ms, k, side); c1 = effective_c(last_ms, k, side)
         if c0 is not None:
-            add(f"c_{side} (SFA coupling)", c0, c1)
+            for j in active:
+                add(f"c_{side}[j={j}] (SFA coupling)", c0[:, j], c1[:, j])
         c0_0 = effective_c_0(init_ms, k, side); c0_1 = effective_c_0(last_ms, k, side)
         if c0_0 is not None:
-            add(f"c_0_{side} (SFA offset)", c0_0, c0_1)
+            for j in active:
+                add(f"c_0_{side}[j={j}] (SFA offset)", c0_0[:, j], c0_1[:, j])
 
     # Threshold a_0
     add("a_0 (threshold)", effective_a_0(init_ms, k), effective_a_0(last_ms, k))
