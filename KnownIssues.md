@@ -371,3 +371,48 @@ The `loss.item()` at line 525 in the non-K path is fine (one sync per step at K=
 3. **Ignore.** Inductor under default-mode `torch.compile` may already CSE the redundant materializations within one compiled trace, in which case the extra HBM traffic is mostly an illusion. Worth checking via `TORCH_LOGS=output_code` before doing (1).
 
 **Worth fixing?** Probably yes via option (1) once measured savings are ≥ 5%, but verify (3) first to avoid duplicating an Inductor optimization. Same caveat as §9: the GPU is already saturated, so the absolute wall-clock win is bounded.
+
+---
+
+## 11. Mixed `softplus` / `exp` parameterization of positive scalars
+
+**Summary.** `BatchedSRNNCell` uses two different positivity transforms for what are mathematically the same kind of object (a non-negative scalar that gets multiplied into the ODE). Per-axis bases and the global timescale go through `softplus`; per-class gains go through `exp`. There is no functional reason for the asymmetry — both transforms are smooth, monotone, $\mathbb{R} \to \mathbb{R}_{>0}$, and either could carry the whole parameterization. The split is conventional / aesthetic.
+
+**Where the limitation lives.**
+
+`BatchedSRNNCell._tau_global`, `_tau_d`, `_tau_a_E`, `_tau_a_I`,
+`_tau_b_rec_E`, `_tau_b_rel_E`, `_tau_b_rec_I`, `_tau_b_rel_I`, `_c_E`,
+`_c_I` (`srnn_cell.py:1135-1224`):
+
+```python
+def _tau_d(self) -> torch.Tensor:
+    """(K, N) = tau_global · exp(log_tau_d_gain) · softplus(log_tau_d_vec)"""
+    gain = torch.exp(self.log_tau_d_gain).view(self.K, 1)
+    return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.log_tau_d_vec)
+```
+
+i.e. `softplus` on the per-neuron base and on `log_tau_global` (via `_tau_global`), `exp` on the per-class log-gain. Same pattern for every other timescale and for the SFA coupling `c`.
+
+**Why the asymmetry exists.**
+
+- The per-axis base values (e.g. $\tau_d \approx 0.1$ s, $c \approx 0.05$) are small positive numbers stored at $\sigma^{+,-1}(\text{value})$. Around these init values, softplus is approximately linear in its raw argument (slope $\sigma(\ell) \approx \text{value}$), giving Adam steps that map cleanly to additive changes in seconds.
+- The per-class gain is a multiplier centered at $1$ (multiplicative identity). With `exp` and raw init $0$, the gain is exactly $1$ at training step $0$ and explores log-space symmetrically (a Δlog of ±log 2 doubles or halves the gain by equal magnitude moves). With softplus you'd init at $\sigma^{+,-1}(1) \approx 0.541$ and get asymmetric exploration around 1.
+
+Both differences are stylistic, not load-bearing.
+
+**Practical consequences.**
+
+- Reading code that builds an effective parameter requires knowing which transform applies to which factor.
+- Plots of *raw* `log_*` parameters mix two different scales: `log_tau_d_vec` lives in inv-softplus space (where `value = softplus(raw)`), while `log_tau_d_gain` lives in true log-space (where `value = exp(raw)`). Comparing magnitudes across these names is misleading.
+- The "log_" prefix is technically inaccurate for the softplus-transformed parameters — `log_tau_d_vec` is not actually a logarithm of $\tau_d$. Kept for backward compatibility with checkpoints and documentation.
+- Postprocess analysis (`scripts/postprocess.py:effective_taus`) and the implementation section of `docs/equations.md` (\S 5.4-5.5) have to spell out the mixed transform every time they convert raw params to effective values.
+
+**Fix sketch (not planned).**
+
+A unified parameterization would replace every `softplus(log_X_vec)` with `exp(log_X_vec)` (cleaner) or every `exp(log_X_gain)` with `softplus(log_X_gain)` (matches the prefix). The all-`exp` version is cleaner mathematically:
+
+$$\tau_d = \exp\!\big(\ell_{\tau_g} + g_{\tau_d} + \ell^{\text{vec}}_{\tau_d, i}\big)$$
+
+i.e. the three multiplicative pieces become additive in log-space, and the "log_" prefix becomes accurate everywhere. Init values would change ($\ell^{\text{vec}}_{\tau_d, i} = \log(0.1) \approx -2.30$ instead of $\sigma^{+,-1}(0.1) \approx -2.25$), and the linear-near-init behaviour of softplus would be lost — Adam steps in raw space would become *geometric* in $\tau_d$ rather than approximately linear. That's a real semantic change, not a no-op refactor; whether it speeds or slows convergence is empirical.
+
+**Why not fix now.** The asymmetry is benign — every analysis script and the docs already account for it. Switching parameterization invalidates checkpoints (the saved `log_tau_d_vec` values would be interpreted under the wrong transform) and changes the optimization geometry, so it would invalidate cross-run comparisons until everything is re-run. Tracked here so the next major refactor of the cell parameterization can adopt a unified transform.
