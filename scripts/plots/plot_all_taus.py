@@ -1,4 +1,4 @@
-"""Extract all log_tau_* parameters from srnn_e_only checkpoints and plot.
+"""Extract all isp_tau_* parameters from srnn_e_only checkpoints and plot.
 
 Produces two figures:
   1. tau_global-only  (single scalar over epochs)
@@ -29,8 +29,8 @@ epochs = [c[2] for c in CKPTS]
 labels = [c[0] for c in CKPTS]
 sds = [load_sd(p) for _, p, _ in CKPTS]
 
-# Find all log_tau_* keys (stripping the top-level wrapper like "cell.").
-tau_keys = sorted({k for sd in sds for k in sd if "log_tau" in k})
+# Find all isp_tau_* keys (stripping the top-level wrapper like "cell.").
+tau_keys = sorted({k for sd in sds for k in sd if "isp_tau" in k})
 print("Discovered tau keys:")
 for k in tau_keys:
     shape = tuple(sds[0][k].shape)
@@ -39,24 +39,24 @@ print()
 
 
 def tau_value(sd, key):
-    """Return softplus(log_tau_*), returning a scalar or 1-D array."""
+    """Return softplus(isp_tau_*), returning a scalar or 1-D array."""
     t = sd[key]
     val = F.softplus(t).detach().cpu().numpy()
     return val
 
 
 # Extract tau_global scalar across checkpoints.
-tg_key = [k for k in tau_keys if k.endswith("log_tau_global")][0]
+tg_key = [k for k in tau_keys if k.endswith("isp_tau_global")][0]
 tau_global_vals = np.array([tau_value(sd, tg_key).item() for sd in sds])
 print("tau_global over epochs:", tau_global_vals)
 print()
 
 # Organize remaining tau keys into families.
 families = [
-    ("tau_d",         [k for k in tau_keys if k.endswith("log_tau_d")]),
-    ("tau_a_E (lo/hi)", [k for k in tau_keys if "log_tau_a_E_lo" in k or "log_tau_a_E_hi" in k]),
-    ("tau_b_rec_E",   [k for k in tau_keys if k.endswith("log_tau_b_rec_E")]),
-    ("tau_b_rel_E",   [k for k in tau_keys if k.endswith("log_tau_b_rel_E")]),
+    ("tau_d",         [k for k in tau_keys if k.endswith("isp_tau_d")]),
+    ("tau_a_E (lo/hi)", [k for k in tau_keys if "isp_tau_a_E_lo" in k or "isp_tau_a_E_hi" in k]),
+    ("tau_b_rec_E",   [k for k in tau_keys if k.endswith("isp_tau_b_rec_E")]),
+    ("tau_b_rel_E",   [k for k in tau_keys if k.endswith("isp_tau_b_rel_E")]),
 ]
 
 n_families = len([f for f in families if f[1]])

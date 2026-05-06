@@ -167,13 +167,13 @@ with torch.no_grad():
         # Recompute effective potential and firing rate
         x_eff = x.clone()
         if max_n_a_E > 0:
-            c_E = F.softplus(cell.log_c_E)
+            c_E = F.softplus(cell.isp_c_E)
             c_E_masked = c_E * cell.sfa_E_mask
             sfa_E_contrib = (c_E_masked.unsqueeze(1) * a_E).sum(-1)
             x_eff = torch.cat([x[:, :, :n_E] - sfa_E_contrib, x_eff[:, :, n_E:]], dim=-1)
 
         if max_n_a_I > 0:
-            c_I = F.softplus(cell.log_c_I)
+            c_I = F.softplus(cell.isp_c_I)
             c_I_masked = c_I * cell.sfa_I_mask
             sfa_I_contrib = (c_I_masked.unsqueeze(1) * a_I).sum(-1)
             x_eff = torch.cat([x_eff[:, :, :n_E], x_eff[:, :, n_E:] - sfa_I_contrib], dim=-1)

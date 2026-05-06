@@ -473,7 +473,7 @@ output uses $\tilde b$; the ODE $\dot b_i$ still uses the raw $b_i$.
 | `std_zero_floor_mask` | $(K, 1, 1)$ | per-variant flag enabling the rescale of \S 5.6 |
 | `echo_flags` | $(K, 1, 1)$ | $1$ iff echo variant; companion `_echo_grad_mask = 1 - echo_flags` is multiplied into incoming gradients on $W_{\text{raw}}$ |
 | `skip_flags` | $(K,)$ | $1$ iff skip variant; selects the residual $+x_{\text{readout}}$ path in `SequenceModel._readout_one` |
-| `_a_0_vec_mask`, `_log_tau_d_vec_mask`, `_log_tau_a_{E,I}_vec_mask`, `_log_c_{E,I}_vec_mask`, `_c_0_{E,I}_vec_mask`, `_log_tau_b_{rec,rel}_{E,I}_vec_mask` | $(K, 1, ...)$ | gradient-zeroing masks: per-neuron vec components are frozen for `per_neuron=False` variants |
+| `_a_0_vec_mask`, `_isp_tau_d_vec_mask`, `_isp_tau_a_{E,I}_vec_mask`, `_isp_c_{E,I}_vec_mask`, `_c_0_{E,I}_vec_mask`, `_isp_tau_b_{rec,rel}_{E,I}_vec_mask` | $(K, 1, ...)$ | gradient-zeroing masks: per-neuron vec components are frozen for `per_neuron=False` variants |
 | `readout_ids` | $(K,)$ in $\{0, 1, 2\}$ | per-variant readout selector ($0$ synaptic, $1$ rate, $2$ dendritic) |
 
 The ablation masks are buffers (not parameters), set once at
@@ -562,21 +562,21 @@ plus the `SequenceModel` readout head appears below.
 | $g_{\text{in}}$ | `cell.W_in_gain` | $(K,)$ | $1$ | direct |
 | $a_0^{\text{vec}}$ | `cell.a_0_vec` | $(K, N)$ | $0.35$ | $a_0 = a_0^{\text{vec}} + a_0^{\text{scalar}}$ |
 | $a_0^{\text{scalar}}$ | `cell.a_0_scalar` | $(K,)$ | $0$ | as above |
-| $\ell_{\tau_g}$ | `cell.log_tau_global` | $(K,)$ | $\sigma^{+,-1}(1)$ | $\tau_g = \sigma^{+}(\ell_{\tau_g})$ |
-| $\ell^{\text{vec}}_{\tau_d}$ | `cell.log_tau_d_vec` | $(K, N)$ | $\sigma^{+,-1}(0.1)$ | combined per \S 5.4 |
+| $\ell_{\tau_g}$ | `cell.isp_tau_global` | $(K,)$ | $\sigma^{+,-1}(1)$ | $\tau_g = \sigma^{+}(\ell_{\tau_g})$ |
+| $\ell^{\text{vec}}_{\tau_d}$ | `cell.isp_tau_d_vec` | $(K, N)$ | $\sigma^{+,-1}(0.1)$ | combined per \S 5.4 |
 | $g_{\tau_d}$ | `cell.log_tau_d_gain` | $(K,)$ | $0$ | $e^{g_{\tau_d}}$ multiplier |
-| $\ell^{\text{vec}}_{\tau_a^E}$ | `cell.log_tau_a_E_vec` | $(K, n_E, n_{aE}^{\max})$ | logspaced (see 6.2) | combined per \S 5.4 |
+| $\ell^{\text{vec}}_{\tau_a^E}$ | `cell.isp_tau_a_E_vec` | $(K, n_E, n_{aE}^{\max})$ | logspaced (see 6.2) | combined per \S 5.4 |
 | $g_{\tau_a^E}$ | `cell.log_tau_a_E_gain` | $(K,)$ | $0$ | $e^g$ multiplier |
-| $\ell^{\text{vec}}_{c^E}$ | `cell.log_c_E_vec` | $(K, n_E, n_{aE}^{\max})$ | $\sigma^{+,-1}(0.05)$ | $c^E$ via \S 5.5 |
+| $\ell^{\text{vec}}_{c^E}$ | `cell.isp_c_E_vec` | $(K, n_E, n_{aE}^{\max})$ | $\sigma^{+,-1}(0.05)$ | $c^E$ via \S 5.5 |
 | $g_{c^E}$ | `cell.log_c_E_gain` | $(K,)$ | $0$ | $e^g$ multiplier |
 | $c_{0,E}^{\text{vec}}$ | `cell.c_0_E_vec` | $(K, n_E, n_{aE}^{\max})$ | $0$ | $c_{0,E} = \text{vec} + \text{scalar}$ |
 | $c_{0,E}^{\text{scalar}}$ | `cell.c_0_E_scalar` | $(K,)$ | $0$ | as above |
-| $\ell^{\text{vec}}_{\tau_a^I}, g_{\tau_a^I}, \ell^{\text{vec}}_{c^I}, g_{c^I}, c_{0,I}^{\text{vec}}, c_{0,I}^{\text{scalar}}$ | `cell.log_tau_a_I_vec`, `cell.log_tau_a_I_gain`, `cell.log_c_I_vec`, `cell.log_c_I_gain`, `cell.c_0_I_vec`, `cell.c_0_I_scalar` | I-side analogues | as E side | as E side |
-| $\ell^{\text{vec}}_{\tau_b^{\text{rec},E}}$ | `cell.log_tau_b_rec_E_vec` | $(K, n_E)$ | $\sigma^{+,-1}(1)$ | $\tau^{\text{rec},E}$ per \S 5.4 |
+| $\ell^{\text{vec}}_{\tau_a^I}, g_{\tau_a^I}, \ell^{\text{vec}}_{c^I}, g_{c^I}, c_{0,I}^{\text{vec}}, c_{0,I}^{\text{scalar}}$ | `cell.isp_tau_a_I_vec`, `cell.log_tau_a_I_gain`, `cell.isp_c_I_vec`, `cell.log_c_I_gain`, `cell.c_0_I_vec`, `cell.c_0_I_scalar` | I-side analogues | as E side | as E side |
+| $\ell^{\text{vec}}_{\tau_b^{\text{rec},E}}$ | `cell.isp_tau_b_rec_E_vec` | $(K, n_E)$ | $\sigma^{+,-1}(1)$ | $\tau^{\text{rec},E}$ per \S 5.4 |
 | $g_{\tau_b^{\text{rec},E}}$ | `cell.log_tau_b_rec_E_gain` | $(K,)$ | $0$ | $e^g$ multiplier |
-| $\ell^{\text{vec}}_{\tau_b^{\text{rel},E}}$ | `cell.log_tau_b_rel_E_vec` | $(K, n_E)$ | $\sigma^{+,-1}(0.25)$ | $\tau^{\text{rel},E}$ per \S 5.4 |
+| $\ell^{\text{vec}}_{\tau_b^{\text{rel},E}}$ | `cell.isp_tau_b_rel_E_vec` | $(K, n_E)$ | $\sigma^{+,-1}(0.25)$ | $\tau^{\text{rel},E}$ per \S 5.4 |
 | $g_{\tau_b^{\text{rel},E}}$ | `cell.log_tau_b_rel_E_gain` | $(K,)$ | $0$ | $e^g$ multiplier |
-| $\tau^{\text{rec},I}$, $\tau^{\text{rel},I}$ params | `cell.log_tau_b_rec_I_vec`, `cell.log_tau_b_rec_I_gain`, `cell.log_tau_b_rel_I_vec`, `cell.log_tau_b_rel_I_gain` | I-side analogues | as E side | as E side |
+| $\tau^{\text{rec},I}$, $\tau^{\text{rel},I}$ params | `cell.isp_tau_b_rec_I_vec`, `cell.log_tau_b_rec_I_gain`, `cell.isp_tau_b_rel_I_vec`, `cell.log_tau_b_rel_I_gain` | I-side analogues | as E side | as E side |
 | $W_{\text{out}}$ | `readout_weight` | $(K, O, E)$ | `kaiming_uniform_(a=sqrt(5))` | direct linear head |
 | $b_{\text{out}}$ | `readout_bias` | $(K, O)$ | $0$ | direct |
 | $\hat x_0$ | `ic.ic` | $(K, N)$ or $(N,)$ | burn-in result if `TrainableIC` | replaces $x_0$ |
@@ -600,7 +600,7 @@ than zero -- the parameters are not constructed.
 | `cell.std_E_mask` / `cell.std_I_mask` | $(K, 1)$ | STD on/off |
 | `cell.std_zero_floor_mask` | $(K, 1, 1)$ | enable rescale of \S 5.6 (non-persistent) |
 | `cell.readout_ids` | $(K,)$ | $\{0, 1, 2\}$ readout selector |
-| `cell._a_0_vec_mask`, `cell._log_tau_d_vec_mask`, `cell._log_tau_a_{E,I}_vec_mask`, `cell._log_c_{E,I}_vec_mask`, `cell._c_0_{E,I}_vec_mask`, `cell._log_tau_b_{rec,rel}_{E,I}_vec_mask` | $(K, 1, ...)$ | gradient-zero mask for non-per-neuron variants |
+| `cell._a_0_vec_mask`, `cell._isp_tau_d_vec_mask`, `cell._isp_tau_a_{E,I}_vec_mask`, `cell._isp_c_{E,I}_vec_mask`, `cell._c_0_{E,I}_vec_mask`, `cell._isp_tau_b_{rec,rel}_{E,I}_vec_mask` | $(K, 1, ...)$ | gradient-zero mask for non-per-neuron variants |
 
 ### 7.3 Compile-time configuration (per `SRNNConfig`)
 

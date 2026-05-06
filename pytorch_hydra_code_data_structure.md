@@ -290,14 +290,14 @@ Spiking RNN with excitatory/inhibitory partitioning (Dale's law), spike-frequenc
 | `W_raw` | `(N, N)` | same | Recurrent weight matrix |
 | `W_in` | `(N, input_size)` | same | Input weight matrix |
 | `a_0` | `(N,)` | same | Firing threshold |
-| `log_tau_d` | `(1,)` | `(N,)` | Dendritic time constant (log-space) |
-| `log_tau_a_E_lo/hi` | `(1,)` each | `(n_E,)` each | SFA timescale endpoints (multi-timescale) |
-| `log_tau_a_E` | `(1,)` | `(n_E,)` | SFA timescale (single-timescale, n_a_E=1) |
-| `log_c_E` | `(1,)` | `(n_E,)` | SFA coupling strength |
+| `isp_tau_d` | `(1,)` | `(N,)` | Dendritic time constant (log-space) |
+| `isp_tau_a_E_lo/hi` | `(1,)` each | `(n_E,)` each | SFA timescale endpoints (multi-timescale) |
+| `isp_tau_a_E` | `(1,)` | `(n_E,)` | SFA timescale (single-timescale, n_a_E=1) |
+| `isp_c_E` | `(1,)` | `(n_E,)` | SFA coupling strength |
 | `c_0_E` | `(1,)` | `(n_E,)` | SFA baseline offset |
 | (same pattern for `_I` variants) | | | |
-| `log_tau_b_rec_E` | `(1,)` | `(n_E,)` | STD recovery time constant |
-| `log_tau_b_rel_E` | `(1,)` | `(n_E,)` | STD release/facilitation time constant |
+| `isp_tau_b_rec_E` | `(1,)` | `(n_E,)` | STD recovery time constant |
+| `isp_tau_b_rel_E` | `(1,)` | `(n_E,)` | STD release/facilitation time constant |
 | (same pattern for `_I` variants) | | | |
 
 **Registered buffers:**
@@ -309,11 +309,11 @@ Spiking RNN with excitatory/inhibitory partitioning (Dale's law), spike-frequenc
 
 **Multi-timescale SFA interpolation:**
 
-When `n_a_E >= 2`, the cell stores learnable endpoints `log_tau_a_E_lo` and `log_tau_a_E_hi`. At runtime, `_get_tau_a_E()` produces `n_a_E` evenly-spaced timescales:
+When `n_a_E >= 2`, the cell stores learnable endpoints `isp_tau_a_E_lo` and `isp_tau_a_E_hi`. At runtime, `_get_tau_a_E()` produces `n_a_E` evenly-spaced timescales:
 
 ```python
-lo = softplus(log_tau_a_E_lo)
-hi = softplus(log_tau_a_E_hi)
+lo = softplus(isp_tau_a_E_lo)
+hi = softplus(isp_tau_a_E_hi)
 t = linspace(0, 1, n_a_E)   # [0.0, 0.5, 1.0] for n_a_E=3
 tau = lo + (hi - lo) * t     # interpolated timescales
 ```
@@ -524,7 +524,7 @@ For running K SRNN ablation variants in parallel with independent learning:
 
 1. Looks up each name in `SRNN_PRESETS` dictionary
 2. Verifies all share the same `solver`, `h`, `ode_unfolds`
-3. Constructs `BatchedSRNNCell` with K configs stacked (per-variant `log_tau_global`, echo gradient masking via backward hook)
+3. Constructs `BatchedSRNNCell` with K configs stacked (per-variant `isp_tau_global`, echo gradient masking via backward hook)
 4. Wraps in `SequenceModel` (K-aware `TrainableIC`, K independent readout heads via bmm, fixed output mask indexing)
 5. Stores `ablation_names` on the model for per-variant logging and CSV output
 

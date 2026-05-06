@@ -43,11 +43,11 @@ Every variant trained through `BatchedSRNNCell` effectively ran as per_neuron=Tr
 
 The root cause was that in `BatchedSRNNCell.__init__`, all time-constant parameters were stored at per-neuron shape unconditionally:
 
-- `log_tau_d`: `(K, N)`
-- `log_tau_a_E`, `log_c_E`, `c_0_E`: `(K, n_E, max_n_a_E)`
-- `log_tau_a_I`, `log_c_I`, `c_0_I`: `(K, n_I, max_n_a_I)`
-- `log_tau_b_rec_E`, `log_tau_b_rel_E`: `(K, n_E)`
-- `log_tau_b_rec_I`, `log_tau_b_rel_I`: `(K, n_I)`
+- `isp_tau_d`: `(K, N)`
+- `isp_tau_a_E`, `isp_c_E`, `c_0_E`: `(K, n_E, max_n_a_E)`
+- `isp_tau_a_I`, `isp_c_I`, `c_0_I`: `(K, n_I, max_n_a_I)`
+- `isp_tau_b_rec_E`, `isp_tau_b_rel_E`: `(K, n_E)`
+- `isp_tau_b_rec_I`, `isp_tau_b_rel_I`: `(K, n_I)`
 
 Plus `a_0` at `(K, N)` which was *always* per-neuron in both cells (not just batched).
 
@@ -78,11 +78,11 @@ if any(c.echo for c in configs):
 Both touch `W_raw` only. No `requires_grad_(False)` calls and no grad hooks are applied to the other learnable parameters.
 
 **What's supposed to be frozen (per intent) but isn't.** All of:
-- `log_tau_d` (dendritic time constant)
-- `log_tau_global` (global timescale multiplier)
-- `log_tau_a_E`, `log_tau_a_I`, `log_tau_a_E_lo`/`hi` (SFA timescales)
-- `log_c_E`, `log_c_I`, `c_0_E`, `c_0_I` (SFA adaptation weights and offsets)
-- `log_tau_b_rec_E`, `log_tau_b_rel_E`, `log_tau_b_rec_I`, `log_tau_b_rel_I` (STD timescales)
+- `isp_tau_d` (dendritic time constant)
+- `isp_tau_global` (global timescale multiplier)
+- `isp_tau_a_E`, `isp_tau_a_I`, `isp_tau_a_E_lo`/`hi` (SFA timescales)
+- `isp_c_E`, `isp_c_I`, `c_0_E`, `c_0_I` (SFA adaptation weights and offsets)
+- `isp_tau_b_rec_E`, `isp_tau_b_rel_E`, `isp_tau_b_rec_I`, `isp_tau_b_rel_I` (STD timescales)
 - `a_0` (firing threshold)
 
 **What is frozen correctly.** `W_raw` only. The echo grad mask in batched mode is per-variant and applies cleanly (`echo_flags: (K, 1, 1)` broadcasting against `W_raw: (K, N, N)` gradient), so mixing echo and non-echo variants in one batched run does not cross-contaminate `W_raw` training.
@@ -93,7 +93,7 @@ Both touch `W_raw` only. No `requires_grad_(False)` calls and no grad hooks are 
 - When citing against ESN / reservoir-computing literature, do not label current results as "reservoir" or "ESN" without qualification.
 
 **Fix sketch for later.**
-- **Single cell**: after parameter creation, when `config.echo` is true, also call `.requires_grad_(False)` on `log_tau_d`, `log_tau_global`, `log_tau_a_E`, `log_tau_a_I`, `log_tau_a_E_lo`, `log_tau_a_E_hi`, `log_c_E`, `log_c_I`, `c_0_E`, `c_0_I`, `log_tau_b_rec_E`, `log_tau_b_rel_E`, `log_tau_b_rec_I`, `log_tau_b_rel_I`, and `a_0`.
+- **Single cell**: after parameter creation, when `config.echo` is true, also call `.requires_grad_(False)` on `isp_tau_d`, `isp_tau_global`, `isp_tau_a_E`, `isp_tau_a_I`, `isp_tau_a_E_lo`, `isp_tau_a_E_hi`, `isp_c_E`, `isp_c_I`, `c_0_E`, `c_0_I`, `isp_tau_b_rec_E`, `isp_tau_b_rel_E`, `isp_tau_b_rec_I`, `isp_tau_b_rel_I`, and `a_0`.
 - **Batched cell**: extend the grad-hook pattern — register a `grad * _echo_grad_mask_broadcasted` hook on each of the above parameters, with the mask reshaped to broadcast against the respective `(K, ...)` parameter shape.
 - Readout head lives in `SequenceModel` and is already per-variant, so it needs no change.
 - Fix interacts with §1: even after applying the above freezes, non-per-neuron semantics for `per_neuron=False` variants would still not hold — but for echo variants that point becomes moot because all the per-neuron-shaped params are frozen at init values anyway.
@@ -386,12 +386,12 @@ The `loss.item()` at line 525 in the non-K path is fine (one sync per step at K=
 
 ```python
 def _tau_d(self) -> torch.Tensor:
-    """(K, N) = tau_global · exp(log_tau_d_gain) · softplus(log_tau_d_vec)"""
+    """(K, N) = tau_global · exp(log_tau_d_gain) · softplus(isp_tau_d_vec)"""
     gain = torch.exp(self.log_tau_d_gain).view(self.K, 1)
-    return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.log_tau_d_vec)
+    return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.isp_tau_d_vec)
 ```
 
-i.e. `softplus` on the per-neuron base and on `log_tau_global` (via `_tau_global`), `exp` on the per-class log-gain. Same pattern for every other timescale and for the SFA coupling `c`.
+i.e. `softplus` on the per-neuron base and on `isp_tau_global` (via `_tau_global`), `exp` on the per-class log-gain. Same pattern for every other timescale and for the SFA coupling `c`.
 
 **Why the asymmetry exists.**
 
@@ -403,8 +403,8 @@ Both differences are stylistic, not load-bearing.
 **Practical consequences.**
 
 - Reading code that builds an effective parameter requires knowing which transform applies to which factor.
-- Plots of *raw* `log_*` parameters mix two different scales: `log_tau_d_vec` lives in inv-softplus space (where `value = softplus(raw)`), while `log_tau_d_gain` lives in true log-space (where `value = exp(raw)`). Comparing magnitudes across these names is misleading.
-- The "log_" prefix is technically inaccurate for the softplus-transformed parameters — `log_tau_d_vec` is not actually a logarithm of $\tau_d$. Kept for backward compatibility with checkpoints and documentation.
+- Plots of *raw* parameters mix two different scales: `isp_tau_d_vec` lives in inv-softplus space (where `value = softplus(raw)`), while `log_tau_d_gain` lives in true log-space (where `value = exp(raw)`). Comparing magnitudes across these names is misleading.
+- The prefix now distinguishes them: `isp_*` for inverse-softplus, `log_*_gain` for true log. Pre-rename checkpoints (param keys still spelled `log_*_vec` / `log_tau_global` etc.) will not load into the renamed model without a key-translation pass — no shim is shipped.
 - Postprocess analysis (`scripts/postprocess.py:effective_taus`) and the implementation section of `docs/equations.md` (\S 5.4-5.5) have to spell out the mixed transform every time they convert raw params to effective values.
 
 **Fix sketch (not planned).**
@@ -415,4 +415,4 @@ $$\tau_d = \exp\!\big(\ell_{\tau_g} + g_{\tau_d} + \ell^{\text{vec}}_{\tau_d, i}
 
 i.e. the three multiplicative pieces become additive in log-space, and the "log_" prefix becomes accurate everywhere. Init values would change ($\ell^{\text{vec}}_{\tau_d, i} = \log(0.1) \approx -2.30$ instead of $\sigma^{+,-1}(0.1) \approx -2.25$), and the linear-near-init behaviour of softplus would be lost — Adam steps in raw space would become *geometric* in $\tau_d$ rather than approximately linear. That's a real semantic change, not a no-op refactor; whether it speeds or slows convergence is empirical.
 
-**Why not fix now.** The asymmetry is benign — every analysis script and the docs already account for it. Switching parameterization invalidates checkpoints (the saved `log_tau_d_vec` values would be interpreted under the wrong transform) and changes the optimization geometry, so it would invalidate cross-run comparisons until everything is re-run. Tracked here so the next major refactor of the cell parameterization can adopt a unified transform.
+**Why not fix now.** The asymmetry is benign — every analysis script and the docs already account for it. Switching parameterization invalidates checkpoints (the saved `isp_tau_d_vec` values would be interpreted under the wrong transform) and changes the optimization geometry, so it would invalidate cross-run comparisons until everything is re-run. Tracked here so the next major refactor of the cell parameterization can adopt a unified transform.

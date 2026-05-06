@@ -1,4 +1,4 @@
-"""Single combined plot: all effective taus (tau_global * softplus(log_tau_x))
+"""Single combined plot: all effective taus (tau_global * softplus(isp_tau_x))
 on one axis, log-y, so their relative speeds are directly comparable."""
 import torch
 import torch.nn.functional as F
@@ -23,10 +23,10 @@ epochs = [c[2] for c in CKPTS]
 labels = [c[0] for c in CKPTS]
 sds = [load_sd(p) for _, p, _ in CKPTS]
 
-tg = np.array([F.softplus(sd["cell.log_tau_global"]).item() for sd in sds])
+tg = np.array([F.softplus(sd["cell.isp_tau_global"]).item() for sd in sds])
 
 def eff(key):
-    """Return effective tau = tau_global * softplus(log_tau_x) scalar per checkpoint."""
+    """Return effective tau = tau_global * softplus(isp_tau_x) scalar per checkpoint."""
     return np.array([
         (F.softplus(sd[key]).mean().item()) * tg[i]
         for i, sd in enumerate(sds)
@@ -34,11 +34,11 @@ def eff(key):
 
 series = {
     "tau_global":                  tg,
-    "tau_d (membrane)":             eff("cell.log_tau_d"),
-    "tau_a_E_lo (SFA short)":       eff("cell.log_tau_a_E_lo"),
-    "tau_a_E_hi (SFA long)":        eff("cell.log_tau_a_E_hi"),
-    "tau_b_rec_E (STD recovery)":   eff("cell.log_tau_b_rec_E"),
-    "tau_b_rel_E (STD release)":    eff("cell.log_tau_b_rel_E"),
+    "tau_d (membrane)":             eff("cell.isp_tau_d"),
+    "tau_a_E_lo (SFA short)":       eff("cell.isp_tau_a_E_lo"),
+    "tau_a_E_hi (SFA long)":        eff("cell.isp_tau_a_E_hi"),
+    "tau_b_rec_E (STD recovery)":   eff("cell.isp_tau_b_rec_E"),
+    "tau_b_rel_E (STD release)":    eff("cell.isp_tau_b_rel_E"),
 }
 
 fig, ax = plt.subplots(figsize=(9.5, 5.5))

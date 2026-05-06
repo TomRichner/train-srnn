@@ -133,23 +133,23 @@ def run_with_tau_global(tau_global_val):
         cell.W_in.copy_(torch.eye(N))
 
         # Scale all tau init values by tau_global
-        # tau = softplus(log_tau), so to multiply tau by g:
-        # new_log_tau = inv_softplus(g * softplus(log_tau))
+        # tau = softplus(isp_tau), so to multiply tau by g:
+        # new_isp_tau = inv_softplus(g * softplus(isp_tau))
         def rescale_log_tau(param, g):
             tau = F.softplus(param.data)
             param.data.copy_(torch.log(torch.exp(g * tau) - 1.0))
 
-        rescale_log_tau(cell.log_tau_d, tau_global_val)
-        if cell.log_tau_a_E is not None:
-            rescale_log_tau(cell.log_tau_a_E, tau_global_val)
-        if cell.log_tau_a_E_lo is not None:
-            rescale_log_tau(cell.log_tau_a_E_lo, tau_global_val)
-        if cell.log_tau_a_E_hi is not None:
-            rescale_log_tau(cell.log_tau_a_E_hi, tau_global_val)
-        if hasattr(cell, 'log_tau_b_rec_E') and cell.log_tau_b_rec_E is not None:
-            rescale_log_tau(cell.log_tau_b_rec_E, tau_global_val)
-        if hasattr(cell, 'log_tau_b_rel_E') and cell.log_tau_b_rel_E is not None:
-            rescale_log_tau(cell.log_tau_b_rel_E, tau_global_val)
+        rescale_log_tau(cell.isp_tau_d, tau_global_val)
+        if cell.isp_tau_a_E is not None:
+            rescale_log_tau(cell.isp_tau_a_E, tau_global_val)
+        if cell.isp_tau_a_E_lo is not None:
+            rescale_log_tau(cell.isp_tau_a_E_lo, tau_global_val)
+        if cell.isp_tau_a_E_hi is not None:
+            rescale_log_tau(cell.isp_tau_a_E_hi, tau_global_val)
+        if hasattr(cell, 'isp_tau_b_rec_E') and cell.isp_tau_b_rec_E is not None:
+            rescale_log_tau(cell.isp_tau_b_rec_E, tau_global_val)
+        if hasattr(cell, 'isp_tau_b_rel_E') and cell.isp_tau_b_rel_E is not None:
+            rescale_log_tau(cell.isp_tau_b_rel_E, tau_global_val)
 
     state = cell.init_state(batch_size=1)
 
@@ -169,7 +169,7 @@ def run_with_tau_global(tau_global_val):
 
             x_eff = x.clone()
             if a_E is not None:
-                c_E = F.softplus(cell.log_c_E)
+                c_E = F.softplus(cell.isp_c_E)
                 x_eff_E = x[:, :N_E] - (c_E * a_E).sum(-1)
                 x_eff = torch.cat([x_eff_E, x[:, N_E:]], dim=-1)
             r = piecewise_sigmoid(x_eff - cell.a_0)

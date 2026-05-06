@@ -32,19 +32,19 @@ def softplus(x):
 # (state_dict_suffix, display_name, transform, applies_to_batched)
 # All keys are relative to "cell." prefix in the state_dict.
 SCALAR_PARAMS = [
-    ("log_tau_global",   "tau_global",   softplus),
-    ("log_tau_d",        "tau_d",        softplus),
+    ("isp_tau_global",   "tau_global",   softplus),
+    ("isp_tau_d",        "tau_d",        softplus),
     ("a_0",              "a_0",          None),
-    ("log_tau_a_E",      "tau_a_E",      softplus),
-    ("log_c_E",          "c_E",          softplus),
+    ("isp_tau_a_E",      "tau_a_E",      softplus),
+    ("isp_c_E",          "c_E",          softplus),
     ("c_0_E",            "c_0_E",        None),
-    ("log_tau_a_I",      "tau_a_I",      softplus),
-    ("log_c_I",          "c_I",          softplus),
+    ("isp_tau_a_I",      "tau_a_I",      softplus),
+    ("isp_c_I",          "c_I",          softplus),
     ("c_0_I",            "c_0_I",        None),
-    ("log_tau_b_rec_E",  "tau_b_rec_E",  softplus),
-    ("log_tau_b_rel_E",  "tau_b_rel_E",  softplus),
-    ("log_tau_b_rec_I",  "tau_b_rec_I",  softplus),
-    ("log_tau_b_rel_I",  "tau_b_rel_I",  softplus),
+    ("isp_tau_b_rec_E",  "tau_b_rec_E",  softplus),
+    ("isp_tau_b_rel_E",  "tau_b_rel_E",  softplus),
+    ("isp_tau_b_rec_I",  "tau_b_rec_I",  softplus),
+    ("isp_tau_b_rel_I",  "tau_b_rel_I",  softplus),
 ]
 
 CHECKPOINT_TAGS = {

@@ -151,7 +151,7 @@ def run_simulation(solver_name, h=H, ode_unfolds=ODE_UNFOLDS):
 
             x_eff = x.clone()
             if a_E is not None:
-                c_E = F.softplus(cell.log_c_E)
+                c_E = F.softplus(cell.isp_c_E)
                 x_eff_E = x[:, :N_E] - (c_E * a_E).sum(-1)
                 x_eff = torch.cat([x_eff_E, x[:, N_E:]], dim=-1)
             r = piecewise_sigmoid(x_eff - cell.a_0)

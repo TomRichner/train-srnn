@@ -543,7 +543,7 @@ def plot_weight_evolution(run_dir: Path, snaps):
 # =============================================================================
 
 def effective_taus(ms, k):
-    tau_global = F.softplus(ms["cell.log_tau_global"])[k].item()
+    tau_global = F.softplus(ms["cell.isp_tau_global"])[k].item()
     out = {"tau_global": tau_global}
 
     def eff(vec_key, gain_key):
@@ -553,13 +553,13 @@ def effective_taus(ms, k):
         vec = F.softplus(ms[vec_key])[k].numpy()
         return tau_global * gain * vec
 
-    out["tau_d"] = eff("cell.log_tau_d_vec", "cell.log_tau_d_gain")
-    out["tau_a_E"] = eff("cell.log_tau_a_E_vec", "cell.log_tau_a_E_gain")
-    out["tau_a_I"] = eff("cell.log_tau_a_I_vec", "cell.log_tau_a_I_gain")
-    out["tau_b_rec_E"] = eff("cell.log_tau_b_rec_E_vec", "cell.log_tau_b_rec_E_gain")
-    out["tau_b_rel_E"] = eff("cell.log_tau_b_rel_E_vec", "cell.log_tau_b_rel_E_gain")
-    out["tau_b_rec_I"] = eff("cell.log_tau_b_rec_I_vec", "cell.log_tau_b_rec_I_gain")
-    out["tau_b_rel_I"] = eff("cell.log_tau_b_rel_I_vec", "cell.log_tau_b_rel_I_gain")
+    out["tau_d"] = eff("cell.isp_tau_d_vec", "cell.log_tau_d_gain")
+    out["tau_a_E"] = eff("cell.isp_tau_a_E_vec", "cell.log_tau_a_E_gain")
+    out["tau_a_I"] = eff("cell.isp_tau_a_I_vec", "cell.log_tau_a_I_gain")
+    out["tau_b_rec_E"] = eff("cell.isp_tau_b_rec_E_vec", "cell.log_tau_b_rec_E_gain")
+    out["tau_b_rel_E"] = eff("cell.isp_tau_b_rel_E_vec", "cell.log_tau_b_rel_E_gain")
+    out["tau_b_rec_I"] = eff("cell.isp_tau_b_rec_I_vec", "cell.log_tau_b_rec_I_gain")
+    out["tau_b_rel_I"] = eff("cell.isp_tau_b_rel_I_vec", "cell.log_tau_b_rel_I_gain")
     return {k_: v for k_, v in out.items() if v is not None}
 
 
@@ -585,7 +585,7 @@ def effective_W_in(ms, k):
 
 
 def effective_c(ms, k, side):
-    vec_key = f"cell.log_c_{side}_vec"; gain_key = f"cell.log_c_{side}_gain"
+    vec_key = f"cell.isp_c_{side}_vec"; gain_key = f"cell.log_c_{side}_gain"
     if vec_key not in ms:
         return None
     gain = torch.exp(ms[gain_key])[k].item()

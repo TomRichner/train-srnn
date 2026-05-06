@@ -62,30 +62,30 @@ The single-cell version uses `a_0` of shape $(N,)$ with init $0.35$ and no scala
 
 | parameter | shape | init |
 |---|---|---|
-| `log_tau_global` | $(K,)$ | $\mathrm{softplus}^{-1}(\tau_g^{\text{init}})$, default $\tau_g^{\text{init}}=1$ |
+| `isp_tau_global` | $(K,)$ | $\mathrm{softplus}^{-1}(\tau_g^{\text{init}})$, default $\tau_g^{\text{init}}=1$ |
 
 ### 2.4 Dendritic time constant
 
 | parameter | shape | init |
 |---|---|---|
-| `log_tau_d_vec` | $(K, N)$ | $\mathrm{softplus}^{-1}(0.1)$ |
+| `isp_tau_d_vec` | $(K, N)$ | $\mathrm{softplus}^{-1}(0.1)$ |
 | `log_tau_d_gain` | $(K,)$ | $0$ |
 
 ### 2.5 SFA parameters (E side, present iff $n_{aE} > 0$)
 
 | parameter | shape | init |
 |---|---|---|
-| `log_tau_a_E_vec` | $(K, n_E, n_{aE}^{\max})$ | per-tier interpolation in inv-softplus space between $\mathrm{softplus}^{-1}(0.25)$ and $\mathrm{softplus}^{-1}(10)$, equally spaced over $j=0,\dots,n_{aE}-1$; $0$ for inactive tiers |
+| `isp_tau_a_E_vec` | $(K, n_E, n_{aE}^{\max})$ | per-tier interpolation in inv-softplus space between $\mathrm{softplus}^{-1}(0.25)$ and $\mathrm{softplus}^{-1}(10)$, equally spaced over $j=0,\dots,n_{aE}-1$; $0$ for inactive tiers |
 | `log_tau_a_E_gain` | $(K,)$ | $0$ |
-| `log_c_E_vec` | $(K, n_E, n_{aE}^{\max})$ | $\mathrm{softplus}^{-1}(0.05)$ |
+| `isp_c_E_vec` | $(K, n_E, n_{aE}^{\max})$ | $\mathrm{softplus}^{-1}(0.05)$ |
 | `log_c_E_gain` | $(K,)$ | $0$ |
 | `c_0_E_vec` | $(K, n_E, n_{aE}^{\max})$ | $0$ |
 | `c_0_E_scalar` | $(K,)$ | $0$ |
 
-In the *single* `SRNNCell` for $n_{aE}=1$ the param is `log_tau_a_E` of shape
+In the *single* `SRNNCell` for $n_{aE}=1$ the param is `isp_tau_a_E` of shape
 $(\text{base}_E, 1)$ where $\text{base}_E = (n_E,)$ if `per_neuron` else $(1,)$.
-For $n_{aE} \ge 2$, the single cell stores only endpoints `log_tau_a_E_lo`,
-`log_tau_a_E_hi` and interpolates in log space at runtime — see §4.4.
+For $n_{aE} \ge 2$, the single cell stores only endpoints `isp_tau_a_E_lo`,
+`isp_tau_a_E_hi` and interpolates in log space at runtime — see §4.4.
 
 ### 2.6 SFA parameters (I side, present iff $n_{aI} > 0$)
 
@@ -95,9 +95,9 @@ Same structure as §2.5, with $n_E\to n_I$ and `_E_`→`_I_`.
 
 | parameter | shape | init |
 |---|---|---|
-| `log_tau_b_rec_E_vec` | $(K, n_E)$ | $\mathrm{softplus}^{-1}(1.0)$ |
+| `isp_tau_b_rec_E_vec` | $(K, n_E)$ | $\mathrm{softplus}^{-1}(1.0)$ |
 | `log_tau_b_rec_E_gain` | $(K,)$ | $0$ |
-| `log_tau_b_rel_E_vec` | $(K, n_E)$ | $\mathrm{softplus}^{-1}(0.25)$ |
+| `isp_tau_b_rel_E_vec` | $(K, n_E)$ | $\mathrm{softplus}^{-1}(0.25)$ |
 | `log_tau_b_rel_E_gain` | $(K,)$ | $0$ |
 
 ### 2.8 STD parameters (I side, present iff $n_{bI} > 0$)
@@ -138,7 +138,7 @@ Single-cell mode uses a single `nn.Linear(E, O)`.
 | `sfa_I_mask` | $(K, 1, n_{aI}^{\max})$ | analogous |
 | `std_E_mask` | $(K, 1)$ | $\{0,1\}$ — whether STD-E is active for variant $k$ |
 | `std_I_mask` | $(K, 1)$ | analogous |
-| `_a_0_vec_mask`, `_log_tau_*_vec_mask`, `_log_c_*_vec_mask`, `_c_0_*_vec_mask` | per-param, broadcast-ready | per-variant `per_neuron` flag (1 for per-neuron, 0 otherwise), multiplied into the corresponding gradient via `register_hook` so that non–per-neuron variants keep their `_vec` params frozen at init |
+| `_a_0_vec_mask`, `_isp_tau_*_vec_mask`, `_isp_c_*_vec_mask`, `_c_0_*_vec_mask` | per-param, broadcast-ready | per-variant `per_neuron` flag (1 for per-neuron, 0 otherwise), multiplied into the corresponding gradient via `register_hook` so that non–per-neuron variants keep their `_vec` params frozen at init |
 | `readout_ids` | $(K,)$ | $\{0,1,2\}$ — synaptic / rate / dendritic readout selector per variant |
 
 ---
@@ -585,7 +585,7 @@ Selects the per-cell output (§8).
 
 ### 11.9 `tau_global_init` (default $1.0$)
 
-Sets the init of `log_tau_global` to $\mathrm{softplus}^{-1}(\tau_g^{\text{init}})$.
+Sets the init of `isp_tau_global` to $\mathrm{softplus}^{-1}(\tau_g^{\text{init}})$.
 
 ---
 

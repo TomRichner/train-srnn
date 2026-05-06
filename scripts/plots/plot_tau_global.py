@@ -1,4 +1,4 @@
-"""Extract and plot log_tau_global (as effective tau_global via softplus)
+"""Extract and plot isp_tau_global (as effective tau_global via softplus)
 across the 4 available checkpoints of srnn_e_only on cmp-20ep."""
 import torch
 import torch.nn.functional as F
@@ -11,24 +11,24 @@ CKPTS = [
     ("epoch 19",   "tmp/cmp-20ep/srnn_e_only_ckpts/last.pt",      19),
 ]
 
-def get_log_tau_global(path):
+def get_isp_tau_global(path):
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
     # State dict may be nested under "model_state_dict" or flat.
     if isinstance(ckpt, dict):
         sd = ckpt.get("model_state_dict", ckpt.get("state_dict", ckpt))
     else:
         sd = ckpt.state_dict()
-    # Find any key ending with 'log_tau_global'.
-    matches = [k for k in sd.keys() if k.endswith("log_tau_global")]
+    # Find any key ending with 'isp_tau_global'.
+    matches = [k for k in sd.keys() if k.endswith("isp_tau_global")]
     assert len(matches) == 1, f"expected one match, got {matches}"
     return sd[matches[0]].item()
 
 rows = []
 for name, path, ep in CKPTS:
-    lg = get_log_tau_global(path)
+    lg = get_isp_tau_global(path)
     tau = F.softplus(torch.tensor(lg)).item()
     rows.append((name, ep, lg, tau))
-    print(f"{name:10s}  log_tau_global={lg:+.4f}  softplus→tau_global={tau:.4f}")
+    print(f"{name:10s}  isp_tau_global={lg:+.4f}  softplus→tau_global={tau:.4f}")
 
 # Plot: x=epoch (use -1 for 'init'), y=effective tau_global
 xs = [-1 if ep is None else ep for _, ep, _, _ in rows]

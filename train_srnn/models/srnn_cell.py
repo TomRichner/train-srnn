@@ -216,80 +216,80 @@ class SRNNCell(nn.Module):
         self.a_0 = nn.Parameter(torch.full((N,), 0.35))
 
         # ---- Global timescale multiplier ----
-        self.log_tau_global = nn.Parameter(
+        self.isp_tau_global = nn.Parameter(
             torch.full((), inv_softplus(config.tau_global_init))
         )
 
         # ---- Dendritic time constant ----
         tau_d_shape = (N,) if config.per_neuron else (1,)
-        self.log_tau_d = nn.Parameter(torch.full(tau_d_shape, inv_softplus(0.1)))
+        self.isp_tau_d = nn.Parameter(torch.full(tau_d_shape, inv_softplus(0.1)))
 
         # ---- SFA parameters for E ----
         if config.n_a_E > 0:
             base_E = (n_E,) if config.per_neuron else (1,)
             if config.n_a_E == 1:
-                self.log_tau_a_E = nn.Parameter(
+                self.isp_tau_a_E = nn.Parameter(
                     torch.full((*base_E, 1), inv_softplus(1.0)))
-                self.log_tau_a_E_lo = None
-                self.log_tau_a_E_hi = None
+                self.isp_tau_a_E_lo = None
+                self.isp_tau_a_E_hi = None
             else:
                 # Store lo/hi endpoints; interpolate n_a_E values at runtime
-                self.log_tau_a_E = None
-                self.log_tau_a_E_lo = nn.Parameter(
+                self.isp_tau_a_E = None
+                self.isp_tau_a_E_lo = nn.Parameter(
                     torch.full((*base_E, 1), inv_softplus(0.25)))
-                self.log_tau_a_E_hi = nn.Parameter(
+                self.isp_tau_a_E_hi = nn.Parameter(
                     torch.full((*base_E, 1), inv_softplus(10.0)))
             c_E_shape = (n_E, config.n_a_E) if config.per_neuron else (1, config.n_a_E)
-            self.log_c_E = nn.Parameter(torch.full(c_E_shape, inv_softplus(0.05)))
+            self.isp_c_E = nn.Parameter(torch.full(c_E_shape, inv_softplus(0.05)))
             self.c_0_E = nn.Parameter(torch.zeros(c_E_shape))
         else:
-            self.log_tau_a_E = None
-            self.log_tau_a_E_lo = None
-            self.log_tau_a_E_hi = None
-            self.log_c_E = None
+            self.isp_tau_a_E = None
+            self.isp_tau_a_E_lo = None
+            self.isp_tau_a_E_hi = None
+            self.isp_c_E = None
             self.c_0_E = None
 
         # ---- SFA parameters for I ----
         if config.n_a_I > 0:
             base_I = (n_I,) if config.per_neuron else (1,)
             if config.n_a_I == 1:
-                self.log_tau_a_I = nn.Parameter(
+                self.isp_tau_a_I = nn.Parameter(
                     torch.full((*base_I, 1), inv_softplus(1.0)))
-                self.log_tau_a_I_lo = None
-                self.log_tau_a_I_hi = None
+                self.isp_tau_a_I_lo = None
+                self.isp_tau_a_I_hi = None
             else:
-                self.log_tau_a_I = None
-                self.log_tau_a_I_lo = nn.Parameter(
+                self.isp_tau_a_I = None
+                self.isp_tau_a_I_lo = nn.Parameter(
                     torch.full((*base_I, 1), inv_softplus(0.25)))
-                self.log_tau_a_I_hi = nn.Parameter(
+                self.isp_tau_a_I_hi = nn.Parameter(
                     torch.full((*base_I, 1), inv_softplus(10.0)))
             c_I_shape = (n_I, config.n_a_I) if config.per_neuron else (1, config.n_a_I)
-            self.log_c_I = nn.Parameter(torch.full(c_I_shape, inv_softplus(0.05)))
+            self.isp_c_I = nn.Parameter(torch.full(c_I_shape, inv_softplus(0.05)))
             self.c_0_I = nn.Parameter(torch.zeros(c_I_shape))
         else:
-            self.log_tau_a_I = None
-            self.log_tau_a_I_lo = None
-            self.log_tau_a_I_hi = None
-            self.log_c_I = None
+            self.isp_tau_a_I = None
+            self.isp_tau_a_I_lo = None
+            self.isp_tau_a_I_hi = None
+            self.isp_c_I = None
             self.c_0_I = None
 
         # ---- STD parameters for E ----
         if config.n_b_E > 0:
             b_shape = (n_E,) if config.per_neuron else (1,)
-            self.log_tau_b_rec_E = nn.Parameter(torch.full(b_shape, inv_softplus(1.0)))
-            self.log_tau_b_rel_E = nn.Parameter(torch.full(b_shape, inv_softplus(0.25)))
+            self.isp_tau_b_rec_E = nn.Parameter(torch.full(b_shape, inv_softplus(1.0)))
+            self.isp_tau_b_rel_E = nn.Parameter(torch.full(b_shape, inv_softplus(0.25)))
         else:
-            self.log_tau_b_rec_E = None
-            self.log_tau_b_rel_E = None
+            self.isp_tau_b_rec_E = None
+            self.isp_tau_b_rel_E = None
 
         # ---- STD parameters for I ----
         if config.n_b_I > 0:
             b_shape = (n_I,) if config.per_neuron else (1,)
-            self.log_tau_b_rec_I = nn.Parameter(torch.full(b_shape, inv_softplus(1.0)))
-            self.log_tau_b_rel_I = nn.Parameter(torch.full(b_shape, inv_softplus(0.25)))
+            self.isp_tau_b_rec_I = nn.Parameter(torch.full(b_shape, inv_softplus(1.0)))
+            self.isp_tau_b_rel_I = nn.Parameter(torch.full(b_shape, inv_softplus(0.25)))
         else:
-            self.log_tau_b_rec_I = None
-            self.log_tau_b_rel_I = None
+            self.isp_tau_b_rec_I = None
+            self.isp_tau_b_rel_I = None
 
     # ---- Weight construction ----
 
@@ -392,18 +392,18 @@ class SRNNCell(nn.Module):
     # ---- Tau helpers (centralized, all scaled by tau_global) ----
 
     def _tau_global(self) -> torch.Tensor:
-        return F.softplus(self.log_tau_global)
+        return F.softplus(self.isp_tau_global)
 
     def _tau_d(self) -> torch.Tensor:
-        return self._tau_global() * F.softplus(self.log_tau_d)
+        return self._tau_global() * F.softplus(self.isp_tau_d)
 
     def _get_tau_a_E(self) -> torch.Tensor:
         """Get SFA time constants for E neurons, interpolating if multi-timescale."""
         g = self._tau_global()
-        if self.log_tau_a_E is not None:
-            return g * F.softplus(self.log_tau_a_E)
-        lo = F.softplus(self.log_tau_a_E_lo)
-        hi = F.softplus(self.log_tau_a_E_hi)
+        if self.isp_tau_a_E is not None:
+            return g * F.softplus(self.isp_tau_a_E)
+        lo = F.softplus(self.isp_tau_a_E_lo)
+        hi = F.softplus(self.isp_tau_a_E_hi)
         n = self.config.n_a_E
         t = torch.linspace(0.0, 1.0, n, device=lo.device)
         log_lo = torch.log(lo)
@@ -413,10 +413,10 @@ class SRNNCell(nn.Module):
     def _get_tau_a_I(self) -> torch.Tensor:
         """Get SFA time constants for I neurons, interpolating if multi-timescale."""
         g = self._tau_global()
-        if self.log_tau_a_I is not None:
-            return g * F.softplus(self.log_tau_a_I)
-        lo = F.softplus(self.log_tau_a_I_lo)
-        hi = F.softplus(self.log_tau_a_I_hi)
+        if self.isp_tau_a_I is not None:
+            return g * F.softplus(self.isp_tau_a_I)
+        lo = F.softplus(self.isp_tau_a_I_lo)
+        hi = F.softplus(self.isp_tau_a_I_hi)
         n = self.config.n_a_I
         t = torch.linspace(0.0, 1.0, n, device=lo.device)
         log_lo = torch.log(lo)
@@ -424,24 +424,24 @@ class SRNNCell(nn.Module):
         return g * torch.exp(log_lo + (log_hi - log_lo) * t)
 
     def _tau_b_rec_E(self) -> torch.Tensor:
-        return self._tau_global() * F.softplus(self.log_tau_b_rec_E)
+        return self._tau_global() * F.softplus(self.isp_tau_b_rec_E)
 
     def _tau_b_rel_E(self) -> torch.Tensor:
-        return self._tau_global() * F.softplus(self.log_tau_b_rel_E)
+        return self._tau_global() * F.softplus(self.isp_tau_b_rel_E)
 
     def _tau_b_rec_I(self) -> torch.Tensor:
-        return self._tau_global() * F.softplus(self.log_tau_b_rec_I)
+        return self._tau_global() * F.softplus(self.isp_tau_b_rec_I)
 
     def _tau_b_rel_I(self) -> torch.Tensor:
-        return self._tau_global() * F.softplus(self.log_tau_b_rel_I)
+        return self._tau_global() * F.softplus(self.isp_tau_b_rel_I)
 
     def _c_E(self) -> torch.Tensor:
         """SFA coupling for E (post-softplus). Mirrors BatchedSRNNCell._c_E."""
-        return F.softplus(self.log_c_E)
+        return F.softplus(self.isp_c_E)
 
     def _c_I(self) -> torch.Tensor:
         """SFA coupling for I (post-softplus). Mirrors BatchedSRNNCell._c_I."""
-        return F.softplus(self.log_c_I)
+        return F.softplus(self.isp_c_I)
 
     def _maybe_rescale_b(self, b_E, b_I):
         """Apply (b - b_min)/(1 - b_min) rescaling when std_zero_floor=True.
@@ -886,104 +886,104 @@ class BatchedSRNNCell(nn.Module):
         self.a_0_scalar = nn.Parameter(torch.zeros(self.K))
 
         # Global timescale multiplier: (K,) — one per variant
-        self.log_tau_global = nn.Parameter(torch.tensor(
+        self.isp_tau_global = nn.Parameter(torch.tensor(
             [inv_softplus(c.tau_global_init) for c in configs]
         ))
 
         # Dendritic time constant: (K, N) per-neuron vec + (K,) log-gain.
-        # effective_tau_d = exp(log_tau_d_gain) * softplus(log_tau_d_vec).
+        # effective_tau_d = exp(log_tau_d_gain) * softplus(isp_tau_d_vec).
         # Log-gain init 0 -> multiplicative identity.
-        self.log_tau_d_vec = nn.Parameter(torch.full((self.K, N), inv_softplus(0.1)))
+        self.isp_tau_d_vec = nn.Parameter(torch.full((self.K, N), inv_softplus(0.1)))
         self.log_tau_d_gain = nn.Parameter(torch.zeros(self.K))
 
         # ---- SFA E params: (K, n_E, max_n_a_E) per-neuron vecs + (K,) gains/scalars ----
         if self.max_n_a_E > 0:
-            log_tau_init = torch.zeros(self.K, n_E, self.max_n_a_E)
-            log_c_init = torch.full((self.K, n_E, self.max_n_a_E), inv_softplus(0.05))
+            isp_tau_init = torch.zeros(self.K, n_E, self.max_n_a_E)
+            isp_c_init = torch.full((self.K, n_E, self.max_n_a_E), inv_softplus(0.05))
             c_0_init = torch.zeros(self.K, n_E, self.max_n_a_E)
             for ki, c in enumerate(configs):
                 if c.n_a_E == 1:
-                    log_tau_init[ki, :, 0] = inv_softplus(1.0)
+                    isp_tau_init[ki, :, 0] = inv_softplus(1.0)
                 elif c.n_a_E >= 2:
                     # Interpolate n_a_E values between lo and hi (matches TF _make_tau_range)
                     lo_val = inv_softplus(0.25)
                     hi_val = inv_softplus(10.0)
                     for ai in range(c.n_a_E):
                         t = ai / (c.n_a_E - 1) if c.n_a_E > 1 else 0.5
-                        log_tau_init[ki, :, ai] = lo_val + (hi_val - lo_val) * t
+                        isp_tau_init[ki, :, ai] = lo_val + (hi_val - lo_val) * t
                 # else (n_a_E == 0): leave at 0 (masked out)
-            self.log_tau_a_E_vec = nn.Parameter(log_tau_init)
+            self.isp_tau_a_E_vec = nn.Parameter(isp_tau_init)
             self.log_tau_a_E_gain = nn.Parameter(torch.zeros(self.K))
-            self.log_c_E_vec = nn.Parameter(log_c_init)
+            self.isp_c_E_vec = nn.Parameter(isp_c_init)
             self.log_c_E_gain = nn.Parameter(torch.zeros(self.K))
             self.c_0_E_vec = nn.Parameter(c_0_init)
             self.c_0_E_scalar = nn.Parameter(torch.zeros(self.K))
         else:
-            self.log_tau_a_E_vec = None
+            self.isp_tau_a_E_vec = None
             self.log_tau_a_E_gain = None
-            self.log_c_E_vec = None
+            self.isp_c_E_vec = None
             self.log_c_E_gain = None
             self.c_0_E_vec = None
             self.c_0_E_scalar = None
 
         # ---- SFA I params: (K, n_I, max_n_a_I) per-neuron vecs + (K,) gains/scalars ----
         if self.max_n_a_I > 0:
-            log_tau_init = torch.zeros(self.K, n_I, self.max_n_a_I)
-            log_c_init = torch.full((self.K, n_I, self.max_n_a_I), inv_softplus(0.05))
+            isp_tau_init = torch.zeros(self.K, n_I, self.max_n_a_I)
+            isp_c_init = torch.full((self.K, n_I, self.max_n_a_I), inv_softplus(0.05))
             c_0_init = torch.zeros(self.K, n_I, self.max_n_a_I)
             for ki, c in enumerate(configs):
                 if c.n_a_I == 1:
-                    log_tau_init[ki, :, 0] = inv_softplus(1.0)
+                    isp_tau_init[ki, :, 0] = inv_softplus(1.0)
                 elif c.n_a_I >= 2:
                     lo_val = inv_softplus(0.25)
                     hi_val = inv_softplus(10.0)
                     for ai in range(c.n_a_I):
                         t = ai / (c.n_a_I - 1) if c.n_a_I > 1 else 0.5
-                        log_tau_init[ki, :, ai] = lo_val + (hi_val - lo_val) * t
-            self.log_tau_a_I_vec = nn.Parameter(log_tau_init)
+                        isp_tau_init[ki, :, ai] = lo_val + (hi_val - lo_val) * t
+            self.isp_tau_a_I_vec = nn.Parameter(isp_tau_init)
             self.log_tau_a_I_gain = nn.Parameter(torch.zeros(self.K))
-            self.log_c_I_vec = nn.Parameter(log_c_init)
+            self.isp_c_I_vec = nn.Parameter(isp_c_init)
             self.log_c_I_gain = nn.Parameter(torch.zeros(self.K))
             self.c_0_I_vec = nn.Parameter(c_0_init)
             self.c_0_I_scalar = nn.Parameter(torch.zeros(self.K))
         else:
-            self.log_tau_a_I_vec = None
+            self.isp_tau_a_I_vec = None
             self.log_tau_a_I_gain = None
-            self.log_c_I_vec = None
+            self.isp_c_I_vec = None
             self.log_c_I_gain = None
             self.c_0_I_vec = None
             self.c_0_I_scalar = None
 
         # ---- STD E params: (K, n_E) vecs + (K,) log-gains ----
         if self.max_n_b_E > 0:
-            self.log_tau_b_rec_E_vec = nn.Parameter(
+            self.isp_tau_b_rec_E_vec = nn.Parameter(
                 torch.full((self.K, n_E), inv_softplus(1.0))
             )
             self.log_tau_b_rec_E_gain = nn.Parameter(torch.zeros(self.K))
-            self.log_tau_b_rel_E_vec = nn.Parameter(
+            self.isp_tau_b_rel_E_vec = nn.Parameter(
                 torch.full((self.K, n_E), inv_softplus(0.25))
             )
             self.log_tau_b_rel_E_gain = nn.Parameter(torch.zeros(self.K))
         else:
-            self.log_tau_b_rec_E_vec = None
+            self.isp_tau_b_rec_E_vec = None
             self.log_tau_b_rec_E_gain = None
-            self.log_tau_b_rel_E_vec = None
+            self.isp_tau_b_rel_E_vec = None
             self.log_tau_b_rel_E_gain = None
 
         # ---- STD I params: (K, n_I) vecs + (K,) log-gains ----
         if self.max_n_b_I > 0:
-            self.log_tau_b_rec_I_vec = nn.Parameter(
+            self.isp_tau_b_rec_I_vec = nn.Parameter(
                 torch.full((self.K, n_I), inv_softplus(1.0))
             )
             self.log_tau_b_rec_I_gain = nn.Parameter(torch.zeros(self.K))
-            self.log_tau_b_rel_I_vec = nn.Parameter(
+            self.isp_tau_b_rel_I_vec = nn.Parameter(
                 torch.full((self.K, n_I), inv_softplus(0.25))
             )
             self.log_tau_b_rel_I_gain = nn.Parameter(torch.zeros(self.K))
         else:
-            self.log_tau_b_rec_I_vec = None
+            self.isp_tau_b_rec_I_vec = None
             self.log_tau_b_rec_I_gain = None
-            self.log_tau_b_rel_I_vec = None
+            self.isp_tau_b_rel_I_vec = None
             self.log_tau_b_rel_I_gain = None
 
         # ---- Ablation masks (buffers) ----
@@ -1032,26 +1032,26 @@ class BatchedSRNNCell(nn.Module):
 
         # a_0 (2-D: K, N) -> mask (K, 1)
         _install_vec_mask(self.a_0_vec, "_a_0_vec_mask", trailing_ones=1)
-        # log_tau_d (2-D: K, N) -> mask (K, 1)
-        _install_vec_mask(self.log_tau_d_vec, "_log_tau_d_vec_mask", trailing_ones=1)
+        # isp_tau_d (2-D: K, N) -> mask (K, 1)
+        _install_vec_mask(self.isp_tau_d_vec, "_isp_tau_d_vec_mask", trailing_ones=1)
         # SFA E (3-D: K, n_E, max_n_a_E) -> mask (K, 1, 1)
-        if self.log_tau_a_E_vec is not None:
-            _install_vec_mask(self.log_tau_a_E_vec, "_log_tau_a_E_vec_mask", trailing_ones=2)
-            _install_vec_mask(self.log_c_E_vec, "_log_c_E_vec_mask", trailing_ones=2)
+        if self.isp_tau_a_E_vec is not None:
+            _install_vec_mask(self.isp_tau_a_E_vec, "_isp_tau_a_E_vec_mask", trailing_ones=2)
+            _install_vec_mask(self.isp_c_E_vec, "_isp_c_E_vec_mask", trailing_ones=2)
             _install_vec_mask(self.c_0_E_vec, "_c_0_E_vec_mask", trailing_ones=2)
         # SFA I (3-D)
-        if self.log_tau_a_I_vec is not None:
-            _install_vec_mask(self.log_tau_a_I_vec, "_log_tau_a_I_vec_mask", trailing_ones=2)
-            _install_vec_mask(self.log_c_I_vec, "_log_c_I_vec_mask", trailing_ones=2)
+        if self.isp_tau_a_I_vec is not None:
+            _install_vec_mask(self.isp_tau_a_I_vec, "_isp_tau_a_I_vec_mask", trailing_ones=2)
+            _install_vec_mask(self.isp_c_I_vec, "_isp_c_I_vec_mask", trailing_ones=2)
             _install_vec_mask(self.c_0_I_vec, "_c_0_I_vec_mask", trailing_ones=2)
         # STD E (2-D: K, n_E) -> mask (K, 1)
-        if self.log_tau_b_rec_E_vec is not None:
-            _install_vec_mask(self.log_tau_b_rec_E_vec, "_log_tau_b_rec_E_vec_mask", trailing_ones=1)
-            _install_vec_mask(self.log_tau_b_rel_E_vec, "_log_tau_b_rel_E_vec_mask", trailing_ones=1)
+        if self.isp_tau_b_rec_E_vec is not None:
+            _install_vec_mask(self.isp_tau_b_rec_E_vec, "_isp_tau_b_rec_E_vec_mask", trailing_ones=1)
+            _install_vec_mask(self.isp_tau_b_rel_E_vec, "_isp_tau_b_rel_E_vec_mask", trailing_ones=1)
         # STD I (2-D)
-        if self.log_tau_b_rec_I_vec is not None:
-            _install_vec_mask(self.log_tau_b_rec_I_vec, "_log_tau_b_rec_I_vec_mask", trailing_ones=1)
-            _install_vec_mask(self.log_tau_b_rel_I_vec, "_log_tau_b_rel_I_vec_mask", trailing_ones=1)
+        if self.isp_tau_b_rec_I_vec is not None:
+            _install_vec_mask(self.isp_tau_b_rec_I_vec, "_isp_tau_b_rec_I_vec_mask", trailing_ones=1)
+            _install_vec_mask(self.isp_tau_b_rel_I_vec, "_isp_tau_b_rel_I_vec_mask", trailing_ones=1)
 
         # SFA masks: (K, 1, 1) -- broadcast-friendly
         if self.max_n_a_E > 0:
@@ -1134,42 +1134,42 @@ class BatchedSRNNCell(nn.Module):
 
     def _tau_global(self) -> torch.Tensor:
         """(K,)"""
-        return F.softplus(self.log_tau_global)
+        return F.softplus(self.isp_tau_global)
 
     def _tau_d(self) -> torch.Tensor:
-        """(K, N) = tau_global · exp(log_tau_d_gain) · softplus(log_tau_d_vec)"""
+        """(K, N) = tau_global · exp(log_tau_d_gain) · softplus(isp_tau_d_vec)"""
         gain = torch.exp(self.log_tau_d_gain).view(self.K, 1)
-        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.log_tau_d_vec)
+        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.isp_tau_d_vec)
 
     def _tau_a_E(self) -> torch.Tensor:
         """(K, n_E, max_n_a_E)"""
         gain = torch.exp(self.log_tau_a_E_gain).view(self.K, 1, 1)
-        return self._tau_global().reshape(self.K, 1, 1) * gain * F.softplus(self.log_tau_a_E_vec)
+        return self._tau_global().reshape(self.K, 1, 1) * gain * F.softplus(self.isp_tau_a_E_vec)
 
     def _tau_a_I(self) -> torch.Tensor:
         """(K, n_I, max_n_a_I)"""
         gain = torch.exp(self.log_tau_a_I_gain).view(self.K, 1, 1)
-        return self._tau_global().reshape(self.K, 1, 1) * gain * F.softplus(self.log_tau_a_I_vec)
+        return self._tau_global().reshape(self.K, 1, 1) * gain * F.softplus(self.isp_tau_a_I_vec)
 
     def _tau_b_rec_E(self) -> torch.Tensor:
         """(K, n_E)"""
         gain = torch.exp(self.log_tau_b_rec_E_gain).view(self.K, 1)
-        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.log_tau_b_rec_E_vec)
+        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.isp_tau_b_rec_E_vec)
 
     def _tau_b_rel_E(self) -> torch.Tensor:
         """(K, n_E)"""
         gain = torch.exp(self.log_tau_b_rel_E_gain).view(self.K, 1)
-        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.log_tau_b_rel_E_vec)
+        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.isp_tau_b_rel_E_vec)
 
     def _tau_b_rec_I(self) -> torch.Tensor:
         """(K, n_I)"""
         gain = torch.exp(self.log_tau_b_rec_I_gain).view(self.K, 1)
-        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.log_tau_b_rec_I_vec)
+        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.isp_tau_b_rec_I_vec)
 
     def _tau_b_rel_I(self) -> torch.Tensor:
         """(K, n_I)"""
         gain = torch.exp(self.log_tau_b_rel_I_gain).view(self.K, 1)
-        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.log_tau_b_rel_I_vec)
+        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.isp_tau_b_rel_I_vec)
 
     def _compute_b_full(self, b_E: torch.Tensor, b_I: torch.Tensor) -> torch.Tensor:
         """Build (K, B, N) effective synaptic gain from raw b_E, b_I state.
@@ -1216,12 +1216,12 @@ class BatchedSRNNCell(nn.Module):
     def _c_E(self) -> torch.Tensor:
         """(K, n_E, max_n_a_E) softplus-valued SFA coupling with per-variant log-gain."""
         gain = torch.exp(self.log_c_E_gain).view(self.K, 1, 1)
-        return gain * F.softplus(self.log_c_E_vec)
+        return gain * F.softplus(self.isp_c_E_vec)
 
     def _c_I(self) -> torch.Tensor:
         """(K, n_I, max_n_a_I) softplus-valued SFA coupling (I-side) with log-gain."""
         gain = torch.exp(self.log_c_I_gain).view(self.K, 1, 1)
-        return gain * F.softplus(self.log_c_I_vec)
+        return gain * F.softplus(self.isp_c_I_vec)
 
     def _c_0_E(self) -> torch.Tensor:
         """(K, n_E, max_n_a_E) SFA offset (E) = c_0_E_vec + c_0_E_scalar."""
