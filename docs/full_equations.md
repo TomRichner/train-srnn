@@ -83,14 +83,16 @@ stored in their natural space and can take any sign:
 |---|---|---|---|
 | `W_raw_gain` | $(K,)$ | $1.0$ | recurrent gain (ESN spectral-radius knob); free real |
 | `W_in_gain` | $(K,)$ | $1.0$ | input gain; free real |
+| `W_out_gain` | $(K,)$ | $1.0$ | readout-weight gain (lives on `SequenceModel`, not the cell); free real; bias unaffected |
 | `a_0_scalar` | $(K,)$ | $0.0$ | shared additive threshold offset |
 | `c_0_E_scalar`, `c_0_I_scalar` | $(K,)$ | $0.0$ | shared additive SFA-offset |
 | `c_0_E_vec`, `c_0_I_vec` | $(K, n_*, n_a^{\max})$ | $0.0$ | per-neuron SFA offsets |
 | `a_0_vec` | $(K, N)$ | $0.35$ | per-neuron threshold |
 
-Of these, `W_raw_gain` and `W_in_gain` initialise to $+1$ (multiplicative
-identity) but are *not* in log space — Adam can drive them negative,
-which would invert the sign of the recurrent / input drive. This is
+Of these, `W_raw_gain`, `W_in_gain`, and `W_out_gain` initialise to $+1$
+(multiplicative identity) but are *not* in log space — Adam can drive
+them negative, which would invert the sign of the corresponding linear
+projection. This is
 intentional in the current design (it lets the optimizer flip overall
 gain polarity if needed) but is a candidate for the cleanup.
 
@@ -493,18 +495,23 @@ output = is_synaptic * out_synaptic + is_rate * out_rate + is_dendritic * out_de
 ```
 
 In `SequenceModel`, this `output` is multiplied by the optional
-`output_mask`, projected through a $(K, O, N)$ readout head, then
-optionally augmented with a per-variant skip residual:
+`output_mask`, projected through a $(K, O, N)$ readout head with a
+per-variant scalar gain on the weight, then optionally augmented with
+a per-variant skip residual:
 
 ```
-logits = einsum("k...e,koe->k...o", out_t, readout_weight) + readout_bias
+W_out  = W_out_gain.view(K, 1, 1) * readout_weight
+logits = einsum("k...e,koe->k...o", out_t, W_out) + readout_bias
 if any_skip:
     logits = logits + skip_flags.view(K, 1, 1) * x_in_t       # autoregressive only
 ```
 
-`skip_flags` is the $(K,)$ buffer registered at line 1001;
-non-skip variants contribute $0$. The skip residual is in OUTPUT
-space (post-readout), not state space.
+`W_out_gain` is a free-real per-variant scalar (init 1.0) that scales
+the readout weight only — bias is left alone, matching the
+`W_in_gain` / `W_raw_gain` pattern on the cell. `skip_flags` is the
+$(K,)$ buffer registered at line 1001; non-skip variants contribute
+$0$. The skip residual is in OUTPUT space (post-readout, post-gain),
+not state space.
 
 ---
 
@@ -735,7 +742,7 @@ isp_c_*_vec            ->     softplus(.)
 log_c_*_gain           ->     exp(.)
 c_0_*_vec, c_0_*_scalar ->    identity (additive)
 a_0_vec, a_0_scalar    ->     identity (additive)
-W_raw_gain, W_in_gain  ->     identity (multiplicative; can go negative)
+W_raw_gain, W_in_gain, W_out_gain  ->  identity (multiplicative; can go negative)
 W_raw (Dale's on)      ->     dales_sign · softplus(.)
 W_raw (Dale's off)     ->     identity
 ```
@@ -812,7 +819,7 @@ has a checklist:
    parameters are now prefixed `isp_*` (e.g. `isp_tau_d_vec`,
    `isp_tau_a_E_vec`). Genuine log-space scalars keep `log_*_gain`.
    The transform is now a pure prefix lookup.
-3. **`W_raw_gain`, `W_in_gain` are unconstrained.** They initialise to
+3. **`W_raw_gain`, `W_in_gain`, `W_out_gain` are unconstrained.** They initialise to
    $+1$ but can be driven to any sign by the optimizer. Decide whether
    to (a) leave free, (b) constrain to $\mathbb{R}_{>0}$ via
    `softplus`, or (c) parameterise in log space. Same call as for the
@@ -848,6 +855,7 @@ has a checklist:
 | $b_{\min}$ | (derived in `_compute_b_full`) | STD zero-floor | $(n_*,)$ |
 | $g^W$ | `W_raw_gain` | recurrent gain | $()$ |
 | $g^{\text{in}}$ | `W_in_gain` | input gain | $()$ |
+| $g^{\text{out}}$ | `W_out_gain` (on `SequenceModel`) | readout-weight gain | $()$ |
 | $\tau_{\text{global}}$ | `_tau_global()` | global timescale multiplier | $()$ |
 | $d$ | `dales_mask` | Dale's flag | $()$ |
 | $s_j$ | `dales_signs` | column sign $\pm 1$ | $(N,)$ |

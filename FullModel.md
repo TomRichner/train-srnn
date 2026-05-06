@@ -48,6 +48,7 @@ broadcasted axis.
 | `W_in` | $(K, N, D)$ | $\mathcal N(0, 0.1^2)$ |
 | `W_raw_gain` | $(K,)$ | $1$ |
 | `W_in_gain` | $(K,)$ | $1$ |
+| `W_out_gain` | $(K,)$ | $1$ (lives on `SequenceModel`, not the cell — scales `readout_weight` only, not the bias) |
 
 ### 2.2 Threshold
 
@@ -610,6 +611,7 @@ stays fp32.
 | $g_W$ | `W_raw_gain` | $(K,)$ | yes |
 | $W^{\text{in}}$ | `W_in` | $(K, N, D)$ | yes |
 | $g_{W_{\text{in}}}$ | `W_in_gain` | $(K,)$ | yes |
+| $g_{W_{\text{out}}}$ | `W_out_gain` (on `SequenceModel`) | $(K,)$ | yes |
 | $a_0$ | `a_0_vec` $+$ `a_0_scalar` | $(K, N)$ + $(K,)$ | vec frozen iff not per_neuron |
 | $\tau_g$ | $\mathrm{softplus}(\texttt{log\_tau\_global})$ | $(K,)$ | yes |
 | $\tau_d$ | $\tau_g \cdot \exp(\texttt{log\_tau\_d\_gain}) \cdot \mathrm{softplus}(\texttt{log\_tau\_d\_vec})$ | $(K, N)$ | gain yes; vec only if per_neuron |

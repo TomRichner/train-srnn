@@ -43,6 +43,7 @@ FREEZE_NAME_MAP: dict[str, list[str]] = {
     "W_in":        ["W_in"],
     "W_raw_gain":  ["W_raw_gain"],
     "W_in_gain":   ["W_in_gain"],
+    "W_out_gain":  ["W_out_gain"],
     "tau_global":  ["isp_tau_global"],
     "tau_d":       ["isp_tau_d", "isp_tau_d_vec", "log_tau_d_gain"],
     "tau_a_E":     ["isp_tau_a_E", "isp_tau_a_E_lo", "isp_tau_a_E_hi",
@@ -73,11 +74,16 @@ def _apply_freeze_params(model, freeze_list):
             )
         hits = 0
         for attr in FREEZE_NAME_MAP[logical]:
-            p = getattr(cell, attr, None)
-            if isinstance(p, nn.Parameter):
-                p.requires_grad_(False)
-                frozen_attrs.append(f"cell.{attr}")
-                hits += 1
+            # Most params live on the cell (W_raw, taus, etc.); a few — like
+            # W_out_gain — live on the SequenceModel. Check cell first, then
+            # fall back to the model itself.
+            for owner, prefix in ((cell, "cell."), (model, "")):
+                p = getattr(owner, attr, None)
+                if isinstance(p, nn.Parameter):
+                    p.requires_grad_(False)
+                    frozen_attrs.append(f"{prefix}{attr}")
+                    hits += 1
+                    break
         if hits == 0:
             raise ValueError(
                 f"freeze_params: '{logical}' resolved to no Parameters on this cell "

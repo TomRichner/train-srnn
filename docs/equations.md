@@ -493,8 +493,17 @@ y_t \;=\; \mathbb{1}[\text{readout}=0]\,\tilde b\,r \;+\; \mathbb{1}[\text{reado
 $$
 
 evaluated at the final substep of the forward call. `SequenceModel`
-applies an output-neuron mask, a per-variant linear head, and (for
-`skip=True` variants) adds the residual $\alpha_k\, x_{\text{readout}}$
+applies an output-neuron mask, then a per-variant linear head with a
+per-variant scalar gain $g_{\text{out}}$ on the weight only:
+
+$$
+\hat y_t \;=\; (g_{\text{out},k}\, W_{\text{out},k})\, y_{t,k} \;+\; b_{\text{out},k}
+$$
+
+where $g_{\text{out}} = $ `W_out_gain` (free-real, init $1$, lives on
+`SequenceModel`, mirrors `W_in_gain` / `W_raw_gain`); the bias
+$b_{\text{out}}$ is unaffected. For `skip=True` variants, the residual
+$\alpha_k\, x_{\text{readout}}$ is added in output space (post-gain),
 where $\alpha_k$ is `skip_flags[k]`. Skip is only legal when
 `input_size == output_size` and is implemented in
 `train_srnn/models/sequence_model.py:_readout_one`.
@@ -527,6 +536,7 @@ step $0$. $\sigma^{+,-1}$ denotes inverse-softplus.
 |---|---|---|
 | $g_W$ (`W_raw_gain`) | $1$ | $1$ |
 | $g_{\text{in}}$ (`W_in_gain`) | $1$ | $1$ |
+| $g_{\text{out}}$ (`W_out_gain`, on `SequenceModel`) | $1$ | $1$ |
 | $W_{\text{raw}}$ | RMT-initialized real matrix (see `RMTMatrix`) | --- |
 | $W_{\text{in}}$ | $\mathcal{N}(0, 0.1^2)$ | --- |
 | $a_{0,i}^{\text{vec}}$ | $0.35$ | $0.35$ (since scalar = $0$) |
@@ -560,6 +570,7 @@ plus the `SequenceModel` readout head appears below.
 | $W_{\text{in}}$ | `cell.W_in` | $(K, N, D)$ | $\mathcal{N}(0, 0.01)$ | $W_{\text{in,eff}}$ via \S 5.2 |
 | $g_W$ | `cell.W_raw_gain` | $(K,)$ | $1$ | direct |
 | $g_{\text{in}}$ | `cell.W_in_gain` | $(K,)$ | $1$ | direct |
+| $g_{\text{out}}$ | `model.W_out_gain` | $(K,)$ | $1$ | scales `readout_weight`, leaves bias |
 | $a_0^{\text{vec}}$ | `cell.a_0_vec` | $(K, N)$ | $0.35$ | $a_0 = a_0^{\text{vec}} + a_0^{\text{scalar}}$ |
 | $a_0^{\text{scalar}}$ | `cell.a_0_scalar` | $(K,)$ | $0$ | as above |
 | $\ell_{\tau_g}$ | `cell.isp_tau_global` | $(K,)$ | $\sigma^{+,-1}(1)$ | $\tau_g = \sigma^{+}(\ell_{\tau_g})$ |

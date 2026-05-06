@@ -12,6 +12,7 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.utils.checkpoint
 
 from train_srnn.utils.cell_loop import empty_time_buffer, mark_cudagraph_step
@@ -130,8 +131,13 @@ class SequenceModel(nn.Module):
             for k in range(self._K):
                 nn.init.kaiming_uniform_(self.readout_weight[k], a=math.sqrt(5))
             self.readout = None  # sentinel: use batched readout path
+            # Per-variant scalar gain on the readout weight (mirrors W_in_gain /
+            # W_raw_gain on the cell). Free real, init 1.0 → identity at step 0.
+            self.W_out_gain = nn.Parameter(torch.ones(self._K))
         else:
             self.readout = nn.Linear(effective_output_size, output_size)
+            # Scalar gain on the readout weight (single-variant analogue).
+            self.W_out_gain = nn.Parameter(torch.tensor(1.0))
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -243,8 +249,11 @@ class SequenceModel(nn.Module):
 
         # Readout head
         if self._K is not None:
+            # Per-variant gain on the readout weight (W_out_gain analogue of
+            # W_in_gain / W_raw_gain). Bias unaffected.
+            W_out = self.W_out_gain.view(self._K, 1, 1) * self.readout_weight
             # einsum handles (K, B, E) -> (K, B, O); bias (K, 1, O) broadcasts.
-            logits = torch.einsum("k...e,koe->k...o", out_t, self.readout_weight)
+            logits = torch.einsum("k...e,koe->k...o", out_t, W_out)
             logits = logits + self.readout_bias
 
             if self._has_skip:
@@ -257,7 +266,9 @@ class SequenceModel(nn.Module):
                 logits = logits + skip_flags * x_in_kb
             return logits
         else:
-            return self.readout(out_t)
+            return F.linear(
+                out_t, self.W_out_gain * self.readout.weight, self.readout.bias
+            )
 
     # ------------------------------------------------------------------
     def _cl_run_segment(
@@ -602,11 +613,12 @@ class SequenceModel(nn.Module):
 
         # Readout head ---------------------------------------------------------
         if self._K is not None:
+            # Per-variant gain on the readout weight (mirrors W_in_gain /
+            # W_raw_gain on the cell). Bias unaffected.
+            W_out = self.W_out_gain.view(self._K, 1, 1) * self.readout_weight
             # einsum handles both (K, B, E) and (K, B, T, E) uniformly.
             # readout_weight: (K, O, E); readout_bias: (K, 1, O).
-            logits = torch.einsum(
-                "k...e,koe->k...o", out, self.readout_weight
-            )
+            logits = torch.einsum("k...e,koe->k...o", out, W_out)
             if logits.ndim == 4:
                 # (K, B, T, O) needs (K, 1, 1, O) bias for broadcasting.
                 logits = logits + self.readout_bias.unsqueeze(1)
@@ -630,8 +642,11 @@ class SequenceModel(nn.Module):
                     logits = logits + skip_flags * x_at_readout
             return logits
         else:
-            # nn.Linear broadcasts over leading dims: (B, E) or (B, T, E).
-            return self.readout(out)
+            # F.linear broadcasts over leading dims like nn.Linear; we use it
+            # so we can scale the weight by W_out_gain without monkey-patching.
+            return F.linear(
+                out, self.W_out_gain * self.readout.weight, self.readout.bias
+            )
 
     # ------------------------------------------------------------------
     def constrain_parameters(self):
