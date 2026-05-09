@@ -1,0 +1,194 @@
+Run: isp-rename-10e | Experiment: seeg | Model: srnn | Seed: 1
+Cleanup: keep | Skip-refresh: 0 | Branch: param-group-refactor | Workdir: /opt/train-srnn
+Fetching deploy key from Secret Manager...
+Existing repo at /opt/train-srnn; refreshing via git fetch + reset to param-group-refactor
+From github.com:TomRichner/train-srnn
+ * branch            param-group-refactor -> FETCH_HEAD
+HEAD is now at a7bb716 rename log_* → isp_* for inverse-softplus SRNN params
+Git commit: a7bb716  (full: a7bb7160992e72642088789814dc7c0923aeac74)
+Copying gs://liquidneuralnets-experiments/datasets/seeg/seeg_939_b4_awake_baseline.mat to file://train_srnn/data/seeg/seeg_939_b4_awake_baseline.mat
+Copying gs://liquidneuralnets-experiments/datasets/seeg/seeg_939_b4_awake_baseline_bp0p1-50.mat to file://train_srnn/data/seeg/seeg_939_b4_awake_baseline_bp0p1-50.mat
+  
+Copying gs://liquidneuralnets-experiments/datasets/seeg/seeg_939_b5_awake_stim.mat to file://train_srnn/data/seeg/seeg_939_b5_awake_stim.mat
+Copying gs://liquidneuralnets-experiments/datasets/seeg/seeg_939_b5_awake_stim_bp0p1-50.mat to file://train_srnn/data/seeg/seeg_939_b5_awake_stim_bp0p1-50.mat
+............
+
+Average throughput: 906.8MiB/s
+Installing Hydra stack into system Python...
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+Waiting for NVIDIA driver...
+  driver ready after 10s
+GPU sanity check:
+  torch: 2.9.1+cu129
+  CUDA:  12.9
+  GPU:   NVIDIA L4  (22 GB)
+=== Training start 2026-05-06T02:27:23+00:00 ===
+[2026-05-06 02:27:27,533][__main__][INFO] - Using device: cuda
+[2026-05-06 02:27:27,555][__main__][INFO] - AMP enabled: bf16 (autocast dtype=torch.bfloat16)
+[seeg] seeg_939_b4_awake_baseline_bp0p1-50.mat: n_chan=89, n_samples=240000, sr=250.0 Hz, duration=960.0s
+[2026-05-06 02:27:28,748][__main__][INFO] - Model parameters: 759744
+[2026-05-06 02:27:28,749][__main__][INFO] - Trainable parameters: 759744
+[2026-05-06 02:27:28,749][__main__][INFO] - torch.compile (cell-level) deferred to continuous trainer
+[2026-05-06 02:27:30,540][__main__][INFO] - LR schedule: warmup_epochs=24 (warmup_frac=0.2000, 30 scheduler steps), total_steps=150 (steps_per_epoch=15), max_lr=5.000e-04, cosine_decay=False
+[2026-05-06 02:27:39,080][__main__][INFO] - TrainableIC frozen after burn-in (freeze_ic_after_burnin=True)
+[2026-05-06 02:27:39,081][__main__][INFO] - Closed-loop enabled: baseline=0.300 (jitter=0.000), rnd density=0.00 sigma=0.00, t_warm=2500, pure-TF batch frac=0.20
+[2026-05-06 02:27:48,972][__main__][INFO] - Test [init @ epoch 0]:
+[2026-05-06 02:27:48,972][__main__][INFO] -   [srnn-e-only-per-neuron] test_loss=0.9004 test_metric=0.7296
+[2026-05-06 02:27:48,972][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0656 test_metric=0.1916
+[2026-05-06 02:27:48,972][__main__][INFO] -   [srnn-sfa-e-only-per-neuron] test_loss=0.9150 test_metric=0.7361
+[2026-05-06 02:27:48,972][__main__][INFO] -   [srnn-sfa-e-only-skip-per-neuron] test_loss=0.0812 test_metric=0.2163
+[2026-05-06 02:27:48,972][__main__][INFO] -   [srnn-std-e-only-per-neuron] test_loss=0.9008 test_metric=0.7302
+[2026-05-06 02:27:48,972][__main__][INFO] -   [srnn-std-e-only-skip-per-neuron] test_loss=0.0659 test_metric=0.1922
+[2026-05-06 02:27:48,989][__main__][INFO] - Dispatching to continuous trainer (train_trace shape=(179989, 89), GPU upload 0.014s)
+[2026-05-06 02:27:48,993][train_srnn.training.continuous][INFO] - Continuous training (per-reader-sweep): T=179989, B=48, chunk_len=250, steps_per_epoch=15, total_steps=150, checkpoint_interval=12, log_interval=12, K=6
+[2026-05-06 02:27:48,993][train_srnn.training.continuous][INFO] - Compiling cell (continuous trainer scope only); kwargs=(defaults)
+[2026-05-06 02:27:49,052][train_srnn.training.continuous][INFO] - Profiling enabled: per-phase timing breakdown will print after each epoch (backend=cuda.Event).
+[2026-05-06 02:27:49,093][train_srnn.training.continuous][INFO] - Epoch 0 start: positions[0]=0  state.norm=218.4230
+W0506 02:27:55.368000 1396 torch/_inductor/utils.py:1613] [0/0] Not enough SMs to use max_autotune_gemm mode
+[2026-05-06 02:28:50,724][train_srnn.training.continuous][INFO] - Epoch 0 (continuous, train-only, 61.7s): [srnn-e-only-per-neuron]=1.0006/0.7672 [srnn-e-only-skip-per-neuron]=0.1017/0.2376 [srnn-sfa-e-only-per-neuron]=1.0134/0.7725 [srnn-sfa-e-only-skip-per-neuron]=0.1265/0.2684 [srnn-std-e-only-per-neuron]=1.0009/0.7677 [srnn-std-e-only-skip-per-neuron]=0.1021/0.2381
+[2026-05-06 02:28:50,725][train_srnn.training.continuous][INFO] -   closed-loop: alpha_mean=0.200 alpha_max=0.300 pure_tf_frac=0.333
+[2026-05-06 02:28:50,726][train_srnn.training.continuous][INFO] - Phase breakdown [epoch 0] — total wall 61.7s (backend=cuda.Event; under grad_checkpoint=true, forward is recomputed during backward so backward includes recompute)
+[2026-05-06 02:28:50,726][train_srnn.training.continuous][INFO] -   backward              34.59s  (56.08%)
+[2026-05-06 02:28:50,726][train_srnn.training.continuous][INFO] -   forward               26.67s  (43.25%)
+[2026-05-06 02:28:50,726][train_srnn.training.continuous][INFO] -   optim_step             0.14s  ( 0.22%)
+[2026-05-06 02:28:50,726][train_srnn.training.continuous][INFO] -   loss                   0.12s  ( 0.20%)
+[2026-05-06 02:28:50,726][train_srnn.training.continuous][INFO] -   alpha_sample           0.06s  ( 0.10%)
+[2026-05-06 02:28:50,726][train_srnn.training.continuous][INFO] -   chunk_gather           0.00s  ( 0.01%)
+[2026-05-06 02:28:50,726][train_srnn.training.continuous][INFO] -   detach                 0.00s  ( 0.00%)
+[2026-05-06 02:28:50,726][train_srnn.training.continuous][INFO] -   (unaccounted)          0.08s  ( 0.13%)
+[2026-05-06 02:28:50,727][train_srnn.training.continuous][INFO] - Epoch 1 start: positions[0]=3750  state.norm=250.2280
+[2026-05-06 02:29:13,223][train_srnn.training.continuous][INFO] - Epoch 1 (continuous, train-only, 22.5s): [srnn-e-only-per-neuron]=1.0002/0.7670 [srnn-e-only-skip-per-neuron]=0.1050/0.2414 [srnn-sfa-e-only-per-neuron]=1.0052/0.7692 [srnn-sfa-e-only-skip-per-neuron]=0.1150/0.2543 [srnn-std-e-only-per-neuron]=1.0003/0.7674 [srnn-std-e-only-skip-per-neuron]=0.1052/0.2417
+[2026-05-06 02:29:13,224][train_srnn.training.continuous][INFO] -   closed-loop: alpha_mean=0.220 alpha_max=0.300 pure_tf_frac=0.267
+[2026-05-06 02:29:13,225][train_srnn.training.continuous][INFO] - Phase breakdown [epoch 1] — total wall 22.5s (backend=cuda.Event; under grad_checkpoint=true, forward is recomputed during backward so backward includes recompute)
+[2026-05-06 02:29:13,225][train_srnn.training.continuous][INFO] -   backward              16.32s  (72.52%)
+[2026-05-06 02:29:13,225][train_srnn.training.continuous][INFO] -   forward                6.02s  (26.74%)
+[2026-05-06 02:29:13,225][train_srnn.training.continuous][INFO] -   loss                   0.12s  ( 0.52%)
+[2026-05-06 02:29:13,226][train_srnn.training.continuous][INFO] -   optim_step             0.02s  ( 0.09%)
+[2026-05-06 02:29:13,226][train_srnn.training.continuous][INFO] -   alpha_sample           0.00s  ( 0.02%)
+[2026-05-06 02:29:13,226][train_srnn.training.continuous][INFO] -   chunk_gather           0.00s  ( 0.02%)
+[2026-05-06 02:29:13,226][train_srnn.training.continuous][INFO] -   detach                 0.00s  ( 0.01%)
+[2026-05-06 02:29:13,226][train_srnn.training.continuous][INFO] -   (unaccounted)          0.02s  ( 0.09%)
+[2026-05-06 02:29:13,226][train_srnn.training.continuous][INFO] - Epoch 2 start: positions[0]=7500  state.norm=245.9075
+[2026-05-06 02:29:37,491][train_srnn.training.continuous][INFO] - Epoch 2 (continuous, train-only, 24.3s): [srnn-e-only-per-neuron]=0.9995/0.7668 [srnn-e-only-skip-per-neuron]=0.1145/0.2536 [srnn-sfa-e-only-per-neuron]=1.0012/0.7676 [srnn-sfa-e-only-skip-per-neuron]=0.1181/0.2583 [srnn-std-e-only-per-neuron]=0.9995/0.7671 [srnn-std-e-only-skip-per-neuron]=0.1146/0.2537
+[2026-05-06 02:29:37,492][train_srnn.training.continuous][INFO] -   closed-loop: alpha_mean=0.280 alpha_max=0.300 pure_tf_frac=0.067
+[2026-05-06 02:29:37,493][train_srnn.training.continuous][INFO] - Phase breakdown [epoch 2] — total wall 24.3s (backend=cuda.Event; under grad_checkpoint=true, forward is recomputed during backward so backward includes recompute)
+[2026-05-06 02:29:37,493][train_srnn.training.continuous][INFO] -   backward              17.35s  (71.51%)
+[2026-05-06 02:29:37,493][train_srnn.training.continuous][INFO] -   forward                6.72s  (27.69%)
+[2026-05-06 02:29:37,493][train_srnn.training.continuous][INFO] -   loss                   0.14s  ( 0.57%)
+[2026-05-06 02:29:37,493][train_srnn.training.continuous][INFO] -   optim_step             0.02s  ( 0.10%)
+[2026-05-06 02:29:37,493][train_srnn.training.continuous][INFO] -   alpha_sample           0.01s  ( 0.02%)
+[2026-05-06 02:29:37,493][train_srnn.training.continuous][INFO] -   chunk_gather           0.00s  ( 0.01%)
+[2026-05-06 02:29:37,493][train_srnn.training.continuous][INFO] -   detach                 0.00s  ( 0.01%)
+[2026-05-06 02:29:37,493][train_srnn.training.continuous][INFO] -   (unaccounted)          0.02s  ( 0.09%)
+[2026-05-06 02:29:37,494][train_srnn.training.continuous][INFO] - Epoch 3 start: positions[0]=11250  state.norm=238.0811
+[2026-05-06 02:30:01,436][train_srnn.training.continuous][INFO] - Epoch 3 (continuous, train-only, 23.9s): [srnn-e-only-per-neuron]=0.9988/0.7664 [srnn-e-only-skip-per-neuron]=0.1143/0.2534 [srnn-sfa-e-only-per-neuron]=1.0004/0.7673 [srnn-sfa-e-only-skip-per-neuron]=0.1163/0.2560 [srnn-std-e-only-per-neuron]=0.9988/0.7669 [srnn-std-e-only-skip-per-neuron]=0.1143/0.2534
+[2026-05-06 02:30:01,436][train_srnn.training.continuous][INFO] -   closed-loop: alpha_mean=0.280 alpha_max=0.300 pure_tf_frac=0.067
+[2026-05-06 02:30:01,437][train_srnn.training.continuous][INFO] - Phase breakdown [epoch 3] — total wall 23.9s (backend=cuda.Event; under grad_checkpoint=true, forward is recomputed during backward so backward includes recompute)
+[2026-05-06 02:30:01,437][train_srnn.training.continuous][INFO] -   backward              17.35s  (72.47%)
+[2026-05-06 02:30:01,437][train_srnn.training.continuous][INFO] -   forward                6.40s  (26.75%)
+[2026-05-06 02:30:01,437][train_srnn.training.continuous][INFO] -   loss                   0.13s  ( 0.55%)
+[2026-05-06 02:30:01,437][train_srnn.training.continuous][INFO] -   optim_step             0.02s  ( 0.10%)
+[2026-05-06 02:30:01,437][train_srnn.training.continuous][INFO] -   alpha_sample           0.01s  ( 0.02%)
+[2026-05-06 02:30:01,437][train_srnn.training.continuous][INFO] -   chunk_gather           0.00s  ( 0.02%)
+[2026-05-06 02:30:01,437][train_srnn.training.continuous][INFO] -   detach                 0.00s  ( 0.01%)
+[2026-05-06 02:30:01,438][train_srnn.training.continuous][INFO] -   (unaccounted)          0.02s  ( 0.09%)
+[2026-05-06 02:30:01,438][train_srnn.training.continuous][INFO] - Epoch 4 start: positions[0]=15000  state.norm=237.8769
+[2026-05-06 02:30:23,992][train_srnn.training.continuous][INFO] - Epoch 4 (continuous, train-only, 22.6s): [srnn-e-only-per-neuron]=0.9977/0.7658 [srnn-e-only-skip-per-neuron]=0.1043/0.2406 [srnn-sfa-e-only-per-neuron]=1.0001/0.7672 [srnn-sfa-e-only-skip-per-neuron]=0.1056/0.2424 [srnn-std-e-only-per-neuron]=0.9978/0.7666 [srnn-std-e-only-skip-per-neuron]=0.1043/0.2406
+[2026-05-06 02:30:23,992][train_srnn.training.continuous][INFO] -   closed-loop: alpha_mean=0.220 alpha_max=0.300 pure_tf_frac=0.267
+[2026-05-06 02:30:23,993][train_srnn.training.continuous][INFO] - Phase breakdown [epoch 4] — total wall 22.6s (backend=cuda.Event; under grad_checkpoint=true, forward is recomputed during backward so backward includes recompute)
+[2026-05-06 02:30:23,994][train_srnn.training.continuous][INFO] -   backward              16.32s  (72.35%)
+[2026-05-06 02:30:23,994][train_srnn.training.continuous][INFO] -   forward                6.05s  (26.83%)
+[2026-05-06 02:30:23,994][train_srnn.training.continuous][INFO] -   loss                   0.14s  ( 0.60%)
+[2026-05-06 02:30:23,994][train_srnn.training.continuous][INFO] -   optim_step             0.02s  ( 0.08%)
+[2026-05-06 02:30:23,995][train_srnn.training.continuous][INFO] -   alpha_sample           0.00s  ( 0.02%)
+[2026-05-06 02:30:23,995][train_srnn.training.continuous][INFO] -   chunk_gather           0.00s  ( 0.02%)
+[2026-05-06 02:30:23,995][train_srnn.training.continuous][INFO] -   detach                 0.00s  ( 0.01%)
+[2026-05-06 02:30:23,995][train_srnn.training.continuous][INFO] -   (unaccounted)          0.02s  ( 0.09%)
+[2026-05-06 02:30:23,995][train_srnn.training.continuous][INFO] - Epoch 5 start: positions[0]=18750  state.norm=245.5723
+[2026-05-06 02:30:46,973][train_srnn.training.continuous][INFO] - Epoch 5 (continuous, train-only, 23.0s): [srnn-e-only-per-neuron]=0.9961/0.7648 [srnn-e-only-skip-per-neuron]=0.1076/0.2448 [srnn-sfa-e-only-per-neuron]=0.9998/0.7671 [srnn-sfa-e-only-skip-per-neuron]=0.1087/0.2464 [srnn-std-e-only-per-neuron]=0.9962/0.7663 [srnn-std-e-only-skip-per-neuron]=0.1076/0.2449
+[2026-05-06 02:30:46,974][train_srnn.training.continuous][INFO] -   closed-loop: alpha_mean=0.240 alpha_max=0.300 pure_tf_frac=0.200
+[2026-05-06 02:30:46,974][train_srnn.training.continuous][INFO] - Phase breakdown [epoch 5] — total wall 23.0s (backend=cuda.Event; under grad_checkpoint=true, forward is recomputed during backward so backward includes recompute)
+[2026-05-06 02:30:46,975][train_srnn.training.continuous][INFO] -   backward              16.66s  (72.49%)
+[2026-05-06 02:30:46,975][train_srnn.training.continuous][INFO] -   forward                6.14s  (26.70%)
+[2026-05-06 02:30:46,975][train_srnn.training.continuous][INFO] -   loss                   0.13s  ( 0.58%)
+[2026-05-06 02:30:46,976][train_srnn.training.continuous][INFO] -   optim_step             0.02s  ( 0.09%)
+[2026-05-06 02:30:46,976][train_srnn.training.continuous][INFO] -   alpha_sample           0.00s  ( 0.02%)
+[2026-05-06 02:30:46,976][train_srnn.training.continuous][INFO] -   chunk_gather           0.00s  ( 0.02%)
+[2026-05-06 02:30:46,976][train_srnn.training.continuous][INFO] -   detach                 0.00s  ( 0.01%)
+[2026-05-06 02:30:46,976][train_srnn.training.continuous][INFO] -   (unaccounted)          0.02s  ( 0.09%)
+[2026-05-06 02:30:46,976][train_srnn.training.continuous][INFO] - Epoch 6 start: positions[0]=22500  state.norm=237.9877
+[2026-05-06 02:31:10,245][train_srnn.training.continuous][INFO] - Epoch 6 (continuous, train-only, 23.3s): [srnn-e-only-per-neuron]=0.9942/0.7638 [srnn-e-only-skip-per-neuron]=0.1075/0.2447 [srnn-sfa-e-only-per-neuron]=0.9993/0.7669 [srnn-sfa-e-only-skip-per-neuron]=0.1084/0.2460 [srnn-std-e-only-per-neuron]=0.9939/0.7658 [srnn-std-e-only-skip-per-neuron]=0.1075/0.2447
+[2026-05-06 02:31:10,246][train_srnn.training.continuous][INFO] -   closed-loop: alpha_mean=0.240 alpha_max=0.300 pure_tf_frac=0.200
+[2026-05-06 02:31:10,246][train_srnn.training.continuous][INFO] - Phase breakdown [epoch 6] — total wall 23.3s (backend=cuda.Event; under grad_checkpoint=true, forward is recomputed during backward so backward includes recompute)
+[2026-05-06 02:31:10,246][train_srnn.training.continuous][INFO] -   backward              16.62s  (71.44%)
+[2026-05-06 02:31:10,246][train_srnn.training.continuous][INFO] -   forward                6.46s  (27.74%)
+[2026-05-06 02:31:10,246][train_srnn.training.continuous][INFO] -   loss                   0.14s  ( 0.59%)
+[2026-05-06 02:31:10,247][train_srnn.training.continuous][INFO] -   optim_step             0.02s  ( 0.09%)
+[2026-05-06 02:31:10,247][train_srnn.training.continuous][INFO] -   alpha_sample           0.00s  ( 0.02%)
+[2026-05-06 02:31:10,247][train_srnn.training.continuous][INFO] -   chunk_gather           0.00s  ( 0.02%)
+[2026-05-06 02:31:10,247][train_srnn.training.continuous][INFO] -   detach                 0.00s  ( 0.01%)
+[2026-05-06 02:31:10,247][train_srnn.training.continuous][INFO] -   (unaccounted)          0.02s  ( 0.09%)
+[2026-05-06 02:31:10,247][train_srnn.training.continuous][INFO] - Epoch 7 start: positions[0]=26250  state.norm=238.4523
+[2026-05-06 02:31:33,758][train_srnn.training.continuous][INFO] - Epoch 7 (continuous, train-only, 23.5s): [srnn-e-only-per-neuron]=0.9922/0.7630 [srnn-e-only-skip-per-neuron]=0.1109/0.2490 [srnn-sfa-e-only-per-neuron]=0.9989/0.7667 [srnn-sfa-e-only-skip-per-neuron]=0.1117/0.2501 [srnn-std-e-only-per-neuron]=0.9913/0.7652 [srnn-std-e-only-skip-per-neuron]=0.1109/0.2490
+[2026-05-06 02:31:33,758][train_srnn.training.continuous][INFO] -   closed-loop: alpha_mean=0.260 alpha_max=0.300 pure_tf_frac=0.133
+[2026-05-06 02:31:33,760][train_srnn.training.continuous][INFO] - Phase breakdown [epoch 7] — total wall 23.5s (backend=cuda.Event; under grad_checkpoint=true, forward is recomputed during backward so backward includes recompute)
+[2026-05-06 02:31:33,760][train_srnn.training.continuous][INFO] -   backward              17.03s  (72.42%)
+[2026-05-06 02:31:33,760][train_srnn.training.continuous][INFO] -   forward                6.29s  (26.75%)
+[2026-05-06 02:31:33,760][train_srnn.training.continuous][INFO] -   loss                   0.14s  ( 0.59%)
+[2026-05-06 02:31:33,760][train_srnn.training.continuous][INFO] -   optim_step             0.02s  ( 0.10%)
+[2026-05-06 02:31:33,760][train_srnn.training.continuous][INFO] -   alpha_sample           0.00s  ( 0.02%)
+[2026-05-06 02:31:33,760][train_srnn.training.continuous][INFO] -   chunk_gather           0.00s  ( 0.02%)
+[2026-05-06 02:31:33,760][train_srnn.training.continuous][INFO] -   detach                 0.00s  ( 0.01%)
+[2026-05-06 02:31:33,761][train_srnn.training.continuous][INFO] -   (unaccounted)          0.02s  ( 0.10%)
+[2026-05-06 02:31:33,761][train_srnn.training.continuous][INFO] - Epoch 8 start: positions[0]=30000  state.norm=247.2608
+[2026-05-06 02:31:57,631][train_srnn.training.continuous][INFO] - Epoch 8 (continuous, train-only, 23.9s): [srnn-e-only-per-neuron]=0.9901/0.7622 [srnn-e-only-skip-per-neuron]=0.1144/0.2533 [srnn-sfa-e-only-per-neuron]=0.9986/0.7666 [srnn-sfa-e-only-skip-per-neuron]=0.1151/0.2543 [srnn-std-e-only-per-neuron]=0.9885/0.7643 [srnn-std-e-only-skip-per-neuron]=0.1144/0.2533
+[2026-05-06 02:31:57,632][train_srnn.training.continuous][INFO] -   closed-loop: alpha_mean=0.280 alpha_max=0.300 pure_tf_frac=0.067
+[2026-05-06 02:31:57,633][train_srnn.training.continuous][INFO] - Phase breakdown [epoch 8] — total wall 23.9s (backend=cuda.Event; under grad_checkpoint=true, forward is recomputed during backward so backward includes recompute)
+[2026-05-06 02:31:57,633][train_srnn.training.continuous][INFO] -   backward              17.31s  (72.53%)
+[2026-05-06 02:31:57,633][train_srnn.training.continuous][INFO] -   forward                6.36s  (26.62%)
+[2026-05-06 02:31:57,633][train_srnn.training.continuous][INFO] -   loss                   0.15s  ( 0.61%)
+[2026-05-06 02:31:57,633][train_srnn.training.continuous][INFO] -   optim_step             0.02s  ( 0.10%)
+[2026-05-06 02:31:57,633][train_srnn.training.continuous][INFO] -   alpha_sample           0.01s  ( 0.02%)
+[2026-05-06 02:31:57,633][train_srnn.training.continuous][INFO] -   chunk_gather           0.00s  ( 0.02%)
+[2026-05-06 02:31:57,633][train_srnn.training.continuous][INFO] -   detach                 0.00s  ( 0.01%)
+[2026-05-06 02:31:57,633][train_srnn.training.continuous][INFO] -   (unaccounted)          0.02s  ( 0.09%)
+[2026-05-06 02:31:57,634][train_srnn.training.continuous][INFO] - Epoch 9 start: positions[0]=33750  state.norm=239.1245
+[2026-05-06 02:32:31,421][train_srnn.training.continuous][INFO] - Epoch 9 (continuous, 23.8s):
+[2026-05-06 02:32:31,422][train_srnn.training.continuous][INFO] -   [srnn-e-only-per-neuron] train_loss=0.9879 train_metric=0.7613 valid_loss=1.0280 valid_metric=0.7741
+[2026-05-06 02:32:31,422][train_srnn.training.continuous][INFO] -   [srnn-e-only-skip-per-neuron] train_loss=0.1109 train_metric=0.2489 valid_loss=0.0658 valid_metric=0.1914
+[2026-05-06 02:32:31,422][train_srnn.training.continuous][INFO] -   [srnn-sfa-e-only-per-neuron] train_loss=0.9979 train_metric=0.7663 valid_loss=1.0391 valid_metric=0.7794
+[2026-05-06 02:32:31,422][train_srnn.training.continuous][INFO] -   [srnn-sfa-e-only-skip-per-neuron] train_loss=0.1115 train_metric=0.2498 valid_loss=0.0661 valid_metric=0.1921
+[2026-05-06 02:32:31,422][train_srnn.training.continuous][INFO] -   [srnn-std-e-only-per-neuron] train_loss=0.9855 train_metric=0.7632 valid_loss=1.0254 valid_metric=0.7760
+[2026-05-06 02:32:31,422][train_srnn.training.continuous][INFO] -   [srnn-std-e-only-skip-per-neuron] train_loss=0.1109 train_metric=0.2490 valid_loss=0.0658 valid_metric=0.1915
+[2026-05-06 02:32:31,422][train_srnn.training.continuous][INFO] -   closed-loop: alpha_mean=0.260 alpha_max=0.300 pure_tf_frac=0.133
+[2026-05-06 02:32:41,475][__main__][INFO] - Test [epoch_009 @ epoch 9]:
+[2026-05-06 02:32:41,475][__main__][INFO] -   [srnn-e-only-per-neuron] test_loss=0.8910 test_metric=0.7251
+[2026-05-06 02:32:41,475][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0649 test_metric=0.1904
+[2026-05-06 02:32:41,475][__main__][INFO] -   [srnn-sfa-e-only-per-neuron] test_loss=0.8984 test_metric=0.7290
+[2026-05-06 02:32:41,475][__main__][INFO] -   [srnn-sfa-e-only-skip-per-neuron] test_loss=0.0652 test_metric=0.1910
+[2026-05-06 02:32:41,475][__main__][INFO] -   [srnn-std-e-only-per-neuron] test_loss=0.8908 test_metric=0.7271
+[2026-05-06 02:32:41,475][__main__][INFO] -   [srnn-std-e-only-skip-per-neuron] test_loss=0.0649 test_metric=0.1905
+[2026-05-06 02:32:41,476][train_srnn.training.continuous][INFO] - Phase breakdown [epoch 9] — total wall 43.8s (backend=cuda.Event; under grad_checkpoint=true, forward is recomputed during backward so backward includes recompute)
+[2026-05-06 02:32:41,476][train_srnn.training.continuous][INFO] -   backward              17.00s  (38.76%)
+[2026-05-06 02:32:41,476][train_srnn.training.continuous][INFO] -   test_eval             10.02s  (22.85%)
+[2026-05-06 02:32:41,476][train_srnn.training.continuous][INFO] -   valid_eval            10.01s  (22.83%)
+[2026-05-06 02:32:41,476][train_srnn.training.continuous][INFO] -   forward                6.60s  (15.04%)
+[2026-05-06 02:32:41,476][train_srnn.training.continuous][INFO] -   loss                   0.14s  ( 0.31%)
+[2026-05-06 02:32:41,476][train_srnn.training.continuous][INFO] -   checkpoint_save        0.03s  ( 0.08%)
+[2026-05-06 02:32:41,476][train_srnn.training.continuous][INFO] -   optim_step             0.02s  ( 0.05%)
+[2026-05-06 02:32:41,476][train_srnn.training.continuous][INFO] -   alpha_sample           0.00s  ( 0.01%)
+[2026-05-06 02:32:41,476][train_srnn.training.continuous][INFO] -   chunk_gather           0.00s  ( 0.01%)
+[2026-05-06 02:32:41,476][train_srnn.training.continuous][INFO] -   detach                 0.00s  ( 0.00%)
+[2026-05-06 02:32:41,476][train_srnn.training.continuous][INFO] -   io_log                 0.00s  ( 0.00%)
+[2026-05-06 02:32:41,476][train_srnn.training.continuous][INFO] -   (unaccounted)          0.02s  ( 0.05%)
+[2026-05-06 02:32:51,554][__main__][INFO] - Test [last @ epoch 9]:
+[2026-05-06 02:32:51,554][__main__][INFO] -   [srnn-e-only-per-neuron] test_loss=0.8910 test_metric=0.7251
+[2026-05-06 02:32:51,555][__main__][INFO] -   [srnn-e-only-skip-per-neuron] test_loss=0.0649 test_metric=0.1904
+[2026-05-06 02:32:51,555][__main__][INFO] -   [srnn-sfa-e-only-per-neuron] test_loss=0.8984 test_metric=0.7290
+[2026-05-06 02:32:51,555][__main__][INFO] -   [srnn-sfa-e-only-skip-per-neuron] test_loss=0.0652 test_metric=0.1910
+[2026-05-06 02:32:51,555][__main__][INFO] -   [srnn-std-e-only-per-neuron] test_loss=0.8908 test_metric=0.7271
+[2026-05-06 02:32:51,555][__main__][INFO] -   [srnn-std-e-only-skip-per-neuron] test_loss=0.0649 test_metric=0.1905
+  [periodic-upload] Epoch 10: uploading to GCS...
+=== Training complete 2026-05-06T02:32:54+00:00 ===
+SUCCESS
+=== Cleanup (exit=0) 2026-05-06T02:32:54+00:00 ===

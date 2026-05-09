@@ -7,13 +7,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/config.gpu.env"
 
 CLEANUP="delete"
-if [[ "${1:-}" == --cleanup=* ]]; then
-    CLEANUP="${1#--cleanup=}"
-    shift
-elif [ "${1:-}" = "--cleanup" ]; then
-    CLEANUP="${2:?--cleanup needs a value}"
-    shift 2
-fi
+BRANCH="main"
+while [[ "${1:-}" == --* ]]; do
+    case "$1" in
+        --cleanup=*) CLEANUP="${1#--cleanup=}"; shift ;;
+        --cleanup)   CLEANUP="${2:?--cleanup needs a value}"; shift 2 ;;
+        --branch=*)  BRANCH="${1#--branch=}"; shift ;;
+        --branch)    BRANCH="${2:?--branch needs a value}"; shift 2 ;;
+        *) echo "FATAL: unknown flag '$1'" >&2; exit 1 ;;
+    esac
+done
 case "$CLEANUP" in
     delete|stop|keep) ;;
     *) echo "FATAL: --cleanup must be delete|stop|keep, got '$CLEANUP'" >&2; exit 1 ;;
@@ -83,7 +86,7 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size="$BOOT_DISK_SIZE" \
     --boot-disk-type="$BOOT_DISK_TYPE" \
     --scopes=cloud-platform \
-    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,cleanup=$CLEANUP,skip-refresh=0,install-nvidia-driver=True" \
+    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,cleanup=$CLEANUP,skip-refresh=0,branch=$BRANCH,install-nvidia-driver=True" \
     --metadata-from-file="startup-script=$SCRIPT_DIR/startup_gpu.sh,train-args=$TRAIN_ARGS_FILE" \
     $SCHEDULING_ARGS \
     --quiet

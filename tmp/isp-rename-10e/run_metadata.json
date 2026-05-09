@@ -1,0 +1,16 @@
+{
+  "run_name": "isp-rename-10e",
+  "experiment": "seeg",
+  "model": "srnn",
+  "seed": 1,
+  "exit_code": 0,
+  "vm_name": "filt150-whoist-cl-srnn-seeg-seed1",
+  "hardware": "gpu-l4",
+  "start_time": "2026-05-06T02:27:11Z",
+  "completed": "2026-05-06T02:33:31Z",
+  "duration_seconds": 343,
+  "commit": "a7bb7160992e72642088789814dc7c0923aeac74",
+  "train_args": "epochs=100  epochs=10 batch_size=48 amp=bf16 continuous_profile=true lr=5e-4 batched_ablations=[srnn-e-only-per-neuron,srnn-e-only-skip-per-neuron,srnn-sfa-e-only-per-neuron,srnn-sfa-e-only-skip-per-neuron,srnn-std-e-only-per-neuron,srnn-std-e-only-skip-per-neuron] closed_loop.enabled=true",
+  "cleanup_mode": "keep",
+  "skip_refresh": 0
+}

@@ -1,0 +1,16 @@
+{
+  "run_name": "rk4-frz-a0c0e-300e",
+  "experiment": "seeg",
+  "model": "srnn",
+  "seed": 1,
+  "exit_code": 0,
+  "vm_name": "rk4-frz-a0c0e-300e-srnn-seeg-seed1",
+  "hardware": "gpu-l4",
+  "start_time": "2026-05-07T13:34:35Z",
+  "completed": "2026-05-07T17:02:12Z",
+  "duration_seconds": 12451,
+  "commit": "1c6c593ac0361a162be2eea3966d30a14b0201c8",
+  "train_args": "epochs=100 epochs=300 batch_size=48 amp=bf16 continuous_profile=true lr=5e-4 model.solver=rk4 batched_ablations=[srnn-e-only-per-neuron,srnn-e-only-skip-per-neuron,srnn-sfa-e-only-per-neuron,srnn-sfa-e-only-skip-per-neuron,srnn-std-e-only-per-neuron,srnn-std-e-only-skip-per-neuron] closed_loop.enabled=true freeze_params=[a_0,c_0_E]",
+  "cleanup_mode": "stop",
+  "skip_refresh": 0
+}
