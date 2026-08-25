@@ -10,8 +10,11 @@ PyTorch 2.2+ / Hydra reimplementation of liquid time-constant and spiking RNN ex
 
 Companion docs in the repo are authoritative deep references — read them when working on non-trivial changes:
 - `README.md` — model/task tables, CLI usage
-- `pytorch_hydra_code_data_structure.md` — exhaustive structure, tensor shapes, SRNN state layout, cloud infra
+- `pytorch_hydra_code_data_structure.md` — exhaustive structure, tensor shapes, SRNN state layout
+- `CurrentCloudArchitecture.md` — canonical, file-by-file description of `cloud/`. Read this before editing launch/startup scripts
+- `FullModel.md` — LaTeX-form spec of every parameter, buffer, ODE RHS, solver, and ablation knob, with code-symbol → math-symbol cheat sheet
 - `KnownIssues.md` — tracked limitations and bugs; check before making assumptions about SRNN/batched behavior
+
 
 ## Environment & worktrees
 
@@ -85,9 +88,13 @@ MATLAB MCP tools are available but not part of this Python project.
 
 **SRNN specifics.** Dale's law applied via `_effective_W` (softplus + sparsity_mask, inhibitory columns negated). Multi-timescale SFA: when `n_a_E >= 2`, learnable `isp_tau_a_E_lo`/`hi` endpoints are interpolated linearly across `n_a_E` timescales at runtime. `per_neuron=True` switches adaptation params from shape `(1,)` to `(n_E,)`/`(n_I,)` in `SRNNCell` — but note that `BatchedSRNNCell` always stores per-neuron regardless of the flag (see `KnownIssues.md §1`). `echo=True` freezes recurrent W (reservoir mode). Activation is `piecewise_sigmoid` with 5 regions.
 
-**Cloud (`cloud/`).** GCP VM-per-run model: `launch_run.sh` / `launch_all.sh` create VMs (scoped `cloud-platform`) whose `startup.sh` fetches an SSH deploy key from GCP Secret Manager (`train-srnn-deploy-key` in project `liquidneuralnets`), clones the private `train-srnn` repo via SSH, downloads the dataset from GCS, runs `train.py`, uploads results, and self-deletes. The deploy key is scrubbed from disk after clone. `monitor.sh` shows a model×task completion matrix; `collect_results.py` aggregates seed CSVs from GCS (handles both single-row and multi-row batched ablation CSVs). Per-task overrides live in `cloud/experiments/<task>.env`. Defaults in `cloud/config.env` (project, bucket, machine type — n4d requires hyperdisk-balanced). Cloud batched ablations: `bash cloud/launch_run.sh my-run smnist srnn 1 "batched_ablations='[srnn-E-only,srnn-e-only-echo]' epochs=15"` — `launch_run.sh` strips quotes and passes `train-args` via `--metadata-from-file` to avoid gcloud comma-delimiter issues; `startup.sh` uses `set -f` to prevent shell globbing of `[...]`.
+**Closed-loop training** (`train_srnn/training/closed_loop.py`). For autoregressive seeg-style forecasting tasks, `run_epoch_closed_loop` runs the model with **per-channel teacher forcing** (mixing prediction and ground truth via a learnable/scheduled `alpha` per channel) and a per-epoch `alpha_baseline` ramp. Supports gradient checkpointing through the unrolled segments via the `_cl_run_segment` helper (needed because the closed-loop unroll is too long for a single backward graph at typical chunk lengths). Activated by `closed_loop=true` in the task config; orthogonal to the standard `run_epoch` path used for classification tasks.
 
-**GPU dispatch (`cloud/launch_run_gpu.sh` + `cloud/submit.sh`).** Same VM-native model with three lifecycle modes set per-run via the `cleanup` metadata key: `delete` (one-shot, default), `stop` (self-stop after upload, ~$0.02/hr disk-only), `keep` (stay RUNNING for active dev). First launch: `bash cloud/launch_run_gpu.sh [--cleanup=delete|stop|keep] <run> <task> <model> <seed> [args]`. Subsequent dispatches to a stopped/running VM: `bash cloud/submit.sh <vm> <run> <task> <model> <seed> [--cleanup=...] [--skip-refresh] [args]` — writes per-run knobs via `gcloud compute instances add-metadata`, then `start` (if stopped) or `reset` (if running) to re-trigger `startup_gpu.sh`. No SSH tether to the local laptop; the laptop can sleep mid-run. `--skip-refresh` bypasses git fetch + dataset re-copy + pip check when iterating different ablations on the same code. Per-run output dir is `results/<task>/<run>_seed<seed>` so re-dispatches don't cross-contaminate. The exact full commit sha lands in `run_metadata.json.commit`.
+**Cloud (`cloud/`).** Two pipelines (CPU and GPU) sharing a VM-native pattern: `gcloud compute instances create --metadata-from-file=startup-script=...` boots a VM that pulls a deploy key from Secret Manager (`train-srnn-deploy-key` in project `liquidneuralnets`), clones the repo, downloads the dataset, runs `train.py`, uploads to `gs://liquidneuralnets-experiments/results-pytorch/<run>/<model>/<task>/seed<seed>/`, and self-deletes (or stays per `cleanup` metadata). **Read `CurrentCloudArchitecture.md` for the file-by-file breakdown** — the rest of this section only documents what isn't there.
+
+- **Batched ablations from CLI**: `bash cloud/launch_run.sh my-run smnist srnn 1 "batched_ablations='[srnn-E-only,srnn-e-only-echo]' epochs=15"`. `launch_run.sh` strips quotes and passes `train-args` via `--metadata-from-file` to dodge gcloud comma-delimiter parsing; `startup.sh` uses `set -f` to keep the shell from globbing `[...]`.
+- **GPU lifecycle modes** via the `cleanup` metadata key: `delete` (one-shot, default), `stop` (self-stop after upload, ~$0.02/hr disk-only), `keep` (stay RUNNING for active dev). First launch: `bash cloud/launch_run_gpu.sh [--cleanup=delete|stop|keep] <run> <task> <model> <seed> [args]` — defaults to `g2-standard-8` + 1× L4 per `cloud/config.gpu.env`. Re-dispatch to an existing VM: `bash cloud/submit.sh <vm> <run> <task> <model> <seed> [--cleanup=...] [--skip-refresh] [args]` writes per-run knobs via `gcloud compute instances add-metadata` then `start` (stopped) or `reset` (running) to re-trigger `startup_gpu.sh`. No SSH tether — the laptop can sleep mid-run. `--skip-refresh` bypasses git fetch + dataset re-copy + pip check when iterating different ablations on the same code.
+- Per-run output dir is `results/<task>/<run>_seed<seed>` so re-dispatches don't cross-contaminate. The full commit sha lands in `run_metadata.json.commit`.
 
 ## Analysis & plotting
 
@@ -104,14 +111,22 @@ Downloads `gs://<bucket>/results-pytorch/<run>/srnn/<task>/seed<seed>/` into `tm
 - `plot_all_taus.py`, `plot_tau_global.py`, `plot_effective_taus_overlay.py` — SRNN time-constant inspection
 - `plot_cmp_val_acc.py` — multi-run validation accuracy comparison
 - `plot_lstm_curves.py` — LSTM training-curve plot
-- `plot_kstep_forecast.py` — multi-step regression forecast quality
+- `plot_kstep_forecast.py`, `plot_seeg_forecast.py` — multi-step regression / seeg autoregressive forecast quality
+
+**Ablation comparison.**
+- `compare_ablations.py`, `compare_all_ablations.py` — bar/line plots across model variants at a fixed task. The `compare_all_ablations_N{32,64,128,256,300}.png` snapshots in the dir are saved outputs from prior sweeps at different `size=` values; regenerate by re-running with the same args.
+- `compare_solvers.py` — fixed-step solver comparison (Euler vs. Heun vs. RK4).
+- `check_weights.py` — quick `init.pt` / `last.pt` weight-distribution sanity check (histograms saved to `weight_histograms.png`).
+
+**Closed-loop tests** (numerical regression / behavioral sanity for the closed-loop pathway, run as plain Python):
+- `test_closed_loop_forward.py` — single-step prediction agrees with `run_epoch` when alpha=1
+- `test_closed_loop_grad_checkpoint.py` — gradients match between `_cl_run_segment` checkpointed and non-checkpointed paths
+- `test_closed_loop_schedule.py` — alpha ramp schedule produces the expected per-epoch values
 
 **Gradient diagnostics** (one-shot probes for chunk-len / direction-consistency questions, outputs in `tmp/grad_probe/`):
 - `scripts/grad_norm_probe.py` — sweeps `bptt_chunk_len ∈ {16…512}` on one real seeg batch, captures per-parameter `|∇θ|₂`. Variant list controlled by an `ABLATIONS` constant near the top.
 - `scripts/plot_grad_groups.py` — re-plots `grad_norms.csv` grouped by physical role (output / recurrent / dendritic / SFA / STD)
 - `scripts/grad_cosine_consistency.py` — runs N batches at fixed chunk_len, computes mean pairwise cosine of each param's gradient (≈1 = consistent, ≈0 = direction noise → Adam can't accumulate)
-
-**Authoritative model spec.** `FullModel.md` (and `FullModel.pdf` rendered via the `md2pdf` skill) gives the complete LaTeX-form description of every parameter, buffer, ODE RHS, solver, and ablation knob, with code-symbol → math-symbol cheat sheet. Read it before reasoning about effective values or what gates which path.
 
 Generated artifacts (`*.png`, `*.pt`) are gitignored. `tmp/` is NOT gitignored — it's the working scratch dir for downloaded GCS run bundles and ad-hoc analysis output. Keep heavy binaries out of commits; small CSVs are fine.
 
