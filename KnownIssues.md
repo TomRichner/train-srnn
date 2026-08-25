@@ -416,3 +416,41 @@ $$\tau_d = \exp\!\big(\ell_{\tau_g} + g_{\tau_d} + \ell^{\text{vec}}_{\tau_d, i}
 i.e. the three multiplicative pieces become additive in log-space, and the "log_" prefix becomes accurate everywhere. Init values would change ($\ell^{\text{vec}}_{\tau_d, i} = \log(0.1) \approx -2.30$ instead of $\sigma^{+,-1}(0.1) \approx -2.25$), and the linear-near-init behaviour of softplus would be lost — Adam steps in raw space would become *geometric* in $\tau_d$ rather than approximately linear. That's a real semantic change, not a no-op refactor; whether it speeds or slows convergence is empirical.
 
 **Why not fix now.** The asymmetry is benign — every analysis script and the docs already account for it. Switching parameterization invalidates checkpoints (the saved `isp_tau_d_vec` values would be interpreted under the wrong transform) and changes the optimization geometry, so it would invalidate cross-run comparisons until everything is re-run. Tracked here so the next major refactor of the cell parameterization can adopt a unified transform.
+
+---
+
+## 12. `--skip-refresh` is all-or-nothing in `cloud/submit.sh`
+
+**Summary.** `cloud/submit.sh`'s `--skip-refresh` flag bundles two unrelated refreshes into a single switch: (a) `git fetch` + `git checkout` to update the repo on the VM, and (b) `gcloud storage cp -r $BUCKET/datasets/$EXPERIMENT/*` to re-download the task dataset. There is no way to skip just one.
+
+**Where the limitation lives.**
+
+`cloud/startup_gpu.sh` (around lines 184-189):
+```bash
+# Step 2: Download dataset from GCS (skipped on skip-refresh — reuse on-disk copy)
+if [[ "$SKIP_REFRESH" == "1" ]]; then
+    echo "skip-refresh=1; reusing on-disk dataset at train_srnn/data/$EXPERIMENT"
+else
+    gcloud storage cp -r "$BUCKET/datasets/$EXPERIMENT/*" "train_srnn/data/$EXPERIMENT/" || true
+fi
+```
+The same `$SKIP_REFRESH` flag also gates the git fetch/checkout block above it.
+
+**Practical consequences.**
+
+- When pushing a new code commit but reusing an unchanged dataset (the common case for iterative training-arg sweeps after a code change), every dispatch re-downloads the full dataset. For SEEG that's ~680 MB (b4 + b5 filtered .mat) per dispatch, costing ~30-60 s of startup time and bucket egress for no reason.
+- Conversely, when re-uploading a dataset (e.g. a new filter tag) but not touching code, you'd want to skip git but force a dataset refresh — also impossible.
+- The reverse cases (`gcloud storage cp` is essentially free if the local copy is already there because `gcloud storage cp` doesn't checksum-verify by default; it overwrites unconditionally) make the wasted work small but non-zero.
+
+**Fix options.**
+
+1. **Rsync the dataset (preferred).** Replace the unconditional `gcloud storage cp -r` with `gcloud storage rsync` (or `gsutil -m rsync`), which checksum-compares each object and only transfers what changed. Same `gcloud storage cp ... | true` failure semantics; one-line change in `cloud/startup_gpu.sh:189`. Makes the dataset block effectively free when nothing has changed, so `--skip-refresh`'s only remaining purpose is "skip git fetch to test against an older code commit while debugging" — a much narrower use case.
+
+2. **Split into `--skip-data` and `--skip-git`.** Two independent flags; `--skip-refresh` becomes an alias that sets both. Plumbing:
+   - `cloud/submit.sh`: parse the two flags, write `SKIP_DATA` / `SKIP_GIT` metadata keys.
+   - `cloud/startup_gpu.sh`: gate the two blocks independently.
+   - `cloud/launch_run_gpu.sh`: only relevant for first launch where neither block can be skipped; could ignore or warn.
+
+   More invasive but gives explicit control. Mostly redundant if (1) is in place.
+
+**Why not fix now.** Cosmetic — the unwanted dataset re-copy adds <1 minute to a multi-hour training run. Tracked here so the next time `cloud/submit.sh` or `cloud/startup_gpu.sh` is touched, the rsync swap (option 1) lands cleanly.
