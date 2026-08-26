@@ -388,11 +388,15 @@ def wrap_train_batch(batch_x, batch_y, rng,
     else:
         aug_y = batch_y
 
-    # 4. Readout: random within the last min(loop_len, bptt_len) timesteps.
-    #    BPTT: fixed horizon — bptt_start_idx is constant across batches.
-    last_window = min(loop_len, bptt_len)
-    readout_idx = rng.randint(window_len - last_window, window_len)
+    # 4. Readout. BPTT: fixed horizon — bptt_start_idx constant across batches.
+    #    loss_over_bptt=True scores every timestep in the grad region instead
+    #    of one sampled timestep (teacher-forced 1-step-ahead at each step).
     bptt_start_idx = max(0, window_len - bptt_len)
+    if loss_over_bptt:
+        readout_idx = slice(bptt_start_idx, window_len)
+    else:
+        last_window = min(loop_len, bptt_len)
+        readout_idx = rng.randint(window_len - last_window, window_len)
 
     return aug_x, aug_y, readout_idx, bptt_start_idx
 
@@ -451,11 +455,21 @@ def wrap_eval_batch(batch_x, batch_y,
     start = max(0, T_total - window_len)
     eval_x = looped_x[:, start:start + window_len]
 
-    readout_idx = window_len - 1
-
-    if per_timestep_labels:
-        labels_at_readout = looped_y[:, start + readout_idx]
+    # Mirror wrap_train_batch: score the whole grad region when requested, so
+    # train and eval losses stay on the same footing.
+    if loss_over_bptt:
+        bptt_start_idx = max(0, window_len - bptt_len)
+        readout_idx = slice(bptt_start_idx, window_len)
+        if per_timestep_labels:
+            labels_at_readout = looped_y[
+                :, start + bptt_start_idx : start + window_len]
+        else:
+            labels_at_readout = batch_y
     else:
-        labels_at_readout = batch_y
+        readout_idx = window_len - 1
+        if per_timestep_labels:
+            labels_at_readout = looped_y[:, start + readout_idx]
+        else:
+            labels_at_readout = batch_y
 
     return eval_x, labels_at_readout, readout_idx
