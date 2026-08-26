@@ -1,0 +1,108 @@
+Run: dales-skip-4s | Experiment: cheetah | Model: srnn | Seed: 1
+Cleanup: keep | Skip-refresh: 0 | Branch: main | Workdir: /opt/train-srnn
+Fetching deploy key from Secret Manager...
+Existing repo at /opt/train-srnn; refreshing via git fetch + reset to main
+From github.com:TomRichner/train-srnn
+ * branch            main       -> FETCH_HEAD
+ + 07cf09a...706ead6 main       -> origin/main  (forced update)
+HEAD is now at 706ead6 conf/task/cheetah: 4s window (200 steps), loss over the BPTT region
+Git commit: 706ead6  (full: 706ead6ee8cf2154b12fe3e1b5479f5b41885ca0)
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0000.npy to file://train_srnn/data/cheetah/trace_0000.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0001.npy to file://train_srnn/data/cheetah/trace_0001.npy
+  
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0002.npy to file://train_srnn/data/cheetah/trace_0002.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0003.npy to file://train_srnn/data/cheetah/trace_0003.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0004.npy to file://train_srnn/data/cheetah/trace_0004.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0005.npy to file://train_srnn/data/cheetah/trace_0005.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0006.npy to file://train_srnn/data/cheetah/trace_0006.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0007.npy to file://train_srnn/data/cheetah/trace_0007.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0008.npy to file://train_srnn/data/cheetah/trace_0008.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0009.npy to file://train_srnn/data/cheetah/trace_0009.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0010.npy to file://train_srnn/data/cheetah/trace_0010.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0011.npy to file://train_srnn/data/cheetah/trace_0011.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0012.npy to file://train_srnn/data/cheetah/trace_0012.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0013.npy to file://train_srnn/data/cheetah/trace_0013.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0014.npy to file://train_srnn/data/cheetah/trace_0014.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0015.npy to file://train_srnn/data/cheetah/trace_0015.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0016.npy to file://train_srnn/data/cheetah/trace_0016.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0017.npy to file://train_srnn/data/cheetah/trace_0017.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0018.npy to file://train_srnn/data/cheetah/trace_0018.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0019.npy to file://train_srnn/data/cheetah/trace_0019.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0020.npy to file://train_srnn/data/cheetah/trace_0020.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0021.npy to file://train_srnn/data/cheetah/trace_0021.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0022.npy to file://train_srnn/data/cheetah/trace_0022.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0023.npy to file://train_srnn/data/cheetah/trace_0023.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0024.npy to file://train_srnn/data/cheetah/trace_0024.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0025.npy to file://train_srnn/data/cheetah/trace_0025.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0026.npy to file://train_srnn/data/cheetah/trace_0026.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0027.npy to file://train_srnn/data/cheetah/trace_0027.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0028.npy to file://train_srnn/data/cheetah/trace_0028.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0029.npy to file://train_srnn/data/cheetah/trace_0029.npy
+Copying gs://liquidneuralnets-experiments/datasets/cheetah/trace_0030.npy to file://train_srnn/data/cheetah/trace_0030.npy
+..
+
+Average throughput: 15.2MiB/s
+Installing Hydra stack into system Python...
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+Waiting for NVIDIA driver...
+  driver ready after 10s
+GPU sanity check:
+  torch: 2.9.1+cu129
+  CUDA:  12.9
+  GPU:   NVIDIA L4  (22 GB)
+=== Training start 2026-08-26T14:00:52+00:00 ===
+[2026-08-26 14:00:55,557][__main__][INFO] - Using device: cuda
+[2026-08-26 14:00:55,821][__main__][INFO] - Model parameters: 13878
+[2026-08-26 14:00:55,821][__main__][INFO] - Trainable parameters: 13878
+[2026-08-26 14:00:55,825][__main__][INFO] - compile_cell=true but continuous_train=false; falling back to model-level compile
+[2026-08-26 14:00:55,826][__main__][INFO] - torch.compile (model-level) kwargs: (defaults)
+[2026-08-26 14:00:59,198][__main__][INFO] - LR schedule: warmup_epochs=2 (warmup_frac=0.2000, 36 scheduler steps), total_steps=183 (steps_per_epoch=61), max_lr=5.000e-04, cosine_decay=False
+[2026-08-26 14:01:01,211][__main__][INFO] - TrainableIC frozen after burn-in (freeze_ic_after_burnin=True)
+[2026-08-26 14:01:46,932][__main__][INFO] - Test [init @ epoch 0]:
+[2026-08-26 14:01:46,932][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=17.6517 test_metric=2.4086
+[2026-08-26 14:01:46,932][__main__][INFO] -   [srnn-no-adapt] test_loss=17.8360 test_metric=2.4266
+[2026-08-26 14:01:46,932][__main__][INFO] -   [srnn-no-dales-skip] test_loss=62.8673 test_metric=4.3574
+[2026-08-26 14:01:46,932][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=63.0119 test_metric=4.5217
+[2026-08-26 14:01:46,932][__main__][INFO] -   [srnn] test_loss=17.6246 test_metric=2.3468
+[2026-08-26 14:01:46,932][__main__][INFO] -   [srnn-skip] test_loss=62.8726 test_metric=4.3579
+/usr/local/lib/python3.10/dist-packages/torch/_inductor/compile_fx.py:312: UserWarning: TensorFloat32 tensor cores for float32 matrix multiplication available but not enabled. Consider setting `torch.set_float32_matmul_precision('high')` for better performance.
+  warnings.warn(
+W0826 14:01:50.213000 1297 torch/_inductor/utils.py:1613] [7/0] Not enough SMs to use max_autotune_gemm mode
+[2026-08-26 14:05:57,513][__main__][INFO] - Epoch 0:
+[2026-08-26 14:05:57,513][__main__][INFO] -   [srnn-no-adapt-no-dales] train_loss=10.4725 train_metric=1.7786 valid_loss=17.8981 valid_metric=2.3993
+[2026-08-26 14:05:57,513][__main__][INFO] -   [srnn-no-adapt] train_loss=10.6163 train_metric=1.7979 valid_loss=18.0088 valid_metric=2.4049
+[2026-08-26 14:05:57,513][__main__][INFO] -   [srnn-no-dales-skip] train_loss=35.5869 train_metric=3.0422 valid_loss=63.7863 valid_metric=4.3855
+[2026-08-26 14:05:57,513][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=35.6864 train_metric=3.1727 valid_loss=63.8405 valid_metric=4.4571
+[2026-08-26 14:05:57,513][__main__][INFO] -   [srnn] train_loss=10.4556 train_metric=1.7301 valid_loss=17.9159 valid_metric=2.3717
+[2026-08-26 14:05:57,513][__main__][INFO] -   [srnn-skip] train_loss=35.5901 train_metric=3.0422 valid_loss=63.7935 valid_metric=4.3857
+[2026-08-26 14:06:39,162][__main__][INFO] - Test [epoch_000 @ epoch 0]:
+[2026-08-26 14:06:39,162][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=17.5927 test_metric=2.3675
+[2026-08-26 14:06:39,162][__main__][INFO] -   [srnn-no-adapt] test_loss=17.7082 test_metric=2.3769
+[2026-08-26 14:06:39,162][__main__][INFO] -   [srnn-no-dales-skip] test_loss=62.8583 test_metric=4.3569
+[2026-08-26 14:06:39,162][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=62.9080 test_metric=4.4229
+[2026-08-26 14:06:39,162][__main__][INFO] -   [srnn] test_loss=17.6127 test_metric=2.3407
+[2026-08-26 14:06:39,163][__main__][INFO] -   [srnn-skip] test_loss=62.8671 test_metric=4.3570
+[2026-08-26 14:10:27,500][__main__][INFO] - Epoch 1:
+[2026-08-26 14:10:27,500][__main__][INFO] -   [srnn-no-adapt-no-dales] train_loss=10.1686 train_metric=1.7198 valid_loss=17.8573 valid_metric=2.3771
+[2026-08-26 14:10:27,500][__main__][INFO] -   [srnn-no-adapt] train_loss=10.2522 train_metric=1.7296 valid_loss=17.9306 valid_metric=2.3777
+[2026-08-26 14:10:27,500][__main__][INFO] -   [srnn-no-dales-skip] train_loss=34.7424 train_metric=3.0014 valid_loss=63.7643 valid_metric=4.3849
+[2026-08-26 14:10:27,500][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=34.7769 train_metric=3.0514 valid_loss=63.7939 valid_metric=4.4185
+[2026-08-26 14:10:27,500][__main__][INFO] -   [srnn] train_loss=10.1958 train_metric=1.7019 valid_loss=17.9041 valid_metric=2.3657
+[2026-08-26 14:10:27,500][__main__][INFO] -   [srnn-skip] train_loss=34.7471 train_metric=3.0010 valid_loss=63.7702 valid_metric=4.3846
+[2026-08-26 14:14:16,504][__main__][INFO] - Epoch 2:
+[2026-08-26 14:14:16,504][__main__][INFO] -   [srnn-no-adapt-no-dales] train_loss=10.2969 train_metric=1.7134 valid_loss=17.8418 valid_metric=2.3645
+[2026-08-26 14:14:16,504][__main__][INFO] -   [srnn-no-adapt] train_loss=10.3499 train_metric=1.7202 valid_loss=17.8965 valid_metric=2.3676
+[2026-08-26 14:14:16,504][__main__][INFO] -   [srnn-no-dales-skip] train_loss=35.2153 train_metric=3.0236 valid_loss=63.7349 valid_metric=4.3834
+[2026-08-26 14:14:16,504][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=35.2359 train_metric=3.0480 valid_loss=63.7549 valid_metric=4.3958
+[2026-08-26 14:14:16,504][__main__][INFO] -   [srnn] train_loss=10.3441 train_metric=1.7082 valid_loss=17.8944 valid_metric=2.3613
+[2026-08-26 14:14:16,504][__main__][INFO] -   [srnn-skip] train_loss=35.2112 train_metric=3.0228 valid_loss=63.7176 valid_metric=4.3821
+[2026-08-26 14:14:58,086][__main__][INFO] - Test [last @ epoch 2]:
+[2026-08-26 14:14:58,086][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=17.5251 test_metric=2.3307
+[2026-08-26 14:14:58,086][__main__][INFO] -   [srnn-no-adapt] test_loss=17.5828 test_metric=2.3358
+[2026-08-26 14:14:58,086][__main__][INFO] -   [srnn-no-dales-skip] test_loss=62.8070 test_metric=4.3547
+[2026-08-26 14:14:58,086][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=62.8303 test_metric=4.3676
+[2026-08-26 14:14:58,086][__main__][INFO] -   [srnn] test_loss=17.5904 test_metric=2.3297
+[2026-08-26 14:14:58,086][__main__][INFO] -   [srnn-skip] test_loss=62.7906 test_metric=4.3534
+=== Training complete 2026-08-26T14:15:00+00:00 ===
+SUCCESS
+=== Cleanup (exit=0) 2026-08-26T14:15:00+00:00 ===

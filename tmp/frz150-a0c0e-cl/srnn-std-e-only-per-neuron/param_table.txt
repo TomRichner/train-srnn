@@ -1,0 +1,17 @@
+# frz150-a0c0e-cl — variant srnn-std-e-only-per-neuron (k=4)
+# Effective values (post-transform). Means/stds computed over the indicated dimension.
+effective parameter                  init mean    final mean    init std   final std          n
+-----------------------------------------------------------------------------------------------
+tau_global (s)                              +1      +0.47323           —           —     scalar
+tau_d (s)                                 +0.1     +0.013463           0     0.00467        300
+tau_b_rec_E (s)                             +1      +0.72903           0      0.1019        150
+tau_b_rel_E (s)                          +0.25      +0.44383           0     0.07382        150
+W_eff (E src, signed)                 +0.23267      +0.22068     0.07641     0.07992      15048
+W_eff (I src, signed)                 -0.31062      -0.28579     0.07724     0.08107      14977
+|W_eff| (E src)                       +0.23267      +0.22068     0.07641     0.07992      15048
+|W_eff| (I src)                       +0.31062      +0.28579     0.07724     0.08107      14977
+W_in_eff (input neurons)           +0.00019944    -0.0012099     0.09994     0.09731       6675
+a_0 (threshold)                          +0.35         +0.35           0           0        300
+readout_weight                     +0.00074661    +0.0073141     0.06657      0.2248       6675
+readout_bias                                +0     -0.050919           0      0.2471         89
+ic.ic (per-variant init)             +0.090819     +0.090819      0.3835      0.3835        900

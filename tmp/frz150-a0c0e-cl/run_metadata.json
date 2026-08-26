@@ -1,0 +1,18 @@
+{
+  "run_name": "frz150-a0c0e-cl",
+  "experiment": "seeg",
+  "model": "srnn",
+  "seed": 1,
+  "exit_code": 130,
+  "vm_name": "filt150-whoist-cl-srnn-seeg-seed1",
+  "hardware": "gpu-l4",
+  "start_time": "2026-05-05T20:48:26Z",
+  "completed": "2026-05-05T21:48:56Z",
+  "duration_seconds": 3624,
+  "commit": "34600c572b3be23ff60fd92b19ecb0575431d1e9",
+  "train_args": "epochs=100  epochs=150 batch_size=48 amp=bf16 continuous_profile=true lr=5e-4 batched_ablations=[srnn-e-only-per-neuron,srnn-e-only-skip-per-neuron,srnn-sfa-e-only-per-neuron,srnn-sfa-e-only-skip-per-neuron,srnn-std-e-only-per-neuron,srnn-std-e-only-skip-per-neuron] closed_loop.enabled=true freeze_params=[a_0,c_0_E]",
+  "cleanup_mode": "keep",
+  "skip_refresh": 0,
+  "failed_at": "2026-05-05T21:48:56Z",
+  "error": true
+}
