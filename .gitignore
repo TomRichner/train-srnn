@@ -24,3 +24,5 @@ deploy_key*
 train-srnn-deploy*
 .claude/*
 
+# Reference papers / OCR output — 12 MB of PDFs, not project source
+docs/LNN/
