@@ -10,3 +10,12 @@ batch_size: 16
 # ODE step sizing — model YAMLs interpolate via ${task.h} / ${task.ode_unfolds}.
 h: 0.02
 ode_unfolds: 1
+
+# Sequence windowing. The loader emits 32-frame clips (load_cheetah), which
+# wrap_train_batch palindrome-loops up to window_len. 200 steps x h=0.02 = 4.0 s
+# of model time, matched to tau_a_hi_init=4.0 so the slowest SFA state is
+# exercised within the window. (The global default window_len=1024 is tuned for
+# seeg, where 1024 samples are native rather than looped.)
+window_len: 200
+bptt_len: 150          # loss+grads over the last 3.0 s; first 1.0 s settles state
+loss_over_bptt: true   # score every timestep in the grad region, not one sample
