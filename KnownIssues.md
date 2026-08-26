@@ -454,3 +454,35 @@ The same `$SKIP_REFRESH` flag also gates the git fetch/checkout block above it.
    More invasive but gives explicit control. Mostly redundant if (1) is in place.
 
 **Why not fix now.** Cosmetic — the unwanted dataset re-copy adds <1 minute to a multi-hour training run. Tracked here so the next time `cloud/submit.sh` or `cloud/startup_gpu.sh` is touched, the rsync swap (option 1) lands cleanly.
+
+---
+
+## 13. `_per_k_metric` operator precedence bug (1-D output tasks only)
+
+**Summary.** `train_srnn/training/continuous.py:329` computes the per-variant
+metric as
+
+```python
+float(-torch.mean(torch.abs(
+    logits[k].squeeze(-1) if logits[k].shape[-1] == 1 else logits[k] - target
+)).item())
+```
+
+The conditional binds looser than the subtraction, so when
+`logits[k].shape[-1] == 1` the expression reduces to `mean(|pred|)` — the
+target is dropped entirely — instead of `mean(|pred - target|)`. The
+`K is None` branch at `:333` is written correctly.
+
+**Not currently triggered.** It only fires for single-output regression in
+K-batched continuous mode. seeg has C=89 and cheetah100 has C=17 (or 23 with
+`include_actions`), so every task that uses the continuous trainer today has
+`shape[-1] > 1` and takes the correct branch.
+
+**Impact if triggered.** The reported `train_metric` would be the mean absolute
+*prediction magnitude* rather than the error, so it would look plausible while
+being unrelated to accuracy. Loss is unaffected — only the metric.
+
+**Fix.** Parenthesise the subtraction:
+`torch.abs((logits[k].squeeze(-1) if ... else logits[k]) - target)`. Left
+untouched for now because no active task exercises it and changing it would
+alter historical metric values for nothing.

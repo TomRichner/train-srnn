@@ -628,19 +628,17 @@ def main(cfg: DictConfig) -> None:
                  "checkpoints written to %s", cfg.output_dir)
         return
 
-    # Continuous trace-circular trainer (SEEG only). Bypasses the windowed
-    # epoch loop below; uses its own inner step structure with B parallel
-    # readers around the trace ring. See plan + continuous.py.
+    # Continuous trace-circular trainer. Bypasses the windowed epoch loop
+    # below; uses its own inner step structure with B parallel readers around
+    # the trace ring. See continuous.py. Any task whose loader returns a
+    # "train_trace" can use it — nothing in continuous.py is task-specific,
+    # channel count and rate are read off the trace.
     if cfg.get("continuous_train", False):
-        if cfg.task.name != "seeg":
+        if "train_trace" not in dataset:
             log.warning(
-                "continuous_train=true is only supported for SEEG; task=%s "
-                "falls back to the windowed loop.", cfg.task.name)
-        elif "train_trace" not in dataset:
-            log.warning(
-                "continuous_train=true but dataset has no 'train_trace' key; "
-                "falls back to the windowed loop. (Did you set "
-                "task.train_trace_max_len in seeg.yaml?)")
+                "continuous_train=true but the %s loader returned no "
+                "'train_trace' key; falls back to the windowed loop.",
+                cfg.task.name)
         else:
             from train_srnn.training.continuous import run_continuous_training
             import time as _time

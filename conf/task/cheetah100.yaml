@@ -1,0 +1,47 @@
+# Regenerated 100 Hz HalfCheetah, no injected noise. Replaces `cheetah`, whose
+# 20 Hz sampling aliased the joint velocities (lag-1 autocorr ~-0.53 while
+# carrying 99.95% of the variance) and whose 5% random actions made long-horizon
+# prediction impossible in a chaotic system.
+# Source: ~/Desktop/local_code/gen-half-cheetah-dataset
+name: cheetah100
+data_dir: train_srnn/data/cheetah100
+
+# ── Loader kwargs (load_cheetah100) ──────────────────────────────────────
+include_actions: false     # true -> append the 6 control channels (see _act)
+seq_len: 1500              # 15 s @100 Hz; must equal window_len when no_augment
+stride: 500                # 5 s — 67% overlap between consecutive windows
+skip_transient_s: 10.0     # each trace ramps standstill -> ~10 m/s over 3.5-7 s
+sample_rate_hz: 100.0
+# Largest prime <= the 119001 samples left after skip_transient_s, so coprime to
+# batch_size*bptt_chunk_len (24*250 = 6000). Gives ceil(118973/6000) = 20
+# steps/epoch and 20*6000 - 118973 = 1027 samples of phase drift per epoch.
+# What matters is gcd(drift, bptt_chunk_len) == 1 — that makes the state.detach()
+# boundaries sweep every offset over successive epochs. At zero drift the readers
+# would revisit identical boundaries forever and gradients would never cross
+# those sample pairs. (seeg's drift is 11 at T=179989; smaller is not better,
+# it just sweeps more slowly.)
+train_trace_max_len: 118973
+normalize: true            # per-channel z-score, train-split stats
+
+# ── ODE step sizing — model YAMLs interpolate via ${task.h} ──────────────
+h: 0.01                    # 1/100 Hz: model time == physical time
+ode_unfolds: 1
+
+input_size: 17
+output_size: 17
+task_type: regression
+per_timestep_labels: true
+batch_size: 24             # B = parallel readers around the ring
+
+# ── Windowing (valid/test eval only; the ring trainer ignores these) ─────
+window_len: 1500
+bptt_len: 1000             # score the last 10 s of each 15 s window
+bptt_chunk_len: 250        # 2.5 s TBPTT chunk in the ring
+loss_over_bptt: true
+stretch_lo: 1.0
+stretch_hi: 1.0
+no_augment: true
+
+continuous_train: true
+checkpoint_interval: null  # null -> max(1, round(B/4)) = 6
+log_interval: null

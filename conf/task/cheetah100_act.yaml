@@ -1,0 +1,16 @@
+# cheetah100 with the control signal included. The continuous trainer takes its
+# target as the trace shifted by one sample (continuous.py: idx_y = idx_x + 1),
+# so including actions means predicting the next observation AND the next
+# action — 23 in, 23 out. Actions are z-scored along with the observations.
+#
+# Shares the cheetah100 dataset: launch with EXPERIMENT=cheetah100 and pass
+# task=cheetah100_act as a train-arg override (Hydra is last-wins), so the data
+# is staged to GCS only once.
+defaults:
+  - cheetah100
+
+name: cheetah100_act
+data_dir: train_srnn/data/cheetah100
+include_actions: true
+input_size: 23             # 17 obs + 6 zero-order-held control channels
+output_size: 23
