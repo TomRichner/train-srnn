@@ -468,7 +468,16 @@ def main(cfg: DictConfig) -> None:
             import torch._logging as _torch_logging
             _torch_logging.set_logs(recompiles=True)
             log.info("Dynamo recompile logging enabled")
-        if not bool(cfg.get("compile_cell", False)):
+        # Cell-level compile is only meaningful when the continuous trainer
+        # actually runs — it is what compiles the cell. On any other task the
+        # deferral would silently mean "no compile at all", so fall back to
+        # model-level compile instead.
+        want_cell = bool(cfg.get("compile_cell", False))
+        use_cell_compile = want_cell and bool(cfg.get("continuous_train", False))
+        if not use_cell_compile:
+            if want_cell:
+                log.info("compile_cell=true but continuous_train=false; "
+                         "falling back to model-level compile")
             compile_kwargs = {}
             cm = cfg.get("compile_mode", None)
             if cm:
