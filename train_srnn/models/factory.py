@@ -144,6 +144,8 @@ def build_batched_model(
             solver=cfg.model.get("solver", preset.solver),
             h=cfg.model.get("h", preset.h),
             ode_unfolds=cfg.model.get("ode_unfolds", preset.ode_unfolds),
+            tau_a_lo_init=cfg.model.get("tau_a_lo_init", preset.tau_a_lo_init),
+            tau_a_hi_init=cfg.model.get("tau_a_hi_init", preset.tau_a_hi_init),
         ))
 
     # Build ONE RMTMatrix (same seed → same W for all ablations)

@@ -97,6 +97,9 @@ class SRNNConfig:
     ode_unfolds: int = 1
     readout: str = "synaptic"
     tau_global_init: float = 1.0  # Initial value for global timescale multiplier
+    tau_a_lo_init: float = 0.25   # Fastest SFA timescale (s) at init
+    tau_a_hi_init: float = 4.0    # Slowest SFA timescale (s) at init; multi-timescale
+                                  # SFA log-interpolates n_a values across [lo, hi]
     std_zero_floor: bool = True   # Rescale b -> (b - b_min)/(1 - b_min) so synaptic gain reaches 0 at saturation
 
     @property
@@ -236,9 +239,9 @@ class SRNNCell(nn.Module):
                 # Store lo/hi endpoints; interpolate n_a_E values at runtime
                 self.isp_tau_a_E = None
                 self.isp_tau_a_E_lo = nn.Parameter(
-                    torch.full((*base_E, 1), inv_softplus(0.25)))
+                    torch.full((*base_E, 1), inv_softplus(config.tau_a_lo_init)))
                 self.isp_tau_a_E_hi = nn.Parameter(
-                    torch.full((*base_E, 1), inv_softplus(10.0)))
+                    torch.full((*base_E, 1), inv_softplus(config.tau_a_hi_init)))
             c_E_shape = (n_E, config.n_a_E) if config.per_neuron else (1, config.n_a_E)
             self.isp_c_E = nn.Parameter(torch.full(c_E_shape, inv_softplus(0.05)))
             self.c_0_E = nn.Parameter(torch.zeros(c_E_shape))
@@ -260,9 +263,9 @@ class SRNNCell(nn.Module):
             else:
                 self.isp_tau_a_I = None
                 self.isp_tau_a_I_lo = nn.Parameter(
-                    torch.full((*base_I, 1), inv_softplus(0.25)))
+                    torch.full((*base_I, 1), inv_softplus(config.tau_a_lo_init)))
                 self.isp_tau_a_I_hi = nn.Parameter(
-                    torch.full((*base_I, 1), inv_softplus(10.0)))
+                    torch.full((*base_I, 1), inv_softplus(config.tau_a_hi_init)))
             c_I_shape = (n_I, config.n_a_I) if config.per_neuron else (1, config.n_a_I)
             self.isp_c_I = nn.Parameter(torch.full(c_I_shape, inv_softplus(0.05)))
             self.c_0_I = nn.Parameter(torch.zeros(c_I_shape))
@@ -906,8 +909,8 @@ class BatchedSRNNCell(nn.Module):
                     isp_tau_init[ki, :, 0] = inv_softplus(1.0)
                 elif c.n_a_E >= 2:
                     # Interpolate n_a_E values between lo and hi (matches TF _make_tau_range)
-                    lo_val = inv_softplus(0.25)
-                    hi_val = inv_softplus(10.0)
+                    lo_val = inv_softplus(c.tau_a_lo_init)
+                    hi_val = inv_softplus(c.tau_a_hi_init)
                     for ai in range(c.n_a_E):
                         t = ai / (c.n_a_E - 1) if c.n_a_E > 1 else 0.5
                         isp_tau_init[ki, :, ai] = lo_val + (hi_val - lo_val) * t
@@ -935,8 +938,8 @@ class BatchedSRNNCell(nn.Module):
                 if c.n_a_I == 1:
                     isp_tau_init[ki, :, 0] = inv_softplus(1.0)
                 elif c.n_a_I >= 2:
-                    lo_val = inv_softplus(0.25)
-                    hi_val = inv_softplus(10.0)
+                    lo_val = inv_softplus(c.tau_a_lo_init)
+                    hi_val = inv_softplus(c.tau_a_hi_init)
                     for ai in range(c.n_a_I):
                         t = ai / (c.n_a_I - 1) if c.n_a_I > 1 else 0.5
                         isp_tau_init[ki, :, ai] = lo_val + (hi_val - lo_val) * t
