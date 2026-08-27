@@ -325,8 +325,15 @@ def _per_k_metric(logits, target, cfg, K: Optional[int]) -> list[float] | float:
     """Negative MAE per K (or scalar). Mirrors run_epoch's regression metric."""
     with torch.no_grad():
         if K is not None:
+            # Parenthesise the squeeze: without it the conditional binds
+            # looser than the subtraction, so a width-1 output computed
+            # mean(|pred|) instead of mean(|pred - target|). See
+            # KnownIssues §13.
             return [
-                float(-torch.mean(torch.abs(logits[k].squeeze(-1) if logits[k].shape[-1] == 1 else logits[k] - target)).item())
+                float(-torch.mean(torch.abs(
+                    (logits[k].squeeze(-1) if logits[k].shape[-1] == 1
+                     else logits[k]) - target
+                )).item())
                 for k in range(K)
             ]
         else:

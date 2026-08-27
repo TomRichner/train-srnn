@@ -482,10 +482,14 @@ K-batched continuous mode. seeg has C=89 and cheetah100 has C=17 (or 23 with
 *prediction magnitude* rather than the error, so it would look plausible while
 being unrelated to accuracy. Loss is unaffected — only the metric.
 
-**Fix.** Parenthesise the subtraction:
-`torch.abs((logits[k].squeeze(-1) if ... else logits[k]) - target)`. Left
-untouched for now because no active task exercises it and changing it would
-alter historical metric values for nothing.
+**FIXED** (2026-08-27). The subtraction is now parenthesised:
+`torch.abs((logits[k].squeeze(-1) if ... else logits[k]) - target)`.
+
+Verified: a width-1 output with pred `[2, 4]` and target `[1, 1]` now reports
+`-2.0` (mean absolute *error*) where the old expression reported `-3.0` (mean
+absolute *prediction*). The multi-channel path is bit-identical, so no
+historical metric changes — seeg (C=89) and cheetah100 (C=17 or 23) never took
+the buggy branch.
 
 ---
 
