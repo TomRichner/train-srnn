@@ -1,0 +1,688 @@
+Run: ring6-150e | Experiment: cheetah100 | Model: srnn | Seed: 1
+Cleanup: keep | Skip-refresh: 0 | Branch: main | Workdir: /opt/train-srnn
+Fetching deploy key from Secret Manager...
+Existing repo at /opt/train-srnn; refreshing via git fetch + reset to main
+From github.com:TomRichner/train-srnn
+ * branch            main       -> FETCH_HEAD
+HEAD is now at 4cd033c tmp: archive smoke-dales-skip run bundle
+Git commit: 4cd033c  (full: 4cd033ca0c3bbb29b631800a0cca76002be16033)
+Copying gs://liquidneuralnets-experiments/datasets/cheetah100/manifest.json to file://train_srnn/data/cheetah100/manifest.json
+Copying gs://liquidneuralnets-experiments/datasets/cheetah100/test.npz to file://train_srnn/data/cheetah100/test.npz
+  
+Copying gs://liquidneuralnets-experiments/datasets/cheetah100/train.npz to file://train_srnn/data/cheetah100/train.npz
+Copying gs://liquidneuralnets-experiments/datasets/cheetah100/valid.npz to file://train_srnn/data/cheetah100/valid.npz
+.
+
+Average throughput: 194.8MiB/s
+Installing Hydra stack into system Python...
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+Waiting for NVIDIA driver...
+  driver ready after 10s
+GPU sanity check:
+  torch: 2.9.1+cu129
+  CUDA:  12.9
+  GPU:   NVIDIA L4  (22 GB)
+=== Training start 2026-08-26T23:09:05+00:00 ===
+[2026-08-26 23:09:08,968][__main__][INFO] - Using device: cuda
+[cheetah100] 17 ch (obs), train/valid/test = 118973/17001/17001 samples @ 100 Hz (1190/170/170 s), normalize=True, skip_transient=10s
+[2026-08-26 23:09:09,353][__main__][INFO] - Model parameters: 610848
+[2026-08-26 23:09:09,353][__main__][INFO] - Trainable parameters: 610848
+[2026-08-26 23:09:09,357][__main__][INFO] - torch.compile (cell-level) deferred to continuous trainer
+[2026-08-26 23:09:11,017][__main__][INFO] - LR schedule: warmup_epochs=12 (warmup_frac=0.0800, 240 scheduler steps), total_steps=3000 (steps_per_epoch=20), max_lr=5.000e-04, cosine_decay=False
+[2026-08-26 23:09:16,420][__main__][INFO] - TrainableIC frozen after burn-in (freeze_ic_after_burnin=True)
+[2026-08-26 23:09:26,696][__main__][INFO] - Test [init @ epoch 0]:
+[2026-08-26 23:09:26,697][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=1.0077 test_metric=0.8471
+[2026-08-26 23:09:26,697][__main__][INFO] -   [srnn-no-adapt] test_loss=1.0082 test_metric=0.8502
+[2026-08-26 23:09:26,697][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.1182 test_metric=0.2439
+[2026-08-26 23:09:26,697][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.1369 test_metric=0.2707
+[2026-08-26 23:09:26,697][__main__][INFO] -   [srnn] test_loss=0.9993 test_metric=0.8444
+[2026-08-26 23:09:26,697][__main__][INFO] -   [srnn-skip] test_loss=0.1180 test_metric=0.2427
+[2026-08-26 23:09:26,702][__main__][INFO] - Dispatching to continuous trainer (train_trace shape=(118973, 17), GPU upload 0.002s)
+[2026-08-26 23:09:26,706][train_srnn.training.continuous][INFO] - Continuous training (per-reader-sweep): T=118973, B=24, chunk_len=250, steps_per_epoch=20, total_steps=3000, checkpoint_interval=6, log_interval=6, K=6
+[2026-08-26 23:09:26,706][train_srnn.training.continuous][INFO] - Compiling cell (continuous trainer scope only); kwargs=(defaults)
+[2026-08-26 23:09:26,800][train_srnn.training.continuous][INFO] - Epoch 0 start: positions[0]=0  state.norm=212.9637
+/usr/local/lib/python3.10/dist-packages/torch/_inductor/compile_fx.py:312: UserWarning: TensorFloat32 tensor cores for float32 matrix multiplication available but not enabled. Consider setting `torch.set_float32_matmul_precision('high')` for better performance.
+  warnings.warn(
+W0826 23:09:33.472000 1281 torch/_inductor/utils.py:1613] [0/0] Not enough SMs to use max_autotune_gemm mode
+[2026-08-26 23:10:23,114][train_srnn.training.continuous][INFO] - Epoch 0 (continuous, train-only, 56.4s): [srnn-no-adapt-no-dales]=1.0096/0.8467 [srnn-no-adapt]=1.0101/0.8496 [srnn-no-dales-skip]=0.1178/0.2428 [srnn-no-adapt-no-dales-skip]=0.1341/0.2667 [srnn]=1.0016/0.8441 [srnn-skip]=0.1175/0.2416
+[2026-08-26 23:10:23,114][train_srnn.training.continuous][INFO] - Epoch 1 start: positions[0]=5000  state.norm=213.0941
+[2026-08-26 23:10:43,741][train_srnn.training.continuous][INFO] - Epoch 1 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=1.0037/0.8442 [srnn-no-adapt]=1.0071/0.8478 [srnn-no-dales-skip]=0.1173/0.2420 [srnn-no-adapt-no-dales-skip]=0.1273/0.2577 [srnn]=0.9999/0.8433 [srnn-skip]=0.1171/0.2411
+[2026-08-26 23:10:43,742][train_srnn.training.continuous][INFO] - Epoch 2 start: positions[0]=10000  state.norm=211.8268
+[2026-08-26 23:11:04,774][train_srnn.training.continuous][INFO] - Epoch 2 (continuous, train-only, 21.0s): [srnn-no-adapt-no-dales]=0.9980/0.8417 [srnn-no-adapt]=1.0033/0.8454 [srnn-no-dales-skip]=0.1165/0.2407 [srnn-no-adapt-no-dales-skip]=0.1220/0.2496 [srnn]=0.9974/0.8421 [srnn-skip]=0.1166/0.2403
+[2026-08-26 23:11:04,775][train_srnn.training.continuous][INFO] - Epoch 3 start: positions[0]=15000  state.norm=208.7102
+[2026-08-26 23:11:25,420][train_srnn.training.continuous][INFO] - Epoch 3 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.9920/0.8392 [srnn-no-adapt]=0.9974/0.8423 [srnn-no-dales-skip]=0.1154/0.2388 [srnn-no-adapt-no-dales-skip]=0.1195/0.2453 [srnn]=0.9929/0.8400 [srnn-skip]=0.1158/0.2392
+[2026-08-26 23:11:25,421][train_srnn.training.continuous][INFO] - Epoch 4 start: positions[0]=20000  state.norm=206.7126
+[2026-08-26 23:11:46,384][train_srnn.training.continuous][INFO] - Epoch 4 (continuous, train-only, 21.0s): [srnn-no-adapt-no-dales]=0.9830/0.8354 [srnn-no-adapt]=0.9908/0.8388 [srnn-no-dales-skip]=0.1134/0.2354 [srnn-no-adapt-no-dales-skip]=0.1181/0.2429 [srnn]=0.9865/0.8372 [srnn-skip]=0.1148/0.2377
+[2026-08-26 23:11:46,385][train_srnn.training.continuous][INFO] - Epoch 5 start: positions[0]=25000  state.norm=206.2894
+[2026-08-26 23:12:17,623][train_srnn.training.continuous][INFO] - Epoch 5 (continuous, 20.6s):
+[2026-08-26 23:12:17,624][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.9618 train_metric=0.8261 valid_loss=0.9379 valid_metric=0.8161
+[2026-08-26 23:12:17,624][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.9812 train_metric=0.8340 valid_loss=0.9698 valid_metric=0.8298
+[2026-08-26 23:12:17,624][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.1096 train_metric=0.2289 valid_loss=0.1067 valid_metric=0.2240
+[2026-08-26 23:12:17,624][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.1171 train_metric=0.2413 valid_loss=0.1167 valid_metric=0.2405
+[2026-08-26 23:12:17,624][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.9756 train_metric=0.8323 valid_loss=0.9635 valid_metric=0.8278
+[2026-08-26 23:12:17,624][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.1134 train_metric=0.2354 valid_loss=0.1125 valid_metric=0.2338
+[2026-08-26 23:12:28,165][__main__][INFO] - Test [epoch_005 @ epoch 5]:
+[2026-08-26 23:12:28,166][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.9385 test_metric=0.8167
+[2026-08-26 23:12:28,166][__main__][INFO] -   [srnn-no-adapt] test_loss=0.9706 test_metric=0.8308
+[2026-08-26 23:12:28,166][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.1070 test_metric=0.2247
+[2026-08-26 23:12:28,166][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.1170 test_metric=0.2415
+[2026-08-26 23:12:28,166][__main__][INFO] -   [srnn] test_loss=0.9641 test_metric=0.8286
+[2026-08-26 23:12:28,166][__main__][INFO] -   [srnn-skip] test_loss=0.1128 test_metric=0.2347
+[2026-08-26 23:12:28,167][train_srnn.training.continuous][INFO] - Epoch 6 start: positions[0]=30000  state.norm=205.7948
+[2026-08-26 23:12:49,272][train_srnn.training.continuous][INFO] - Epoch 6 (continuous, train-only, 21.1s): [srnn-no-adapt-no-dales]=0.9043/0.7990 [srnn-no-adapt]=0.9632/0.8257 [srnn-no-dales-skip]=0.1037/0.2187 [srnn-no-adapt-no-dales-skip]=0.1161/0.2396 [srnn]=0.9550/0.8229 [srnn-skip]=0.1112/0.2317
+[2026-08-26 23:12:49,273][train_srnn.training.continuous][INFO] - Epoch 7 start: positions[0]=35000  state.norm=207.2868
+[2026-08-26 23:13:10,333][train_srnn.training.continuous][INFO] - Epoch 7 (continuous, train-only, 21.1s): [srnn-no-adapt-no-dales]=0.7863/0.7415 [srnn-no-adapt]=0.9277/0.8091 [srnn-no-dales-skip]=0.0978/0.2082 [srnn-no-adapt-no-dales-skip]=0.1148/0.2373 [srnn]=0.9185/0.8056 [srnn-skip]=0.1079/0.2265
+[2026-08-26 23:13:10,334][train_srnn.training.continuous][INFO] - Epoch 8 start: positions[0]=40000  state.norm=211.9476
+[2026-08-26 23:13:31,007][train_srnn.training.continuous][INFO] - Epoch 8 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.6563/0.6736 [srnn-no-adapt]=0.8624/0.7768 [srnn-no-dales-skip]=0.0923/0.1989 [srnn-no-adapt-no-dales-skip]=0.1130/0.2341 [srnn]=0.8650/0.7787 [srnn-skip]=0.1032/0.2191
+[2026-08-26 23:13:31,008][train_srnn.training.continuous][INFO] - Epoch 9 start: positions[0]=45000  state.norm=214.3683
+[2026-08-26 23:13:51,742][train_srnn.training.continuous][INFO] - Epoch 9 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.5619/0.6187 [srnn-no-adapt]=0.7734/0.7299 [srnn-no-dales-skip]=0.0865/0.1887 [srnn-no-adapt-no-dales-skip]=0.1095/0.2285 [srnn]=0.8037/0.7454 [srnn-skip]=0.0969/0.2086
+[2026-08-26 23:13:51,742][train_srnn.training.continuous][INFO] - Epoch 10 start: positions[0]=50000  state.norm=219.0635
+[2026-08-26 23:14:12,505][train_srnn.training.continuous][INFO] - Epoch 10 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.4857/0.5713 [srnn-no-adapt]=0.6778/0.6743 [srnn-no-dales-skip]=0.0801/0.1771 [srnn-no-adapt-no-dales-skip]=0.1032/0.2183 [srnn]=0.7449/0.7116 [srnn-skip]=0.0891/0.1945
+[2026-08-26 23:14:12,506][train_srnn.training.continuous][INFO] - Epoch 11 start: positions[0]=55000  state.norm=222.9510
+[2026-08-26 23:14:43,749][train_srnn.training.continuous][INFO] - Epoch 11 (continuous, 20.8s):
+[2026-08-26 23:14:43,750][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.4153 train_metric=0.5241 valid_loss=0.3720 valid_metric=0.4946
+[2026-08-26 23:14:43,750][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.5827 train_metric=0.6134 valid_loss=0.5283 valid_metric=0.5800
+[2026-08-26 23:14:43,750][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0744 train_metric=0.1664 valid_loss=0.0717 valid_metric=0.1616
+[2026-08-26 23:14:43,750][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0930 train_metric=0.1993 valid_loss=0.0864 valid_metric=0.1860
+[2026-08-26 23:14:43,750][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.6879 train_metric=0.6808 valid_loss=0.6516 valid_metric=0.6630
+[2026-08-26 23:14:43,750][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0809 train_metric=0.1783 valid_loss=0.0767 valid_metric=0.1694
+[2026-08-26 23:14:54,271][__main__][INFO] - Test [epoch_011 @ epoch 11]:
+[2026-08-26 23:14:54,271][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.3708 test_metric=0.4934
+[2026-08-26 23:14:54,271][__main__][INFO] -   [srnn-no-adapt] test_loss=0.5286 test_metric=0.5795
+[2026-08-26 23:14:54,271][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0717 test_metric=0.1616
+[2026-08-26 23:14:54,271][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0865 test_metric=0.1865
+[2026-08-26 23:14:54,271][__main__][INFO] -   [srnn] test_loss=0.6502 test_metric=0.6623
+[2026-08-26 23:14:54,271][__main__][INFO] -   [srnn-skip] test_loss=0.0768 test_metric=0.1699
+[2026-08-26 23:14:54,271][train_srnn.training.continuous][INFO] - Epoch 12 start: positions[0]=60000  state.norm=228.5716
+[2026-08-26 23:15:15,224][train_srnn.training.continuous][INFO] - Epoch 12 (continuous, train-only, 21.0s): [srnn-no-adapt-no-dales]=0.3507/0.4757 [srnn-no-adapt]=0.5011/0.5601 [srnn-no-dales-skip]=0.0702/0.1592 [srnn-no-adapt-no-dales-skip]=0.0817/0.1786 [srnn]=0.6287/0.6496 [srnn-skip]=0.0739/0.1634
+[2026-08-26 23:15:15,225][train_srnn.training.continuous][INFO] - Epoch 13 start: positions[0]=65000  state.norm=232.9189
+[2026-08-26 23:15:36,001][train_srnn.training.continuous][INFO] - Epoch 13 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.2959/0.4297 [srnn-no-adapt]=0.4309/0.5126 [srnn-no-dales-skip]=0.0672/0.1533 [srnn-no-adapt-no-dales-skip]=0.0739/0.1660 [srnn]=0.5700/0.6170 [srnn-skip]=0.0693/0.1538
+[2026-08-26 23:15:36,002][train_srnn.training.continuous][INFO] - Epoch 14 start: positions[0]=70000  state.norm=238.2251
+[2026-08-26 23:15:57,044][train_srnn.training.continuous][INFO] - Epoch 14 (continuous, train-only, 21.0s): [srnn-no-adapt-no-dales]=0.2534/0.3905 [srnn-no-adapt]=0.3701/0.4689 [srnn-no-dales-skip]=0.0649/0.1487 [srnn-no-adapt-no-dales-skip]=0.0696/0.1576 [srnn]=0.5146/0.5839 [srnn-skip]=0.0666/0.1493
+[2026-08-26 23:15:57,045][train_srnn.training.continuous][INFO] - Epoch 15 start: positions[0]=75000  state.norm=241.4315
+[2026-08-26 23:16:17,766][train_srnn.training.continuous][INFO] - Epoch 15 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.2221/0.3591 [srnn-no-adapt]=0.3188/0.4319 [srnn-no-dales-skip]=0.0632/0.1451 [srnn-no-adapt-no-dales-skip]=0.0670/0.1517 [srnn]=0.4645/0.5519 [srnn-skip]=0.0648/0.1465
+[2026-08-26 23:16:17,767][train_srnn.training.continuous][INFO] - Epoch 16 start: positions[0]=80000  state.norm=245.0342
+[2026-08-26 23:16:38,774][train_srnn.training.continuous][INFO] - Epoch 16 (continuous, train-only, 21.0s): [srnn-no-adapt-no-dales]=0.2001/0.3356 [srnn-no-adapt]=0.2782/0.4009 [srnn-no-dales-skip]=0.0618/0.1421 [srnn-no-adapt-no-dales-skip]=0.0650/0.1469 [srnn]=0.4209/0.5220 [srnn-skip]=0.0635/0.1444
+[2026-08-26 23:16:38,775][train_srnn.training.continuous][INFO] - Epoch 17 start: positions[0]=85000  state.norm=247.0538
+[2026-08-26 23:17:09,991][train_srnn.training.continuous][INFO] - Epoch 17 (continuous, 20.7s):
+[2026-08-26 23:17:09,991][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.1851 train_metric=0.3193 valid_loss=0.1718 valid_metric=0.3073
+[2026-08-26 23:17:09,991][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.2466 train_metric=0.3749 valid_loss=0.2216 valid_metric=0.3560
+[2026-08-26 23:17:09,991][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0604 train_metric=0.1393 valid_loss=0.0594 valid_metric=0.1369
+[2026-08-26 23:17:09,991][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0632 train_metric=0.1432 valid_loss=0.0620 valid_metric=0.1405
+[2026-08-26 23:17:09,991][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.3833 train_metric=0.4949 valid_loss=0.3582 valid_metric=0.4778
+[2026-08-26 23:17:09,991][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0622 train_metric=0.1423 valid_loss=0.0612 valid_metric=0.1405
+[2026-08-26 23:17:20,411][__main__][INFO] - Test [epoch_017 @ epoch 17]:
+[2026-08-26 23:17:20,411][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.1711 test_metric=0.3062
+[2026-08-26 23:17:20,411][__main__][INFO] -   [srnn-no-adapt] test_loss=0.2240 test_metric=0.3569
+[2026-08-26 23:17:20,411][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0594 test_metric=0.1368
+[2026-08-26 23:17:20,411][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0621 test_metric=0.1405
+[2026-08-26 23:17:20,411][__main__][INFO] -   [srnn] test_loss=0.3574 test_metric=0.4763
+[2026-08-26 23:17:20,411][__main__][INFO] -   [srnn-skip] test_loss=0.0612 test_metric=0.1403
+[2026-08-26 23:17:20,411][train_srnn.training.continuous][INFO] - Epoch 18 start: positions[0]=90000  state.norm=248.6378
+  [periodic-upload] Epoch 18: uploading to GCS...
+[2026-08-26 23:17:41,562][train_srnn.training.continuous][INFO] - Epoch 18 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.1744/0.3074 [srnn-no-adapt]=0.2224/0.3531 [srnn-no-dales-skip]=0.0592/0.1368 [srnn-no-adapt-no-dales-skip]=0.0619/0.1407 [srnn]=0.3499/0.4696 [srnn-skip]=0.0611/0.1403
+[2026-08-26 23:17:41,563][train_srnn.training.continuous][INFO] - Epoch 19 start: positions[0]=95000  state.norm=249.4292
+[2026-08-26 23:18:02,241][train_srnn.training.continuous][INFO] - Epoch 19 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.1656/0.2981 [srnn-no-adapt]=0.2038/0.3349 [srnn-no-dales-skip]=0.0580/0.1345 [srnn-no-adapt-no-dales-skip]=0.0608/0.1385 [srnn]=0.3199/0.4458 [srnn-skip]=0.0599/0.1382
+[2026-08-26 23:18:02,242][train_srnn.training.continuous][INFO] - Epoch 20 start: positions[0]=100000  state.norm=253.7664
+[2026-08-26 23:18:23,010][train_srnn.training.continuous][INFO] - Epoch 20 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.1579/0.2896 [srnn-no-adapt]=0.1888/0.3196 [srnn-no-dales-skip]=0.0569/0.1322 [srnn-no-adapt-no-dales-skip]=0.0599/0.1367 [srnn]=0.2928/0.4236 [srnn-skip]=0.0588/0.1362
+[2026-08-26 23:18:23,011][train_srnn.training.continuous][INFO] - Epoch 21 start: positions[0]=105000  state.norm=256.6284
+[2026-08-26 23:18:43,976][train_srnn.training.continuous][INFO] - Epoch 21 (continuous, train-only, 21.0s): [srnn-no-adapt-no-dales]=0.1514/0.2826 [srnn-no-adapt]=0.1767/0.3067 [srnn-no-dales-skip]=0.0558/0.1302 [srnn-no-adapt-no-dales-skip]=0.0591/0.1352 [srnn]=0.2682/0.4030 [srnn-skip]=0.0577/0.1342
+[2026-08-26 23:18:43,978][train_srnn.training.continuous][INFO] - Epoch 22 start: positions[0]=110000  state.norm=256.9359
+[2026-08-26 23:19:04,632][train_srnn.training.continuous][INFO] - Epoch 22 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.1460/0.2768 [srnn-no-adapt]=0.1669/0.2960 [srnn-no-dales-skip]=0.0547/0.1283 [srnn-no-adapt-no-dales-skip]=0.0583/0.1337 [srnn]=0.2465/0.3842 [srnn-skip]=0.0567/0.1322
+[2026-08-26 23:19:04,633][train_srnn.training.continuous][INFO] - Epoch 23 start: positions[0]=115000  state.norm=256.4979
+[2026-08-26 23:19:35,799][train_srnn.training.continuous][INFO] - Epoch 23 (continuous, 20.7s):
+[2026-08-26 23:19:35,799][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.1407 train_metric=0.2710 valid_loss=0.1307 valid_metric=0.2623
+[2026-08-26 23:19:35,799][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.1587 train_metric=0.2872 valid_loss=0.1451 valid_metric=0.2761
+[2026-08-26 23:19:35,799][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0537 train_metric=0.1264 valid_loss=0.0528 valid_metric=0.1244
+[2026-08-26 23:19:35,799][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0576 train_metric=0.1324 valid_loss=0.0568 valid_metric=0.1304
+[2026-08-26 23:19:35,799][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.2273 train_metric=0.3672 valid_loss=0.2105 valid_metric=0.3542
+[2026-08-26 23:19:35,799][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0557 train_metric=0.1303 valid_loss=0.0549 valid_metric=0.1284
+[2026-08-26 23:19:46,264][__main__][INFO] - Test [epoch_023 @ epoch 23]:
+[2026-08-26 23:19:46,264][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.1313 test_metric=0.2627
+[2026-08-26 23:19:46,264][__main__][INFO] -   [srnn-no-adapt] test_loss=0.1468 test_metric=0.2769
+[2026-08-26 23:19:46,264][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0528 test_metric=0.1243
+[2026-08-26 23:19:46,264][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0568 test_metric=0.1303
+[2026-08-26 23:19:46,264][__main__][INFO] -   [srnn] test_loss=0.2112 test_metric=0.3535
+[2026-08-26 23:19:46,264][__main__][INFO] -   [srnn-skip] test_loss=0.0548 test_metric=0.1282
+[2026-08-26 23:19:46,264][train_srnn.training.continuous][INFO] - Epoch 24 start: positions[0]=1027  state.norm=259.1782
+[2026-08-26 23:20:07,188][train_srnn.training.continuous][INFO] - Epoch 24 (continuous, train-only, 20.9s): [srnn-no-adapt-no-dales]=0.1356/0.2653 [srnn-no-adapt]=0.1523/0.2799 [srnn-no-dales-skip]=0.0527/0.1246 [srnn-no-adapt-no-dales-skip]=0.0570/0.1314 [srnn]=0.2110/0.3520 [srnn-skip]=0.0549/0.1286
+[2026-08-26 23:20:07,189][train_srnn.training.continuous][INFO] - Epoch 25 start: positions[0]=6027  state.norm=259.3891
+[2026-08-26 23:20:27,874][train_srnn.training.continuous][INFO] - Epoch 25 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.1313/0.2603 [srnn-no-adapt]=0.1466/0.2737 [srnn-no-dales-skip]=0.0517/0.1229 [srnn-no-adapt-no-dales-skip]=0.0565/0.1304 [srnn]=0.1969/0.3385 [srnn-skip]=0.0540/0.1270
+[2026-08-26 23:20:27,875][train_srnn.training.continuous][INFO] - Epoch 26 start: positions[0]=11027  state.norm=262.2143
+[2026-08-26 23:20:48,591][train_srnn.training.continuous][INFO] - Epoch 26 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.1269/0.2554 [srnn-no-adapt]=0.1410/0.2677 [srnn-no-dales-skip]=0.0507/0.1213 [srnn-no-adapt-no-dales-skip]=0.0558/0.1293 [srnn]=0.1842/0.3259 [srnn-skip]=0.0531/0.1255
+[2026-08-26 23:20:48,592][train_srnn.training.continuous][INFO] - Epoch 27 start: positions[0]=16027  state.norm=263.1231
+[2026-08-26 23:21:09,300][train_srnn.training.continuous][INFO] - Epoch 27 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.1235/0.2515 [srnn-no-adapt]=0.1368/0.2629 [srnn-no-dales-skip]=0.0498/0.1199 [srnn-no-adapt-no-dales-skip]=0.0554/0.1285 [srnn]=0.1742/0.3152 [srnn-skip]=0.0523/0.1242
+[2026-08-26 23:21:09,301][train_srnn.training.continuous][INFO] - Epoch 28 start: positions[0]=21027  state.norm=262.1319
+[2026-08-26 23:21:29,914][train_srnn.training.continuous][INFO] - Epoch 28 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.1200/0.2474 [srnn-no-adapt]=0.1327/0.2583 [srnn-no-dales-skip]=0.0488/0.1185 [srnn-no-adapt-no-dales-skip]=0.0548/0.1277 [srnn]=0.1655/0.3054 [srnn-skip]=0.0515/0.1229
+[2026-08-26 23:21:29,915][train_srnn.training.continuous][INFO] - Epoch 29 start: positions[0]=26027  state.norm=262.2402
+[2026-08-26 23:22:01,067][train_srnn.training.continuous][INFO] - Epoch 29 (continuous, 20.7s):
+[2026-08-26 23:22:01,068][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.1167 train_metric=0.2436 valid_loss=0.1089 valid_metric=0.2364
+[2026-08-26 23:22:01,068][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.1288 train_metric=0.2540 valid_loss=0.1184 valid_metric=0.2452
+[2026-08-26 23:22:01,068][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0478 train_metric=0.1171 valid_loss=0.0469 valid_metric=0.1153
+[2026-08-26 23:22:01,068][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0542 train_metric=0.1268 valid_loss=0.0534 valid_metric=0.1253
+[2026-08-26 23:22:01,068][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.1578 train_metric=0.2965 valid_loss=0.1464 valid_metric=0.2864
+[2026-08-26 23:22:01,068][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0507 train_metric=0.1216 valid_loss=0.0499 valid_metric=0.1200
+[2026-08-26 23:22:11,499][__main__][INFO] - Test [epoch_029 @ epoch 29]:
+[2026-08-26 23:22:11,499][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.1098 test_metric=0.2374
+[2026-08-26 23:22:11,499][__main__][INFO] -   [srnn-no-adapt] test_loss=0.1198 test_metric=0.2461
+[2026-08-26 23:22:11,499][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0469 test_metric=0.1150
+[2026-08-26 23:22:11,499][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0534 test_metric=0.1251
+[2026-08-26 23:22:11,499][__main__][INFO] -   [srnn] test_loss=0.1478 test_metric=0.2869
+[2026-08-26 23:22:11,499][__main__][INFO] -   [srnn-skip] test_loss=0.0499 test_metric=0.1197
+[2026-08-26 23:22:11,500][train_srnn.training.continuous][INFO] - Epoch 30 start: positions[0]=31027  state.norm=265.3228
+[2026-08-26 23:22:32,701][train_srnn.training.continuous][INFO] - Epoch 30 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.1138/0.2403 [srnn-no-adapt]=0.1254/0.2502 [srnn-no-dales-skip]=0.0468/0.1157 [srnn-no-adapt-no-dales-skip]=0.0536/0.1259 [srnn]=0.1515/0.2887 [srnn-skip]=0.0499/0.1205
+[2026-08-26 23:22:32,702][train_srnn.training.continuous][INFO] - Epoch 31 start: positions[0]=36027  state.norm=267.7713
+[2026-08-26 23:22:53,432][train_srnn.training.continuous][INFO] - Epoch 31 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.1108/0.2366 [srnn-no-adapt]=0.1224/0.2467 [srnn-no-dales-skip]=0.0457/0.1143 [srnn-no-adapt-no-dales-skip]=0.0530/0.1249 [srnn]=0.1460/0.2817 [srnn-skip]=0.0491/0.1194
+[2026-08-26 23:22:53,433][train_srnn.training.continuous][INFO] - Epoch 32 start: positions[0]=41027  state.norm=269.5780
+[2026-08-26 23:23:14,491][train_srnn.training.continuous][INFO] - Epoch 32 (continuous, train-only, 21.1s): [srnn-no-adapt-no-dales]=0.1083/0.2334 [srnn-no-adapt]=0.1195/0.2435 [srnn-no-dales-skip]=0.0444/0.1130 [srnn-no-adapt-no-dales-skip]=0.0523/0.1238 [srnn]=0.1412/0.2757 [srnn-skip]=0.0483/0.1182
+[2026-08-26 23:23:14,492][train_srnn.training.continuous][INFO] - Epoch 33 start: positions[0]=46027  state.norm=269.0059
+[2026-08-26 23:23:35,252][train_srnn.training.continuous][INFO] - Epoch 33 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.1060/0.2306 [srnn-no-adapt]=0.1169/0.2406 [srnn-no-dales-skip]=0.0432/0.1114 [srnn-no-adapt-no-dales-skip]=0.0517/0.1229 [srnn]=0.1370/0.2704 [srnn-skip]=0.0474/0.1171
+[2026-08-26 23:23:35,253][train_srnn.training.continuous][INFO] - Epoch 34 start: positions[0]=51027  state.norm=267.0725
+[2026-08-26 23:23:55,955][train_srnn.training.continuous][INFO] - Epoch 34 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.1037/0.2277 [srnn-no-adapt]=0.1143/0.2377 [srnn-no-dales-skip]=0.0420/0.1099 [srnn-no-adapt-no-dales-skip]=0.0511/0.1219 [srnn]=0.1332/0.2656 [srnn-skip]=0.0466/0.1161
+[2026-08-26 23:23:55,956][train_srnn.training.continuous][INFO] - Epoch 35 start: positions[0]=56027  state.norm=267.0163
+[2026-08-26 23:24:27,806][train_srnn.training.continuous][INFO] - Epoch 35 (continuous, 21.2s):
+[2026-08-26 23:24:27,807][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.1015 train_metric=0.2249 valid_loss=0.0943 valid_metric=0.2177
+[2026-08-26 23:24:27,807][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.1121 train_metric=0.2351 valid_loss=0.1033 valid_metric=0.2270
+[2026-08-26 23:24:27,807][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0408 train_metric=0.1084 valid_loss=0.0398 valid_metric=0.1063
+[2026-08-26 23:24:27,807][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0505 train_metric=0.1210 valid_loss=0.0498 valid_metric=0.1194
+[2026-08-26 23:24:27,807][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.1296 train_metric=0.2611 valid_loss=0.1206 valid_metric=0.2529
+[2026-08-26 23:24:27,807][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0457 train_metric=0.1150 valid_loss=0.0449 valid_metric=0.1135
+[2026-08-26 23:24:38,411][__main__][INFO] - Test [epoch_035 @ epoch 35]:
+[2026-08-26 23:24:38,411][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0953 test_metric=0.2191
+[2026-08-26 23:24:38,411][__main__][INFO] -   [srnn-no-adapt] test_loss=0.1041 test_metric=0.2279
+[2026-08-26 23:24:38,411][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0397 test_metric=0.1062
+[2026-08-26 23:24:38,411][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0497 test_metric=0.1191
+[2026-08-26 23:24:38,411][__main__][INFO] -   [srnn] test_loss=0.1217 test_metric=0.2537
+[2026-08-26 23:24:38,412][__main__][INFO] -   [srnn-skip] test_loss=0.0450 test_metric=0.1132
+[2026-08-26 23:24:38,412][train_srnn.training.continuous][INFO] - Epoch 36 start: positions[0]=61027  state.norm=272.7103
+  [periodic-upload] Epoch 36: uploading to GCS...
+[2026-08-26 23:24:59,276][train_srnn.training.continuous][INFO] - Epoch 36 (continuous, train-only, 20.9s): [srnn-no-adapt-no-dales]=0.0993/0.2222 [srnn-no-adapt]=0.1098/0.2325 [srnn-no-dales-skip]=0.0394/0.1068 [srnn-no-adapt-no-dales-skip]=0.0499/0.1200 [srnn]=0.1262/0.2569 [srnn-skip]=0.0448/0.1139
+[2026-08-26 23:24:59,277][train_srnn.training.continuous][INFO] - Epoch 37 start: positions[0]=66027  state.norm=275.8741
+[2026-08-26 23:25:20,061][train_srnn.training.continuous][INFO] - Epoch 37 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.0975/0.2198 [srnn-no-adapt]=0.1079/0.2303 [srnn-no-dales-skip]=0.0381/0.1054 [srnn-no-adapt-no-dales-skip]=0.0494/0.1192 [srnn]=0.1233/0.2534 [srnn-skip]=0.0439/0.1129
+[2026-08-26 23:25:20,062][train_srnn.training.continuous][INFO] - Epoch 38 start: positions[0]=71027  state.norm=274.9186
+[2026-08-26 23:25:41,220][train_srnn.training.continuous][INFO] - Epoch 38 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0958/0.2176 [srnn-no-adapt]=0.1060/0.2281 [srnn-no-dales-skip]=0.0368/0.1040 [srnn-no-adapt-no-dales-skip]=0.0488/0.1183 [srnn]=0.1205/0.2500 [srnn-skip]=0.0430/0.1119
+[2026-08-26 23:25:41,221][train_srnn.training.continuous][INFO] - Epoch 39 start: positions[0]=76027  state.norm=274.4779
+[2026-08-26 23:26:01,844][train_srnn.training.continuous][INFO] - Epoch 39 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0941/0.2155 [srnn-no-adapt]=0.1042/0.2261 [srnn-no-dales-skip]=0.0354/0.1026 [srnn-no-adapt-no-dales-skip]=0.0483/0.1175 [srnn]=0.1179/0.2469 [srnn-skip]=0.0421/0.1108
+[2026-08-26 23:26:01,845][train_srnn.training.continuous][INFO] - Epoch 40 start: positions[0]=81027  state.norm=277.1555
+[2026-08-26 23:26:22,580][train_srnn.training.continuous][INFO] - Epoch 40 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0924/0.2133 [srnn-no-adapt]=0.1024/0.2241 [srnn-no-dales-skip]=0.0341/0.1012 [srnn-no-adapt-no-dales-skip]=0.0477/0.1166 [srnn]=0.1153/0.2438 [srnn-skip]=0.0413/0.1099
+[2026-08-26 23:26:22,581][train_srnn.training.continuous][INFO] - Epoch 41 start: positions[0]=86027  state.norm=278.9240
+[2026-08-26 23:26:54,045][train_srnn.training.continuous][INFO] - Epoch 41 (continuous, 21.0s):
+[2026-08-26 23:26:54,045][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0907 train_metric=0.2111 valid_loss=0.0848 valid_metric=0.2053
+[2026-08-26 23:26:54,045][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.1006 train_metric=0.2220 valid_loss=0.0931 valid_metric=0.2144
+[2026-08-26 23:26:54,045][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0329 train_metric=0.0996 valid_loss=0.0320 valid_metric=0.0976
+[2026-08-26 23:26:54,045][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0471 train_metric=0.1157 valid_loss=0.0464 valid_metric=0.1141
+[2026-08-26 23:26:54,046][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.1127 train_metric=0.2407 valid_loss=0.1052 valid_metric=0.2332
+[2026-08-26 23:26:54,046][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0404 train_metric=0.1089 valid_loss=0.0396 valid_metric=0.1074
+[2026-08-26 23:27:04,601][__main__][INFO] - Test [epoch_041 @ epoch 41]:
+[2026-08-26 23:27:04,601][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0857 test_metric=0.2069
+[2026-08-26 23:27:04,601][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0936 test_metric=0.2154
+[2026-08-26 23:27:04,601][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0319 test_metric=0.0975
+[2026-08-26 23:27:04,601][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0463 test_metric=0.1139
+[2026-08-26 23:27:04,601][__main__][INFO] -   [srnn] test_loss=0.1060 test_metric=0.2344
+[2026-08-26 23:27:04,601][__main__][INFO] -   [srnn-skip] test_loss=0.0398 test_metric=0.1073
+[2026-08-26 23:27:04,601][train_srnn.training.continuous][INFO] - Epoch 42 start: positions[0]=91027  state.norm=278.6863
+[2026-08-26 23:27:25,287][train_srnn.training.continuous][INFO] - Epoch 42 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0892/0.2092 [srnn-no-adapt]=0.0990/0.2201 [srnn-no-dales-skip]=0.0317/0.0981 [srnn-no-adapt-no-dales-skip]=0.0465/0.1149 [srnn]=0.1105/0.2379 [srnn-skip]=0.0396/0.1079
+[2026-08-26 23:27:25,288][train_srnn.training.continuous][INFO] - Epoch 43 start: positions[0]=96027  state.norm=280.8645
+[2026-08-26 23:27:46,394][train_srnn.training.continuous][INFO] - Epoch 43 (continuous, train-only, 21.1s): [srnn-no-adapt-no-dales]=0.0877/0.2074 [srnn-no-adapt]=0.0974/0.2182 [srnn-no-dales-skip]=0.0306/0.0967 [srnn-no-adapt-no-dales-skip]=0.0459/0.1141 [srnn]=0.1082/0.2353 [srnn-skip]=0.0388/0.1070
+[2026-08-26 23:27:46,395][train_srnn.training.continuous][INFO] - Epoch 44 start: positions[0]=101027  state.norm=284.0154
+[2026-08-26 23:28:07,089][train_srnn.training.continuous][INFO] - Epoch 44 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0863/0.2056 [srnn-no-adapt]=0.0959/0.2164 [srnn-no-dales-skip]=0.0296/0.0954 [srnn-no-adapt-no-dales-skip]=0.0453/0.1132 [srnn]=0.1060/0.2326 [srnn-skip]=0.0379/0.1061
+[2026-08-26 23:28:07,090][train_srnn.training.continuous][INFO] - Epoch 45 start: positions[0]=106027  state.norm=286.4917
+[2026-08-26 23:28:27,730][train_srnn.training.continuous][INFO] - Epoch 45 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0849/0.2038 [srnn-no-adapt]=0.0943/0.2146 [srnn-no-dales-skip]=0.0286/0.0940 [srnn-no-adapt-no-dales-skip]=0.0446/0.1122 [srnn]=0.1038/0.2300 [srnn-skip]=0.0371/0.1051
+[2026-08-26 23:28:27,731][train_srnn.training.continuous][INFO] - Epoch 46 start: positions[0]=111027  state.norm=288.8911
+[2026-08-26 23:28:48,329][train_srnn.training.continuous][INFO] - Epoch 46 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0835/0.2021 [srnn-no-adapt]=0.0930/0.2130 [srnn-no-dales-skip]=0.0278/0.0929 [srnn-no-adapt-no-dales-skip]=0.0439/0.1114 [srnn]=0.1019/0.2276 [srnn-skip]=0.0363/0.1043
+[2026-08-26 23:28:48,330][train_srnn.training.continuous][INFO] - Epoch 47 start: positions[0]=116027  state.norm=288.2297
+[2026-08-26 23:29:19,439][train_srnn.training.continuous][INFO] - Epoch 47 (continuous, 20.6s):
+[2026-08-26 23:29:19,440][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0824 train_metric=0.2005 valid_loss=0.0768 valid_metric=0.1942
+[2026-08-26 23:29:19,440][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0920 train_metric=0.2117 valid_loss=0.0851 valid_metric=0.2045
+[2026-08-26 23:29:19,440][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0270 train_metric=0.0918 valid_loss=0.0269 valid_metric=0.0902
+[2026-08-26 23:29:19,440][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0433 train_metric=0.1107 valid_loss=0.0426 valid_metric=0.1090
+[2026-08-26 23:29:19,440][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.1003 train_metric=0.2255 valid_loss=0.0935 valid_metric=0.2183
+[2026-08-26 23:29:19,440][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0355 train_metric=0.1034 valid_loss=0.0348 valid_metric=0.1017
+[2026-08-26 23:29:29,902][__main__][INFO] - Test [epoch_047 @ epoch 47]:
+[2026-08-26 23:29:29,902][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0775 test_metric=0.1960
+[2026-08-26 23:29:29,902][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0857 test_metric=0.2059
+[2026-08-26 23:29:29,902][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0266 test_metric=0.0900
+[2026-08-26 23:29:29,902][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0424 test_metric=0.1087
+[2026-08-26 23:29:29,902][__main__][INFO] -   [srnn] test_loss=0.0942 test_metric=0.2195
+[2026-08-26 23:29:29,903][__main__][INFO] -   [srnn-skip] test_loss=0.0350 test_metric=0.1019
+[2026-08-26 23:29:29,903][train_srnn.training.continuous][INFO] - Epoch 48 start: positions[0]=2054  state.norm=285.0792
+[2026-08-26 23:29:50,533][train_srnn.training.continuous][INFO] - Epoch 48 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0809/0.1986 [srnn-no-adapt]=0.0904/0.2098 [srnn-no-dales-skip]=0.0263/0.0907 [srnn-no-adapt-no-dales-skip]=0.0426/0.1098 [srnn]=0.0981/0.2229 [srnn-skip]=0.0347/0.1025
+[2026-08-26 23:29:50,534][train_srnn.training.continuous][INFO] - Epoch 49 start: positions[0]=7054  state.norm=286.5535
+[2026-08-26 23:30:11,614][train_srnn.training.continuous][INFO] - Epoch 49 (continuous, train-only, 21.1s): [srnn-no-adapt-no-dales]=0.0796/0.1969 [srnn-no-adapt]=0.0890/0.2080 [srnn-no-dales-skip]=0.0256/0.0896 [srnn-no-adapt-no-dales-skip]=0.0420/0.1090 [srnn]=0.0963/0.2206 [srnn-skip]=0.0340/0.1016
+[2026-08-26 23:30:11,615][train_srnn.training.continuous][INFO] - Epoch 50 start: positions[0]=12054  state.norm=284.3491
+[2026-08-26 23:30:32,446][train_srnn.training.continuous][INFO] - Epoch 50 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.0786/0.1955 [srnn-no-adapt]=0.0879/0.2066 [srnn-no-dales-skip]=0.0250/0.0887 [srnn-no-adapt-no-dales-skip]=0.0413/0.1081 [srnn]=0.0948/0.2186 [srnn-skip]=0.0333/0.1008
+[2026-08-26 23:30:32,447][train_srnn.training.continuous][INFO] - Epoch 51 start: positions[0]=17054  state.norm=284.0880
+[2026-08-26 23:30:53,235][train_srnn.training.continuous][INFO] - Epoch 51 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.0774/0.1940 [srnn-no-adapt]=0.0867/0.2050 [srnn-no-dales-skip]=0.0244/0.0878 [srnn-no-adapt-no-dales-skip]=0.0406/0.1073 [srnn]=0.0932/0.2165 [srnn-skip]=0.0327/0.1000
+[2026-08-26 23:30:53,236][train_srnn.training.continuous][INFO] - Epoch 52 start: positions[0]=22054  state.norm=287.8082
+[2026-08-26 23:31:14,348][train_srnn.training.continuous][INFO] - Epoch 52 (continuous, train-only, 21.1s): [srnn-no-adapt-no-dales]=0.0763/0.1925 [srnn-no-adapt]=0.0855/0.2034 [srnn-no-dales-skip]=0.0239/0.0870 [srnn-no-adapt-no-dales-skip]=0.0400/0.1065 [srnn]=0.0915/0.2143 [srnn-skip]=0.0321/0.0993
+[2026-08-26 23:31:14,349][train_srnn.training.continuous][INFO] - Epoch 53 start: positions[0]=27054  state.norm=290.9666
+[2026-08-26 23:31:45,488][train_srnn.training.continuous][INFO] - Epoch 53 (continuous, 20.7s):
+[2026-08-26 23:31:45,488][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0753 train_metric=0.1910 valid_loss=0.0703 valid_metric=0.1851
+[2026-08-26 23:31:45,488][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0844 train_metric=0.2020 valid_loss=0.0782 valid_metric=0.1950
+[2026-08-26 23:31:45,488][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0234 train_metric=0.0862 valid_loss=0.0231 valid_metric=0.0847
+[2026-08-26 23:31:45,488][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0394 train_metric=0.1058 valid_loss=0.0386 valid_metric=0.1039
+[2026-08-26 23:31:45,488][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0901 train_metric=0.2124 valid_loss=0.0841 valid_metric=0.2057
+[2026-08-26 23:31:45,488][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0316 train_metric=0.0987 valid_loss=0.0311 valid_metric=0.0970
+[2026-08-26 23:31:55,940][__main__][INFO] - Test [epoch_053 @ epoch 53]:
+[2026-08-26 23:31:55,940][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0710 test_metric=0.1872
+[2026-08-26 23:31:55,940][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0787 test_metric=0.1965
+[2026-08-26 23:31:55,940][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0228 test_metric=0.0845
+[2026-08-26 23:31:55,940][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0384 test_metric=0.1036
+[2026-08-26 23:31:55,940][__main__][INFO] -   [srnn] test_loss=0.0848 test_metric=0.2070
+[2026-08-26 23:31:55,940][__main__][INFO] -   [srnn-skip] test_loss=0.0315 test_metric=0.0973
+[2026-08-26 23:31:55,940][train_srnn.training.continuous][INFO] - Epoch 54 start: positions[0]=32054  state.norm=297.6076
+  [periodic-upload] Epoch 54: uploading to GCS...
+[2026-08-26 23:32:16,760][train_srnn.training.continuous][INFO] - Epoch 54 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.0741/0.1894 [srnn-no-adapt]=0.0832/0.2004 [srnn-no-dales-skip]=0.0229/0.0854 [srnn-no-adapt-no-dales-skip]=0.0387/0.1049 [srnn]=0.0885/0.2103 [srnn-skip]=0.0312/0.0980
+[2026-08-26 23:32:16,761][train_srnn.training.continuous][INFO] - Epoch 55 start: positions[0]=37054  state.norm=299.2452
+[2026-08-26 23:32:37,857][train_srnn.training.continuous][INFO] - Epoch 55 (continuous, train-only, 21.1s): [srnn-no-adapt-no-dales]=0.0729/0.1878 [srnn-no-adapt]=0.0820/0.1989 [srnn-no-dales-skip]=0.0224/0.0846 [srnn-no-adapt-no-dales-skip]=0.0380/0.1041 [srnn]=0.0870/0.2084 [srnn-skip]=0.0307/0.0973
+[2026-08-26 23:32:37,858][train_srnn.training.continuous][INFO] - Epoch 56 start: positions[0]=42054  state.norm=296.2790
+[2026-08-26 23:32:58,542][train_srnn.training.continuous][INFO] - Epoch 56 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0720/0.1866 [srnn-no-adapt]=0.0810/0.1975 [srnn-no-dales-skip]=0.0220/0.0839 [srnn-no-adapt-no-dales-skip]=0.0374/0.1033 [srnn]=0.0858/0.2067 [srnn-skip]=0.0302/0.0966
+[2026-08-26 23:32:58,543][train_srnn.training.continuous][INFO] - Epoch 57 start: positions[0]=47054  state.norm=294.8542
+[2026-08-26 23:33:19,242][train_srnn.training.continuous][INFO] - Epoch 57 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0710/0.1852 [srnn-no-adapt]=0.0799/0.1960 [srnn-no-dales-skip]=0.0217/0.0833 [srnn-no-adapt-no-dales-skip]=0.0368/0.1026 [srnn]=0.0844/0.2048 [srnn-skip]=0.0298/0.0960
+[2026-08-26 23:33:19,243][train_srnn.training.continuous][INFO] - Epoch 58 start: positions[0]=52054  state.norm=295.7413
+[2026-08-26 23:33:39,834][train_srnn.training.continuous][INFO] - Epoch 58 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0700/0.1837 [srnn-no-adapt]=0.0789/0.1946 [srnn-no-dales-skip]=0.0213/0.0826 [srnn-no-adapt-no-dales-skip]=0.0362/0.1019 [srnn]=0.0831/0.2030 [srnn-skip]=0.0295/0.0955
+[2026-08-26 23:33:39,835][train_srnn.training.continuous][INFO] - Epoch 59 start: positions[0]=57054  state.norm=295.7628
+[2026-08-26 23:34:10,930][train_srnn.training.continuous][INFO] - Epoch 59 (continuous, 20.6s):
+[2026-08-26 23:34:10,930][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0690 train_metric=0.1824 valid_loss=0.0645 valid_metric=0.1765
+[2026-08-26 23:34:10,930][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0778 train_metric=0.1932 valid_loss=0.0724 valid_metric=0.1869
+[2026-08-26 23:34:10,930][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0209 train_metric=0.0819 valid_loss=0.0207 valid_metric=0.0805
+[2026-08-26 23:34:10,930][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0356 train_metric=0.1012 valid_loss=0.0348 valid_metric=0.0996
+[2026-08-26 23:34:10,930][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0818 train_metric=0.2013 valid_loss=0.0767 valid_metric=0.1951
+[2026-08-26 23:34:10,930][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0293 train_metric=0.0951 valid_loss=0.0289 valid_metric=0.0936
+[2026-08-26 23:34:21,400][__main__][INFO] - Test [epoch_059 @ epoch 59]:
+[2026-08-26 23:34:21,401][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0652 test_metric=0.1785
+[2026-08-26 23:34:21,401][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0729 test_metric=0.1884
+[2026-08-26 23:34:21,401][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0204 test_metric=0.0803
+[2026-08-26 23:34:21,401][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0348 test_metric=0.0995
+[2026-08-26 23:34:21,401][__main__][INFO] -   [srnn] test_loss=0.0774 test_metric=0.1965
+[2026-08-26 23:34:21,401][__main__][INFO] -   [srnn-skip] test_loss=0.0293 test_metric=0.0939
+[2026-08-26 23:34:21,401][train_srnn.training.continuous][INFO] - Epoch 60 start: positions[0]=62054  state.norm=299.9638
+[2026-08-26 23:34:42,525][train_srnn.training.continuous][INFO] - Epoch 60 (continuous, train-only, 21.1s): [srnn-no-adapt-no-dales]=0.0682/0.1810 [srnn-no-adapt]=0.0770/0.1920 [srnn-no-dales-skip]=0.0205/0.0813 [srnn-no-adapt-no-dales-skip]=0.0350/0.1004 [srnn]=0.0807/0.1997 [srnn-skip]=0.0288/0.0944
+[2026-08-26 23:34:42,526][train_srnn.training.continuous][INFO] - Epoch 61 start: positions[0]=67054  state.norm=301.7112
+[2026-08-26 23:35:03,220][train_srnn.training.continuous][INFO] - Epoch 61 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0672/0.1795 [srnn-no-adapt]=0.0760/0.1907 [srnn-no-dales-skip]=0.0202/0.0806 [srnn-no-adapt-no-dales-skip]=0.0344/0.0996 [srnn]=0.0795/0.1981 [srnn-skip]=0.0284/0.0938
+[2026-08-26 23:35:03,221][train_srnn.training.continuous][INFO] - Epoch 62 start: positions[0]=72054  state.norm=294.5444
+[2026-08-26 23:35:24,322][train_srnn.training.continuous][INFO] - Epoch 62 (continuous, train-only, 21.1s): [srnn-no-adapt-no-dales]=0.0664/0.1785 [srnn-no-adapt]=0.0752/0.1895 [srnn-no-dales-skip]=0.0199/0.0801 [srnn-no-adapt-no-dales-skip]=0.0338/0.0989 [srnn]=0.0785/0.1966 [srnn-skip]=0.0282/0.0934
+[2026-08-26 23:35:24,323][train_srnn.training.continuous][INFO] - Epoch 63 start: positions[0]=77054  state.norm=300.6930
+[2026-08-26 23:35:45,118][train_srnn.training.continuous][INFO] - Epoch 63 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.0655/0.1771 [srnn-no-adapt]=0.0742/0.1882 [srnn-no-dales-skip]=0.0197/0.0797 [srnn-no-adapt-no-dales-skip]=0.0333/0.0982 [srnn]=0.0774/0.1951 [srnn-skip]=0.0279/0.0930
+[2026-08-26 23:35:45,119][train_srnn.training.continuous][INFO] - Epoch 64 start: positions[0]=82054  state.norm=299.6785
+[2026-08-26 23:36:05,917][train_srnn.training.continuous][INFO] - Epoch 64 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.0648/0.1760 [srnn-no-adapt]=0.0735/0.1872 [srnn-no-dales-skip]=0.0194/0.0790 [srnn-no-adapt-no-dales-skip]=0.0328/0.0976 [srnn]=0.0765/0.1937 [srnn-skip]=0.0277/0.0926
+[2026-08-26 23:36:05,918][train_srnn.training.continuous][INFO] - Epoch 65 start: positions[0]=87054  state.norm=294.5987
+[2026-08-26 23:36:37,682][train_srnn.training.continuous][INFO] - Epoch 65 (continuous, 21.2s):
+[2026-08-26 23:36:37,682][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0639 train_metric=0.1748 valid_loss=0.0601 valid_metric=0.1696
+[2026-08-26 23:36:37,682][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0725 train_metric=0.1858 valid_loss=0.0676 valid_metric=0.1801
+[2026-08-26 23:36:37,683][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0190 train_metric=0.0784 valid_loss=0.0192 valid_metric=0.0774
+[2026-08-26 23:36:37,683][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0322 train_metric=0.0969 valid_loss=0.0315 valid_metric=0.0951
+[2026-08-26 23:36:37,683][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0752 train_metric=0.1921 valid_loss=0.0706 valid_metric=0.1863
+[2026-08-26 23:36:37,683][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0275 train_metric=0.0921 valid_loss=0.0272 valid_metric=0.0908
+[2026-08-26 23:36:48,247][__main__][INFO] - Test [epoch_065 @ epoch 65]:
+[2026-08-26 23:36:48,248][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0606 test_metric=0.1714
+[2026-08-26 23:36:48,248][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0679 test_metric=0.1814
+[2026-08-26 23:36:48,248][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0187 test_metric=0.0771
+[2026-08-26 23:36:48,248][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0314 test_metric=0.0949
+[2026-08-26 23:36:48,248][__main__][INFO] -   [srnn] test_loss=0.0712 test_metric=0.1877
+[2026-08-26 23:36:48,248][__main__][INFO] -   [srnn-skip] test_loss=0.0276 test_metric=0.0911
+[2026-08-26 23:36:48,248][train_srnn.training.continuous][INFO] - Epoch 66 start: positions[0]=92054  state.norm=301.5142
+[2026-08-26 23:37:09,023][train_srnn.training.continuous][INFO] - Epoch 66 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.0633/0.1737 [srnn-no-adapt]=0.0718/0.1847 [srnn-no-dales-skip]=0.0187/0.0779 [srnn-no-adapt-no-dales-skip]=0.0317/0.0962 [srnn]=0.0744/0.1908 [srnn-skip]=0.0271/0.0917
+[2026-08-26 23:37:09,025][train_srnn.training.continuous][INFO] - Epoch 67 start: positions[0]=97054  state.norm=297.7250
+[2026-08-26 23:37:29,890][train_srnn.training.continuous][INFO] - Epoch 67 (continuous, train-only, 20.9s): [srnn-no-adapt-no-dales]=0.0624/0.1723 [srnn-no-adapt]=0.0708/0.1834 [srnn-no-dales-skip]=0.0185/0.0774 [srnn-no-adapt-no-dales-skip]=0.0312/0.0954 [srnn]=0.0733/0.1894 [srnn-skip]=0.0269/0.0912
+[2026-08-26 23:37:29,891][train_srnn.training.continuous][INFO] - Epoch 68 start: positions[0]=102054  state.norm=303.2296
+[2026-08-26 23:37:50,626][train_srnn.training.continuous][INFO] - Epoch 68 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0615/0.1711 [srnn-no-adapt]=0.0699/0.1821 [srnn-no-dales-skip]=0.0182/0.0769 [srnn-no-adapt-no-dales-skip]=0.0307/0.0947 [srnn]=0.0723/0.1879 [srnn-skip]=0.0266/0.0909
+[2026-08-26 23:37:50,627][train_srnn.training.continuous][INFO] - Epoch 69 start: positions[0]=107054  state.norm=300.9324
+[2026-08-26 23:38:11,783][train_srnn.training.continuous][INFO] - Epoch 69 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0608/0.1700 [srnn-no-adapt]=0.0692/0.1811 [srnn-no-dales-skip]=0.0181/0.0766 [srnn-no-adapt-no-dales-skip]=0.0302/0.0942 [srnn]=0.0714/0.1866 [srnn-skip]=0.0265/0.0906
+[2026-08-26 23:38:11,784][train_srnn.training.continuous][INFO] - Epoch 70 start: positions[0]=112054  state.norm=298.2614
+[2026-08-26 23:38:32,587][train_srnn.training.continuous][INFO] - Epoch 70 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.0601/0.1689 [srnn-no-adapt]=0.0685/0.1800 [srnn-no-dales-skip]=0.0178/0.0760 [srnn-no-adapt-no-dales-skip]=0.0297/0.0934 [srnn]=0.0705/0.1854 [srnn-skip]=0.0263/0.0902
+[2026-08-26 23:38:32,588][train_srnn.training.continuous][INFO] - Epoch 71 start: positions[0]=117054  state.norm=298.5140
+[2026-08-26 23:39:03,744][train_srnn.training.continuous][INFO] - Epoch 71 (continuous, 20.7s):
+[2026-08-26 23:39:03,744][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0595 train_metric=0.1680 valid_loss=0.0561 valid_metric=0.1630
+[2026-08-26 23:39:03,744][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0678 train_metric=0.1790 valid_loss=0.0632 valid_metric=0.1736
+[2026-08-26 23:39:03,745][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0175 train_metric=0.0755 valid_loss=0.0177 valid_metric=0.0744
+[2026-08-26 23:39:03,745][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0292 train_metric=0.0928 valid_loss=0.0285 valid_metric=0.0913
+[2026-08-26 23:39:03,745][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0697 train_metric=0.1841 valid_loss=0.0655 valid_metric=0.1788
+[2026-08-26 23:39:03,745][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0261 train_metric=0.0899 valid_loss=0.0259 valid_metric=0.0886
+[2026-08-26 23:39:14,231][__main__][INFO] - Test [epoch_071 @ epoch 71]:
+[2026-08-26 23:39:14,231][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0565 test_metric=0.1648
+[2026-08-26 23:39:14,231][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0635 test_metric=0.1748
+[2026-08-26 23:39:14,231][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0173 test_metric=0.0742
+[2026-08-26 23:39:14,231][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0285 test_metric=0.0912
+[2026-08-26 23:39:14,231][__main__][INFO] -   [srnn] test_loss=0.0660 test_metric=0.1801
+[2026-08-26 23:39:14,232][__main__][INFO] -   [srnn-skip] test_loss=0.0260 test_metric=0.0887
+[2026-08-26 23:39:14,232][train_srnn.training.continuous][INFO] - Epoch 72 start: positions[0]=3081  state.norm=305.2527
+  [periodic-upload] Epoch 72: uploading to GCS...
+[2026-08-26 23:39:35,170][train_srnn.training.continuous][INFO] - Epoch 72 (continuous, train-only, 20.9s): [srnn-no-adapt-no-dales]=0.0590/0.1672 [srnn-no-adapt]=0.0671/0.1779 [srnn-no-dales-skip]=0.0174/0.0751 [srnn-no-adapt-no-dales-skip]=0.0288/0.0923 [srnn]=0.0689/0.1830 [srnn-skip]=0.0258/0.0895
+[2026-08-26 23:39:35,171][train_srnn.training.continuous][INFO] - Epoch 73 start: positions[0]=8081  state.norm=315.1219
+[2026-08-26 23:39:56,351][train_srnn.training.continuous][INFO] - Epoch 73 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0582/0.1660 [srnn-no-adapt]=0.0663/0.1767 [srnn-no-dales-skip]=0.0171/0.0746 [srnn-no-adapt-no-dales-skip]=0.0284/0.0917 [srnn]=0.0679/0.1817 [srnn-skip]=0.0256/0.0892
+[2026-08-26 23:39:56,352][train_srnn.training.continuous][INFO] - Epoch 74 start: positions[0]=13081  state.norm=313.7856
+[2026-08-26 23:40:17,099][train_srnn.training.continuous][INFO] - Epoch 74 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0577/0.1650 [srnn-no-adapt]=0.0658/0.1759 [srnn-no-dales-skip]=0.0170/0.0743 [srnn-no-adapt-no-dales-skip]=0.0280/0.0912 [srnn]=0.0673/0.1806 [srnn-skip]=0.0255/0.0889
+[2026-08-26 23:40:17,100][train_srnn.training.continuous][INFO] - Epoch 75 start: positions[0]=18081  state.norm=316.3336
+[2026-08-26 23:40:37,781][train_srnn.training.continuous][INFO] - Epoch 75 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0571/0.1640 [srnn-no-adapt]=0.0652/0.1750 [srnn-no-dales-skip]=0.0169/0.0740 [srnn-no-adapt-no-dales-skip]=0.0275/0.0905 [srnn]=0.0665/0.1796 [srnn-skip]=0.0254/0.0887
+[2026-08-26 23:40:37,782][train_srnn.training.continuous][INFO] - Epoch 76 start: positions[0]=23081  state.norm=314.2867
+[2026-08-26 23:40:58,420][train_srnn.training.continuous][INFO] - Epoch 76 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0564/0.1630 [srnn-no-adapt]=0.0644/0.1739 [srnn-no-dales-skip]=0.0167/0.0735 [srnn-no-adapt-no-dales-skip]=0.0271/0.0899 [srnn]=0.0656/0.1783 [srnn-skip]=0.0253/0.0884
+[2026-08-26 23:40:58,421][train_srnn.training.continuous][INFO] - Epoch 77 start: positions[0]=28081  state.norm=315.4814
+[2026-08-26 23:41:29,640][train_srnn.training.continuous][INFO] - Epoch 77 (continuous, 20.7s):
+[2026-08-26 23:41:29,640][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0557 train_metric=0.1619 valid_loss=0.0525 valid_metric=0.1568
+[2026-08-26 23:41:29,640][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0637 train_metric=0.1728 valid_loss=0.0592 valid_metric=0.1673
+[2026-08-26 23:41:29,640][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0164 train_metric=0.0730 valid_loss=0.0166 valid_metric=0.0720
+[2026-08-26 23:41:29,640][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0268 train_metric=0.0893 valid_loss=0.0261 valid_metric=0.0878
+[2026-08-26 23:41:29,640][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0648 train_metric=0.1771 valid_loss=0.0610 valid_metric=0.1721
+[2026-08-26 23:41:29,640][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0250 train_metric=0.0880 valid_loss=0.0249 valid_metric=0.0869
+[2026-08-26 23:41:40,050][__main__][INFO] - Test [epoch_077 @ epoch 77]:
+[2026-08-26 23:41:40,050][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0530 test_metric=0.1590
+[2026-08-26 23:41:40,050][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0596 test_metric=0.1685
+[2026-08-26 23:41:40,050][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0163 test_metric=0.0720
+[2026-08-26 23:41:40,050][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0261 test_metric=0.0879
+[2026-08-26 23:41:40,050][__main__][INFO] -   [srnn] test_loss=0.0615 test_metric=0.1734
+[2026-08-26 23:41:40,050][__main__][INFO] -   [srnn-skip] test_loss=0.0249 test_metric=0.0869
+[2026-08-26 23:41:40,051][train_srnn.training.continuous][INFO] - Epoch 78 start: positions[0]=33081  state.norm=310.3389
+[2026-08-26 23:42:01,241][train_srnn.training.continuous][INFO] - Epoch 78 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0554/0.1613 [srnn-no-adapt]=0.0633/0.1721 [srnn-no-dales-skip]=0.0163/0.0728 [srnn-no-adapt-no-dales-skip]=0.0265/0.0890 [srnn]=0.0642/0.1762 [srnn-skip]=0.0248/0.0878
+[2026-08-26 23:42:01,242][train_srnn.training.continuous][INFO] - Epoch 79 start: positions[0]=38081  state.norm=308.4371
+[2026-08-26 23:42:21,997][train_srnn.training.continuous][INFO] - Epoch 79 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.0548/0.1605 [srnn-no-adapt]=0.0626/0.1712 [srnn-no-dales-skip]=0.0161/0.0725 [srnn-no-adapt-no-dales-skip]=0.0260/0.0884 [srnn]=0.0634/0.1751 [srnn-skip]=0.0247/0.0875
+[2026-08-26 23:42:21,998][train_srnn.training.continuous][INFO] - Epoch 80 start: positions[0]=43081  state.norm=315.1683
+[2026-08-26 23:42:42,682][train_srnn.training.continuous][INFO] - Epoch 80 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0541/0.1592 [srnn-no-adapt]=0.0619/0.1700 [srnn-no-dales-skip]=0.0160/0.0721 [srnn-no-adapt-no-dales-skip]=0.0256/0.0878 [srnn]=0.0626/0.1738 [srnn-skip]=0.0245/0.0872
+[2026-08-26 23:42:42,683][train_srnn.training.continuous][INFO] - Epoch 81 start: positions[0]=48081  state.norm=314.8380
+[2026-08-26 23:43:03,900][train_srnn.training.continuous][INFO] - Epoch 81 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0535/0.1583 [srnn-no-adapt]=0.0613/0.1692 [srnn-no-dales-skip]=0.0159/0.0719 [srnn-no-adapt-no-dales-skip]=0.0254/0.0874 [srnn]=0.0619/0.1728 [srnn-skip]=0.0245/0.0871
+[2026-08-26 23:43:03,901][train_srnn.training.continuous][INFO] - Epoch 82 start: positions[0]=53081  state.norm=308.8678
+[2026-08-26 23:43:24,609][train_srnn.training.continuous][INFO] - Epoch 82 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0531/0.1574 [srnn-no-adapt]=0.0609/0.1684 [srnn-no-dales-skip]=0.0157/0.0714 [srnn-no-adapt-no-dales-skip]=0.0251/0.0869 [srnn]=0.0613/0.1719 [srnn-skip]=0.0243/0.0868
+[2026-08-26 23:43:24,610][train_srnn.training.continuous][INFO] - Epoch 83 start: positions[0]=58081  state.norm=304.4427
+[2026-08-26 23:43:55,776][train_srnn.training.continuous][INFO] - Epoch 83 (continuous, 20.7s):
+[2026-08-26 23:43:55,777][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0525 train_metric=0.1565 valid_loss=0.0495 valid_metric=0.1516
+[2026-08-26 23:43:55,777][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0603 train_metric=0.1675 valid_loss=0.0559 valid_metric=0.1617
+[2026-08-26 23:43:55,777][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0155 train_metric=0.0710 valid_loss=0.0158 valid_metric=0.0702
+[2026-08-26 23:43:55,777][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0249 train_metric=0.0865 valid_loss=0.0241 valid_metric=0.0845
+[2026-08-26 23:43:55,777][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0606 train_metric=0.1708 valid_loss=0.0571 valid_metric=0.1660
+[2026-08-26 23:43:55,777][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0241 train_metric=0.0865 valid_loss=0.0242 valid_metric=0.0855
+[2026-08-26 23:44:06,197][__main__][INFO] - Test [epoch_083 @ epoch 83]:
+[2026-08-26 23:44:06,197][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0500 test_metric=0.1539
+[2026-08-26 23:44:06,197][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0564 test_metric=0.1631
+[2026-08-26 23:44:06,197][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0158 test_metric=0.0703
+[2026-08-26 23:44:06,197][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0241 test_metric=0.0846
+[2026-08-26 23:44:06,197][__main__][INFO] -   [srnn] test_loss=0.0574 test_metric=0.1673
+[2026-08-26 23:44:06,197][__main__][INFO] -   [srnn-skip] test_loss=0.0240 test_metric=0.0854
+[2026-08-26 23:44:06,198][train_srnn.training.continuous][INFO] - Epoch 84 start: positions[0]=63081  state.norm=311.3111
+[2026-08-26 23:44:27,383][train_srnn.training.continuous][INFO] - Epoch 84 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0520/0.1557 [srnn-no-adapt]=0.0597/0.1666 [srnn-no-dales-skip]=0.0154/0.0707 [srnn-no-adapt-no-dales-skip]=0.0245/0.0860 [srnn]=0.0599/0.1698 [srnn-skip]=0.0239/0.0862
+[2026-08-26 23:44:27,385][train_srnn.training.continuous][INFO] - Epoch 85 start: positions[0]=68081  state.norm=310.8870
+[2026-08-26 23:44:48,078][train_srnn.training.continuous][INFO] - Epoch 85 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0516/0.1551 [srnn-no-adapt]=0.0592/0.1658 [srnn-no-dales-skip]=0.0153/0.0705 [srnn-no-adapt-no-dales-skip]=0.0241/0.0855 [srnn]=0.0592/0.1688 [srnn-skip]=0.0238/0.0860
+[2026-08-26 23:44:48,079][train_srnn.training.continuous][INFO] - Epoch 86 start: positions[0]=73081  state.norm=308.5557
+[2026-08-26 23:45:08,741][train_srnn.training.continuous][INFO] - Epoch 86 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0510/0.1542 [srnn-no-adapt]=0.0588/0.1650 [srnn-no-dales-skip]=0.0152/0.0703 [srnn-no-adapt-no-dales-skip]=0.0238/0.0852 [srnn]=0.0586/0.1679 [srnn-skip]=0.0237/0.0858
+[2026-08-26 23:45:08,742][train_srnn.training.continuous][INFO] - Epoch 87 start: positions[0]=78081  state.norm=306.6626
+[2026-08-26 23:45:29,508][train_srnn.training.continuous][INFO] - Epoch 87 (continuous, train-only, 20.8s): [srnn-no-adapt-no-dales]=0.0505/0.1532 [srnn-no-adapt]=0.0582/0.1642 [srnn-no-dales-skip]=0.0152/0.0700 [srnn-no-adapt-no-dales-skip]=0.0236/0.0847 [srnn]=0.0579/0.1669 [srnn-skip]=0.0237/0.0857
+[2026-08-26 23:45:29,509][train_srnn.training.continuous][INFO] - Epoch 88 start: positions[0]=83081  state.norm=308.8903
+[2026-08-26 23:45:50,118][train_srnn.training.continuous][INFO] - Epoch 88 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0500/0.1523 [srnn-no-adapt]=0.0578/0.1635 [srnn-no-dales-skip]=0.0149/0.0695 [srnn-no-adapt-no-dales-skip]=0.0234/0.0844 [srnn]=0.0574/0.1660 [srnn-skip]=0.0235/0.0854
+[2026-08-26 23:45:50,119][train_srnn.training.continuous][INFO] - Epoch 89 start: positions[0]=88081  state.norm=311.1732
+[2026-08-26 23:46:21,822][train_srnn.training.continuous][INFO] - Epoch 89 (continuous, 21.2s):
+[2026-08-26 23:46:21,823][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0496 train_metric=0.1516 valid_loss=0.0468 valid_metric=0.1468
+[2026-08-26 23:46:21,823][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0573 train_metric=0.1627 valid_loss=0.0532 valid_metric=0.1572
+[2026-08-26 23:46:21,823][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0148 train_metric=0.0693 valid_loss=0.0152 valid_metric=0.0686
+[2026-08-26 23:46:21,823][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0231 train_metric=0.0840 valid_loss=0.0225 valid_metric=0.0821
+[2026-08-26 23:46:21,823][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0568 train_metric=0.1651 valid_loss=0.0536 valid_metric=0.1605
+[2026-08-26 23:46:21,823][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0233 train_metric=0.0851 valid_loss=0.0233 valid_metric=0.0841
+  [periodic-upload] Epoch 90: uploading to GCS...
+[2026-08-26 23:46:32,508][__main__][INFO] - Test [epoch_089 @ epoch 89]:
+[2026-08-26 23:46:32,508][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0474 test_metric=0.1491
+[2026-08-26 23:46:32,508][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0538 test_metric=0.1588
+[2026-08-26 23:46:32,508][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0152 test_metric=0.0687
+[2026-08-26 23:46:32,508][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0224 test_metric=0.0821
+[2026-08-26 23:46:32,508][__main__][INFO] -   [srnn] test_loss=0.0539 test_metric=0.1617
+[2026-08-26 23:46:32,508][__main__][INFO] -   [srnn-skip] test_loss=0.0234 test_metric=0.0841
+[2026-08-26 23:46:32,509][train_srnn.training.continuous][INFO] - Epoch 90 start: positions[0]=93081  state.norm=309.3901
+[2026-08-26 23:46:53,168][train_srnn.training.continuous][INFO] - Epoch 90 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0492/0.1510 [srnn-no-adapt]=0.0569/0.1621 [srnn-no-dales-skip]=0.0147/0.0691 [srnn-no-adapt-no-dales-skip]=0.0228/0.0836 [srnn]=0.0563/0.1643 [srnn-skip]=0.0232/0.0849
+[2026-08-26 23:46:53,169][train_srnn.training.continuous][INFO] - Epoch 91 start: positions[0]=98081  state.norm=315.2273
+[2026-08-26 23:47:13,805][train_srnn.training.continuous][INFO] - Epoch 91 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0488/0.1503 [srnn-no-adapt]=0.0565/0.1613 [srnn-no-dales-skip]=0.0147/0.0689 [srnn-no-adapt-no-dales-skip]=0.0226/0.0833 [srnn]=0.0556/0.1633 [srnn-skip]=0.0231/0.0847
+[2026-08-26 23:47:13,806][train_srnn.training.continuous][INFO] - Epoch 92 start: positions[0]=103081  state.norm=318.4319
+[2026-08-26 23:47:34,431][train_srnn.training.continuous][INFO] - Epoch 92 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0484/0.1495 [srnn-no-adapt]=0.0561/0.1606 [srnn-no-dales-skip]=0.0146/0.0687 [srnn-no-adapt-no-dales-skip]=0.0222/0.0827 [srnn]=0.0551/0.1625 [srnn-skip]=0.0230/0.0846
+[2026-08-26 23:47:34,432][train_srnn.training.continuous][INFO] - Epoch 93 start: positions[0]=108081  state.norm=316.8882
+[2026-08-26 23:47:55,084][train_srnn.training.continuous][INFO] - Epoch 93 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0479/0.1487 [srnn-no-adapt]=0.0557/0.1599 [srnn-no-dales-skip]=0.0145/0.0685 [srnn-no-adapt-no-dales-skip]=0.0219/0.0822 [srnn]=0.0545/0.1616 [srnn-skip]=0.0229/0.0844
+[2026-08-26 23:47:55,085][train_srnn.training.continuous][INFO] - Epoch 94 start: positions[0]=113081  state.norm=316.3499
+[2026-08-26 23:48:15,701][train_srnn.training.continuous][INFO] - Epoch 94 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0475/0.1479 [srnn-no-adapt]=0.0553/0.1593 [srnn-no-dales-skip]=0.0143/0.0682 [srnn-no-adapt-no-dales-skip]=0.0217/0.0820 [srnn]=0.0540/0.1608 [srnn-skip]=0.0228/0.0842
+[2026-08-26 23:48:15,702][train_srnn.training.continuous][INFO] - Epoch 95 start: positions[0]=118081  state.norm=318.0639
+[2026-08-26 23:48:46,662][train_srnn.training.continuous][INFO] - Epoch 95 (continuous, 20.6s):
+[2026-08-26 23:48:46,663][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0470 train_metric=0.1472 valid_loss=0.0444 valid_metric=0.1427
+[2026-08-26 23:48:46,663][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0548 train_metric=0.1585 valid_loss=0.0508 valid_metric=0.1531
+[2026-08-26 23:48:46,663][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0143 train_metric=0.0680 valid_loss=0.0150 valid_metric=0.0676
+[2026-08-26 23:48:46,663][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0215 train_metric=0.0816 valid_loss=0.0215 valid_metric=0.0807
+[2026-08-26 23:48:46,663][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0535 train_metric=0.1600 valid_loss=0.0504 valid_metric=0.1554
+[2026-08-26 23:48:46,663][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0226 train_metric=0.0839 valid_loss=0.0227 valid_metric=0.0829
+[2026-08-26 23:48:57,111][__main__][INFO] - Test [epoch_095 @ epoch 95]:
+[2026-08-26 23:48:57,111][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0450 test_metric=0.1450
+[2026-08-26 23:48:57,111][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0514 test_metric=0.1547
+[2026-08-26 23:48:57,111][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0145 test_metric=0.0675
+[2026-08-26 23:48:57,111][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0215 test_metric=0.0808
+[2026-08-26 23:48:57,111][__main__][INFO] -   [srnn] test_loss=0.0507 test_metric=0.1567
+[2026-08-26 23:48:57,111][__main__][INFO] -   [srnn-skip] test_loss=0.0228 test_metric=0.0829
+[2026-08-26 23:48:57,112][train_srnn.training.continuous][INFO] - Epoch 96 start: positions[0]=4108  state.norm=316.3398
+[2026-08-26 23:49:17,827][train_srnn.training.continuous][INFO] - Epoch 96 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0466/0.1465 [srnn-no-adapt]=0.0544/0.1578 [srnn-no-dales-skip]=0.0142/0.0677 [srnn-no-adapt-no-dales-skip]=0.0212/0.0812 [srnn]=0.0529/0.1591 [srnn-skip]=0.0225/0.0837
+[2026-08-26 23:49:17,828][train_srnn.training.continuous][INFO] - Epoch 97 start: positions[0]=9108  state.norm=315.2253
+[2026-08-26 23:49:38,908][train_srnn.training.continuous][INFO] - Epoch 97 (continuous, train-only, 21.1s): [srnn-no-adapt-no-dales]=0.0463/0.1459 [srnn-no-adapt]=0.0540/0.1572 [srnn-no-dales-skip]=0.0141/0.0676 [srnn-no-adapt-no-dales-skip]=0.0211/0.0810 [srnn]=0.0524/0.1583 [srnn-skip]=0.0224/0.0835
+[2026-08-26 23:49:38,909][train_srnn.training.continuous][INFO] - Epoch 98 start: positions[0]=14108  state.norm=320.5186
+[2026-08-26 23:49:59,561][train_srnn.training.continuous][INFO] - Epoch 98 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0459/0.1453 [srnn-no-adapt]=0.0537/0.1567 [srnn-no-dales-skip]=0.0140/0.0674 [srnn-no-adapt-no-dales-skip]=0.0208/0.0805 [srnn]=0.0520/0.1576 [srnn-skip]=0.0223/0.0834
+[2026-08-26 23:49:59,562][train_srnn.training.continuous][INFO] - Epoch 99 start: positions[0]=19108  state.norm=321.3982
+[2026-08-26 23:50:20,218][train_srnn.training.continuous][INFO] - Epoch 99 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0455/0.1446 [srnn-no-adapt]=0.0533/0.1560 [srnn-no-dales-skip]=0.0139/0.0672 [srnn-no-adapt-no-dales-skip]=0.0205/0.0801 [srnn]=0.0514/0.1567 [srnn-skip]=0.0222/0.0832
+[2026-08-26 23:50:20,219][train_srnn.training.continuous][INFO] - Epoch 100 start: positions[0]=24108  state.norm=323.1642
+[2026-08-26 23:50:41,323][train_srnn.training.continuous][INFO] - Epoch 100 (continuous, train-only, 21.1s): [srnn-no-adapt-no-dales]=0.0451/0.1438 [srnn-no-adapt]=0.0529/0.1554 [srnn-no-dales-skip]=0.0138/0.0669 [srnn-no-adapt-no-dales-skip]=0.0203/0.0797 [srnn]=0.0509/0.1559 [srnn-skip]=0.0221/0.0830
+[2026-08-26 23:50:41,324][train_srnn.training.continuous][INFO] - Epoch 101 start: positions[0]=29108  state.norm=321.9399
+[2026-08-26 23:51:12,349][train_srnn.training.continuous][INFO] - Epoch 101 (continuous, 20.6s):
+[2026-08-26 23:51:12,349][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0447 train_metric=0.1432 valid_loss=0.0424 valid_metric=0.1391
+[2026-08-26 23:51:12,349][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0526 train_metric=0.1548 valid_loss=0.0488 valid_metric=0.1494
+[2026-08-26 23:51:12,349][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0138 train_metric=0.0668 valid_loss=0.0149 valid_metric=0.0668
+[2026-08-26 23:51:12,349][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0201 train_metric=0.0794 valid_loss=0.0196 valid_metric=0.0778
+[2026-08-26 23:51:12,349][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0505 train_metric=0.1553 valid_loss=0.0476 valid_metric=0.1508
+[2026-08-26 23:51:12,349][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0219 train_metric=0.0828 valid_loss=0.0220 valid_metric=0.0817
+[2026-08-26 23:51:22,708][__main__][INFO] - Test [epoch_101 @ epoch 101]:
+[2026-08-26 23:51:22,708][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0428 test_metric=0.1412
+[2026-08-26 23:51:22,708][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0493 test_metric=0.1510
+[2026-08-26 23:51:22,708][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0142 test_metric=0.0665
+[2026-08-26 23:51:22,708][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0196 test_metric=0.0779
+[2026-08-26 23:51:22,708][__main__][INFO] -   [srnn] test_loss=0.0480 test_metric=0.1522
+[2026-08-26 23:51:22,708][__main__][INFO] -   [srnn-skip] test_loss=0.0221 test_metric=0.0818
+[2026-08-26 23:51:22,709][train_srnn.training.continuous][INFO] - Epoch 102 start: positions[0]=34108  state.norm=319.4162
+[2026-08-26 23:51:43,367][train_srnn.training.continuous][INFO] - Epoch 102 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0443/0.1425 [srnn-no-adapt]=0.0522/0.1542 [srnn-no-dales-skip]=0.0137/0.0666 [srnn-no-adapt-no-dales-skip]=0.0199/0.0791 [srnn]=0.0500/0.1545 [srnn-skip]=0.0218/0.0826
+[2026-08-26 23:51:43,368][train_srnn.training.continuous][INFO] - Epoch 103 start: positions[0]=39108  state.norm=320.1150
+[2026-08-26 23:52:03,979][train_srnn.training.continuous][INFO] - Epoch 103 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0441/0.1420 [srnn-no-adapt]=0.0519/0.1535 [srnn-no-dales-skip]=0.0136/0.0664 [srnn-no-adapt-no-dales-skip]=0.0198/0.0789 [srnn]=0.0496/0.1537 [srnn-skip]=0.0217/0.0824
+[2026-08-26 23:52:03,980][train_srnn.training.continuous][INFO] - Epoch 104 start: positions[0]=44108  state.norm=321.5108
+[2026-08-26 23:52:25,108][train_srnn.training.continuous][INFO] - Epoch 104 (continuous, train-only, 21.1s): [srnn-no-adapt-no-dales]=0.0436/0.1413 [srnn-no-adapt]=0.0514/0.1529 [srnn-no-dales-skip]=0.0136/0.0662 [srnn-no-adapt-no-dales-skip]=0.0195/0.0784 [srnn]=0.0491/0.1529 [srnn-skip]=0.0216/0.0823
+[2026-08-26 23:52:25,108][train_srnn.training.continuous][INFO] - Epoch 105 start: positions[0]=49108  state.norm=333.6391
+[2026-08-26 23:52:45,760][train_srnn.training.continuous][INFO] - Epoch 105 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0433/0.1409 [srnn-no-adapt]=0.0512/0.1524 [srnn-no-dales-skip]=0.0135/0.0660 [srnn-no-adapt-no-dales-skip]=0.0193/0.0781 [srnn]=0.0486/0.1522 [srnn-skip]=0.0216/0.0821
+[2026-08-26 23:52:45,761][train_srnn.training.continuous][INFO] - Epoch 106 start: positions[0]=54108  state.norm=327.9314
+[2026-08-26 23:53:06,326][train_srnn.training.continuous][INFO] - Epoch 106 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0430/0.1403 [srnn-no-adapt]=0.0509/0.1520 [srnn-no-dales-skip]=0.0134/0.0659 [srnn-no-adapt-no-dales-skip]=0.0192/0.0779 [srnn]=0.0482/0.1516 [srnn-skip]=0.0215/0.0819
+[2026-08-26 23:53:06,327][train_srnn.training.continuous][INFO] - Epoch 107 start: positions[0]=59108  state.norm=318.3372
+[2026-08-26 23:53:37,283][train_srnn.training.continuous][INFO] - Epoch 107 (continuous, 20.7s):
+[2026-08-26 23:53:37,283][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0426 train_metric=0.1395 valid_loss=0.0405 valid_metric=0.1355
+[2026-08-26 23:53:37,283][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0506 train_metric=0.1514 valid_loss=0.0470 valid_metric=0.1463
+[2026-08-26 23:53:37,284][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0135 train_metric=0.0658 valid_loss=0.0146 valid_metric=0.0655
+[2026-08-26 23:53:37,284][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0190 train_metric=0.0776 valid_loss=0.0186 valid_metric=0.0762
+[2026-08-26 23:53:37,284][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0478 train_metric=0.1509 valid_loss=0.0451 valid_metric=0.1466
+[2026-08-26 23:53:37,284][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0213 train_metric=0.0817 valid_loss=0.0214 valid_metric=0.0806
+[2026-08-26 23:53:47,748][__main__][INFO] - Test [epoch_107 @ epoch 107]:
+[2026-08-26 23:53:47,748][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0409 test_metric=0.1378
+[2026-08-26 23:53:47,748][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0475 test_metric=0.1480
+[2026-08-26 23:53:47,748][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0138 test_metric=0.0653
+[2026-08-26 23:53:47,748][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0185 test_metric=0.0763
+[2026-08-26 23:53:47,748][__main__][INFO] -   [srnn] test_loss=0.0456 test_metric=0.1481
+[2026-08-26 23:53:47,748][__main__][INFO] -   [srnn-skip] test_loss=0.0214 test_metric=0.0807
+[2026-08-26 23:53:47,748][train_srnn.training.continuous][INFO] - Epoch 108 start: positions[0]=64108  state.norm=315.9220
+  [periodic-upload] Epoch 108: uploading to GCS...
+[2026-08-26 23:54:08,600][train_srnn.training.continuous][INFO] - Epoch 108 (continuous, train-only, 20.9s): [srnn-no-adapt-no-dales]=0.0424/0.1391 [srnn-no-adapt]=0.0503/0.1509 [srnn-no-dales-skip]=0.0134/0.0656 [srnn-no-adapt-no-dales-skip]=0.0189/0.0774 [srnn]=0.0474/0.1502 [srnn-skip]=0.0212/0.0815
+[2026-08-26 23:54:08,601][train_srnn.training.continuous][INFO] - Epoch 109 start: positions[0]=69108  state.norm=317.8565
+[2026-08-26 23:54:29,826][train_srnn.training.continuous][INFO] - Epoch 109 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0420/0.1385 [srnn-no-adapt]=0.0498/0.1502 [srnn-no-dales-skip]=0.0133/0.0655 [srnn-no-adapt-no-dales-skip]=0.0187/0.0771 [srnn]=0.0469/0.1494 [srnn-skip]=0.0211/0.0813
+[2026-08-26 23:54:29,827][train_srnn.training.continuous][INFO] - Epoch 110 start: positions[0]=74108  state.norm=313.7297
+[2026-08-26 23:54:50,492][train_srnn.training.continuous][INFO] - Epoch 110 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0418/0.1380 [srnn-no-adapt]=0.0497/0.1499 [srnn-no-dales-skip]=0.0133/0.0654 [srnn-no-adapt-no-dales-skip]=0.0185/0.0768 [srnn]=0.0466/0.1489 [srnn-skip]=0.0211/0.0813
+[2026-08-26 23:54:50,493][train_srnn.training.continuous][INFO] - Epoch 111 start: positions[0]=79108  state.norm=320.3494
+[2026-08-26 23:55:11,195][train_srnn.training.continuous][INFO] - Epoch 111 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0416/0.1378 [srnn-no-adapt]=0.0495/0.1495 [srnn-no-dales-skip]=0.0133/0.0653 [srnn-no-adapt-no-dales-skip]=0.0184/0.0766 [srnn]=0.0463/0.1483 [srnn-skip]=0.0210/0.0811
+[2026-08-26 23:55:11,196][train_srnn.training.continuous][INFO] - Epoch 112 start: positions[0]=84108  state.norm=316.6605
+[2026-08-26 23:55:31,872][train_srnn.training.continuous][INFO] - Epoch 112 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0411/0.1369 [srnn-no-adapt]=0.0490/0.1489 [srnn-no-dales-skip]=0.0133/0.0651 [srnn-no-adapt-no-dales-skip]=0.0182/0.0763 [srnn]=0.0458/0.1475 [srnn-skip]=0.0209/0.0809
+[2026-08-26 23:55:31,873][train_srnn.training.continuous][INFO] - Epoch 113 start: positions[0]=89108  state.norm=309.8257
+[2026-08-26 23:56:02,904][train_srnn.training.continuous][INFO] - Epoch 113 (continuous, 20.7s):
+[2026-08-26 23:56:02,905][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0407 train_metric=0.1361 valid_loss=0.0388 valid_metric=0.1322
+[2026-08-26 23:56:02,906][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0487 train_metric=0.1482 valid_loss=0.0454 valid_metric=0.1434
+[2026-08-26 23:56:02,906][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0132 train_metric=0.0650 valid_loss=0.0137 valid_metric=0.0642
+[2026-08-26 23:56:02,906][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0180 train_metric=0.0759 valid_loss=0.0177 valid_metric=0.0746
+[2026-08-26 23:56:02,906][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0454 train_metric=0.1469 valid_loss=0.0428 valid_metric=0.1426
+[2026-08-26 23:56:02,906][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0207 train_metric=0.0806 valid_loss=0.0208 valid_metric=0.0796
+[2026-08-26 23:56:13,290][__main__][INFO] - Test [epoch_113 @ epoch 113]:
+[2026-08-26 23:56:13,290][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0392 test_metric=0.1345
+[2026-08-26 23:56:13,290][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0458 test_metric=0.1449
+[2026-08-26 23:56:13,290][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0132 test_metric=0.0641
+[2026-08-26 23:56:13,290][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0180 test_metric=0.0751
+[2026-08-26 23:56:13,290][__main__][INFO] -   [srnn] test_loss=0.0434 test_metric=0.1443
+[2026-08-26 23:56:13,290][__main__][INFO] -   [srnn-skip] test_loss=0.0207 test_metric=0.0796
+[2026-08-26 23:56:13,290][train_srnn.training.continuous][INFO] - Epoch 114 start: positions[0]=94108  state.norm=313.3356
+[2026-08-26 23:56:33,953][train_srnn.training.continuous][INFO] - Epoch 114 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0404/0.1356 [srnn-no-adapt]=0.0484/0.1477 [srnn-no-dales-skip]=0.0130/0.0646 [srnn-no-adapt-no-dales-skip]=0.0179/0.0757 [srnn]=0.0450/0.1462 [srnn-skip]=0.0206/0.0804
+[2026-08-26 23:56:33,954][train_srnn.training.continuous][INFO] - Epoch 115 start: positions[0]=99108  state.norm=312.8163
+[2026-08-26 23:56:54,687][train_srnn.training.continuous][INFO] - Epoch 115 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0402/0.1353 [srnn-no-adapt]=0.0482/0.1474 [srnn-no-dales-skip]=0.0130/0.0645 [srnn-no-adapt-no-dales-skip]=0.0178/0.0754 [srnn]=0.0447/0.1456 [srnn-skip]=0.0206/0.0804
+[2026-08-26 23:56:54,688][train_srnn.training.continuous][INFO] - Epoch 116 start: positions[0]=104108  state.norm=324.0360
+[2026-08-26 23:57:15,922][train_srnn.training.continuous][INFO] - Epoch 116 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0400/0.1349 [srnn-no-adapt]=0.0479/0.1469 [srnn-no-dales-skip]=0.0128/0.0643 [srnn-no-adapt-no-dales-skip]=0.0176/0.0751 [srnn]=0.0443/0.1450 [srnn-skip]=0.0205/0.0802
+[2026-08-26 23:57:15,923][train_srnn.training.continuous][INFO] - Epoch 117 start: positions[0]=109108  state.norm=332.4263
+[2026-08-26 23:57:36,579][train_srnn.training.continuous][INFO] - Epoch 117 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0398/0.1345 [srnn-no-adapt]=0.0477/0.1465 [srnn-no-dales-skip]=0.0128/0.0643 [srnn-no-adapt-no-dales-skip]=0.0176/0.0750 [srnn]=0.0440/0.1444 [srnn-skip]=0.0204/0.0800
+[2026-08-26 23:57:36,580][train_srnn.training.continuous][INFO] - Epoch 118 start: positions[0]=114108  state.norm=332.1381
+[2026-08-26 23:57:57,294][train_srnn.training.continuous][INFO] - Epoch 118 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0394/0.1338 [srnn-no-adapt]=0.0474/0.1460 [srnn-no-dales-skip]=0.0128/0.0642 [srnn-no-adapt-no-dales-skip]=0.0174/0.0746 [srnn]=0.0436/0.1438 [srnn-skip]=0.0203/0.0798
+[2026-08-26 23:57:57,295][train_srnn.training.continuous][INFO] - Epoch 119 start: positions[0]=135  state.norm=332.1331
+[2026-08-26 23:58:28,439][train_srnn.training.continuous][INFO] - Epoch 119 (continuous, 20.7s):
+[2026-08-26 23:58:28,439][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0391 train_metric=0.1332 valid_loss=0.0372 valid_metric=0.1292
+[2026-08-26 23:58:28,439][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0471 train_metric=0.1456 valid_loss=0.0438 valid_metric=0.1407
+[2026-08-26 23:58:28,440][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0127 train_metric=0.0640 valid_loss=0.0132 valid_metric=0.0633
+[2026-08-26 23:58:28,440][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0172 train_metric=0.0744 valid_loss=0.0168 valid_metric=0.0727
+[2026-08-26 23:58:28,440][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0433 train_metric=0.1432 valid_loss=0.0407 valid_metric=0.1389
+[2026-08-26 23:58:28,440][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0202 train_metric=0.0797 valid_loss=0.0203 valid_metric=0.0787
+[2026-08-26 23:58:38,891][__main__][INFO] - Test [epoch_119 @ epoch 119]:
+[2026-08-26 23:58:38,891][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0376 test_metric=0.1316
+[2026-08-26 23:58:38,891][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0443 test_metric=0.1421
+[2026-08-26 23:58:38,891][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0128 test_metric=0.0633
+[2026-08-26 23:58:38,891][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0169 test_metric=0.0730
+[2026-08-26 23:58:38,891][__main__][INFO] -   [srnn] test_loss=0.0413 test_metric=0.1408
+[2026-08-26 23:58:38,891][__main__][INFO] -   [srnn-skip] test_loss=0.0202 test_metric=0.0787
+[2026-08-26 23:58:38,891][train_srnn.training.continuous][INFO] - Epoch 120 start: positions[0]=5135  state.norm=324.5236
+[2026-08-26 23:58:59,528][train_srnn.training.continuous][INFO] - Epoch 120 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0389/0.1328 [srnn-no-adapt]=0.0469/0.1452 [srnn-no-dales-skip]=0.0126/0.0638 [srnn-no-adapt-no-dales-skip]=0.0172/0.0743 [srnn]=0.0430/0.1427 [srnn-skip]=0.0201/0.0795
+[2026-08-26 23:58:59,529][train_srnn.training.continuous][INFO] - Epoch 121 start: positions[0]=10135  state.norm=333.5556
+[2026-08-26 23:59:20,133][train_srnn.training.continuous][INFO] - Epoch 121 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0387/0.1325 [srnn-no-adapt]=0.0466/0.1448 [srnn-no-dales-skip]=0.0126/0.0637 [srnn-no-adapt-no-dales-skip]=0.0170/0.0740 [srnn]=0.0426/0.1421 [srnn-skip]=0.0201/0.0795
+[2026-08-26 23:59:20,134][train_srnn.training.continuous][INFO] - Epoch 122 start: positions[0]=15135  state.norm=340.7353
+[2026-08-26 23:59:41,329][train_srnn.training.continuous][INFO] - Epoch 122 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0384/0.1320 [srnn-no-adapt]=0.0463/0.1442 [srnn-no-dales-skip]=0.0125/0.0635 [srnn-no-adapt-no-dales-skip]=0.0168/0.0737 [srnn]=0.0422/0.1414 [srnn-skip]=0.0200/0.0793
+[2026-08-26 23:59:41,330][train_srnn.training.continuous][INFO] - Epoch 123 start: positions[0]=20135  state.norm=334.5555
+[2026-08-27 00:00:01,971][train_srnn.training.continuous][INFO] - Epoch 123 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0381/0.1316 [srnn-no-adapt]=0.0461/0.1439 [srnn-no-dales-skip]=0.0125/0.0635 [srnn-no-adapt-no-dales-skip]=0.0169/0.0736 [srnn]=0.0419/0.1409 [srnn-skip]=0.0199/0.0791
+[2026-08-27 00:00:01,973][train_srnn.training.continuous][INFO] - Epoch 124 start: positions[0]=25135  state.norm=327.8515
+[2026-08-27 00:00:22,614][train_srnn.training.continuous][INFO] - Epoch 124 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0378/0.1309 [srnn-no-adapt]=0.0458/0.1434 [srnn-no-dales-skip]=0.0125/0.0633 [srnn-no-adapt-no-dales-skip]=0.0167/0.0732 [srnn]=0.0416/0.1404 [srnn-skip]=0.0198/0.0789
+[2026-08-27 00:00:22,615][train_srnn.training.continuous][INFO] - Epoch 125 start: positions[0]=30135  state.norm=325.3967
+[2026-08-27 00:00:53,571][train_srnn.training.continuous][INFO] - Epoch 125 (continuous, 20.6s):
+[2026-08-27 00:00:53,571][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0375 train_metric=0.1304 valid_loss=0.0359 valid_metric=0.1266
+[2026-08-27 00:00:53,571][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0455 train_metric=0.1429 valid_loss=0.0425 valid_metric=0.1385
+[2026-08-27 00:00:53,571][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0124 train_metric=0.0632 valid_loss=0.0129 valid_metric=0.0625
+[2026-08-27 00:00:53,571][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0166 train_metric=0.0730 valid_loss=0.0166 valid_metric=0.0722
+[2026-08-27 00:00:53,572][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0413 train_metric=0.1398 valid_loss=0.0389 valid_metric=0.1355
+[2026-08-27 00:00:53,572][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0196 train_metric=0.0787 valid_loss=0.0198 valid_metric=0.0777
+  [periodic-upload] Epoch 126: uploading to GCS...
+[2026-08-27 00:01:04,272][__main__][INFO] - Test [epoch_125 @ epoch 125]:
+[2026-08-27 00:01:04,272][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0362 test_metric=0.1289
+[2026-08-27 00:01:04,272][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0429 test_metric=0.1398
+[2026-08-27 00:01:04,272][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0126 test_metric=0.0626
+[2026-08-27 00:01:04,272][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0166 test_metric=0.0724
+[2026-08-27 00:01:04,272][__main__][INFO] -   [srnn] test_loss=0.0395 test_metric=0.1376
+[2026-08-27 00:01:04,272][__main__][INFO] -   [srnn-skip] test_loss=0.0197 test_metric=0.0777
+[2026-08-27 00:01:04,272][train_srnn.training.continuous][INFO] - Epoch 126 start: positions[0]=35135  state.norm=329.6067
+[2026-08-27 00:01:24,978][train_srnn.training.continuous][INFO] - Epoch 126 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0373/0.1300 [srnn-no-adapt]=0.0453/0.1425 [srnn-no-dales-skip]=0.0123/0.0630 [srnn-no-adapt-no-dales-skip]=0.0166/0.0730 [srnn]=0.0410/0.1393 [srnn-skip]=0.0196/0.0786
+[2026-08-27 00:01:24,979][train_srnn.training.continuous][INFO] - Epoch 127 start: positions[0]=40135  state.norm=335.8041
+[2026-08-27 00:01:45,595][train_srnn.training.continuous][INFO] - Epoch 127 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0370/0.1295 [srnn-no-adapt]=0.0450/0.1420 [srnn-no-dales-skip]=0.0123/0.0630 [srnn-no-adapt-no-dales-skip]=0.0164/0.0726 [srnn]=0.0406/0.1387 [srnn-skip]=0.0195/0.0785
+[2026-08-27 00:01:45,597][train_srnn.training.continuous][INFO] - Epoch 128 start: positions[0]=45135  state.norm=337.3105
+[2026-08-27 00:02:06,795][train_srnn.training.continuous][INFO] - Epoch 128 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0368/0.1292 [srnn-no-adapt]=0.0447/0.1416 [srnn-no-dales-skip]=0.0122/0.0628 [srnn-no-adapt-no-dales-skip]=0.0163/0.0724 [srnn]=0.0404/0.1382 [srnn-skip]=0.0195/0.0784
+[2026-08-27 00:02:06,796][train_srnn.training.continuous][INFO] - Epoch 129 start: positions[0]=50135  state.norm=333.1056
+[2026-08-27 00:02:27,472][train_srnn.training.continuous][INFO] - Epoch 129 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0367/0.1289 [srnn-no-adapt]=0.0446/0.1413 [srnn-no-dales-skip]=0.0122/0.0628 [srnn-no-adapt-no-dales-skip]=0.0163/0.0724 [srnn]=0.0401/0.1377 [srnn-skip]=0.0194/0.0782
+[2026-08-27 00:02:27,473][train_srnn.training.continuous][INFO] - Epoch 130 start: positions[0]=55135  state.norm=332.5352
+[2026-08-27 00:02:48,128][train_srnn.training.continuous][INFO] - Epoch 130 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0364/0.1283 [srnn-no-adapt]=0.0443/0.1409 [srnn-no-dales-skip]=0.0122/0.0627 [srnn-no-adapt-no-dales-skip]=0.0161/0.0720 [srnn]=0.0398/0.1372 [srnn-skip]=0.0193/0.0780
+[2026-08-27 00:02:48,129][train_srnn.training.continuous][INFO] - Epoch 131 start: positions[0]=60135  state.norm=330.4871
+[2026-08-27 00:03:19,185][train_srnn.training.continuous][INFO] - Epoch 131 (continuous, 20.6s):
+[2026-08-27 00:03:19,185][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0361 train_metric=0.1279 valid_loss=0.0346 valid_metric=0.1242
+[2026-08-27 00:03:19,185][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0441 train_metric=0.1405 valid_loss=0.0413 valid_metric=0.1363
+[2026-08-27 00:03:19,185][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0122 train_metric=0.0626 valid_loss=0.0126 valid_metric=0.0617
+[2026-08-27 00:03:19,186][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0161 train_metric=0.0719 valid_loss=0.0159 valid_metric=0.0708
+[2026-08-27 00:03:19,186][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0396 train_metric=0.1368 valid_loss=0.0372 valid_metric=0.1325
+[2026-08-27 00:03:19,186][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0192 train_metric=0.0779 valid_loss=0.0193 valid_metric=0.0768
+[2026-08-27 00:03:29,629][__main__][INFO] - Test [epoch_131 @ epoch 131]:
+[2026-08-27 00:03:29,629][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0349 test_metric=0.1264
+[2026-08-27 00:03:29,629][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0417 test_metric=0.1377
+[2026-08-27 00:03:29,629][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0123 test_metric=0.0618
+[2026-08-27 00:03:29,629][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0161 test_metric=0.0712
+[2026-08-27 00:03:29,629][__main__][INFO] -   [srnn] test_loss=0.0379 test_metric=0.1347
+[2026-08-27 00:03:29,629][__main__][INFO] -   [srnn-skip] test_loss=0.0191 test_metric=0.0768
+[2026-08-27 00:03:29,630][train_srnn.training.continuous][INFO] - Epoch 132 start: positions[0]=65135  state.norm=320.6936
+[2026-08-27 00:03:50,237][train_srnn.training.continuous][INFO] - Epoch 132 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0359/0.1275 [srnn-no-adapt]=0.0438/0.1401 [srnn-no-dales-skip]=0.0121/0.0624 [srnn-no-adapt-no-dales-skip]=0.0160/0.0717 [srnn]=0.0393/0.1362 [srnn-skip]=0.0191/0.0777
+[2026-08-27 00:03:50,238][train_srnn.training.continuous][INFO] - Epoch 133 start: positions[0]=70135  state.norm=320.2647
+[2026-08-27 00:04:11,457][train_srnn.training.continuous][INFO] - Epoch 133 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0357/0.1272 [srnn-no-adapt]=0.0436/0.1396 [srnn-no-dales-skip]=0.0120/0.0623 [srnn-no-adapt-no-dales-skip]=0.0159/0.0715 [srnn]=0.0390/0.1357 [srnn-skip]=0.0191/0.0776
+[2026-08-27 00:04:11,458][train_srnn.training.continuous][INFO] - Epoch 134 start: positions[0]=75135  state.norm=328.5676
+[2026-08-27 00:04:32,136][train_srnn.training.continuous][INFO] - Epoch 134 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0355/0.1267 [srnn-no-adapt]=0.0434/0.1392 [srnn-no-dales-skip]=0.0120/0.0622 [srnn-no-adapt-no-dales-skip]=0.0158/0.0713 [srnn]=0.0387/0.1352 [srnn-skip]=0.0190/0.0775
+[2026-08-27 00:04:32,137][train_srnn.training.continuous][INFO] - Epoch 135 start: positions[0]=80135  state.norm=328.7975
+[2026-08-27 00:04:52,744][train_srnn.training.continuous][INFO] - Epoch 135 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0353/0.1263 [srnn-no-adapt]=0.0432/0.1390 [srnn-no-dales-skip]=0.0120/0.0622 [srnn-no-adapt-no-dales-skip]=0.0157/0.0712 [srnn]=0.0385/0.1348 [srnn-skip]=0.0189/0.0774
+[2026-08-27 00:04:52,745][train_srnn.training.continuous][INFO] - Epoch 136 start: positions[0]=85135  state.norm=331.3966
+[2026-08-27 00:05:13,394][train_srnn.training.continuous][INFO] - Epoch 136 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0351/0.1258 [srnn-no-adapt]=0.0430/0.1386 [srnn-no-dales-skip]=0.0120/0.0621 [srnn-no-adapt-no-dales-skip]=0.0156/0.0710 [srnn]=0.0382/0.1343 [srnn-skip]=0.0188/0.0772
+[2026-08-27 00:05:13,395][train_srnn.training.continuous][INFO] - Epoch 137 start: positions[0]=90135  state.norm=332.9251
+[2026-08-27 00:05:44,457][train_srnn.training.continuous][INFO] - Epoch 137 (continuous, 20.6s):
+[2026-08-27 00:05:44,458][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0348 train_metric=0.1254 valid_loss=0.0334 valid_metric=0.1217
+[2026-08-27 00:05:44,458][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0427 train_metric=0.1382 valid_loss=0.0400 valid_metric=0.1339
+[2026-08-27 00:05:44,458][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0119 train_metric=0.0619 valid_loss=0.0124 valid_metric=0.0612
+[2026-08-27 00:05:44,458][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0155 train_metric=0.0708 valid_loss=0.0154 valid_metric=0.0697
+[2026-08-27 00:05:44,458][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0379 train_metric=0.1338 valid_loss=0.0357 valid_metric=0.1296
+[2026-08-27 00:05:44,458][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0187 train_metric=0.0770 valid_loss=0.0188 valid_metric=0.0760
+[2026-08-27 00:05:54,812][__main__][INFO] - Test [epoch_137 @ epoch 137]:
+[2026-08-27 00:05:54,812][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0337 test_metric=0.1240
+[2026-08-27 00:05:54,812][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0404 test_metric=0.1353
+[2026-08-27 00:05:54,812][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0121 test_metric=0.0612
+[2026-08-27 00:05:54,812][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0158 test_metric=0.0703
+[2026-08-27 00:05:54,812][__main__][INFO] -   [srnn] test_loss=0.0364 test_metric=0.1319
+[2026-08-27 00:05:54,812][__main__][INFO] -   [srnn-skip] test_loss=0.0187 test_metric=0.0760
+[2026-08-27 00:05:54,812][train_srnn.training.continuous][INFO] - Epoch 138 start: positions[0]=95135  state.norm=326.1203
+[2026-08-27 00:06:16,022][train_srnn.training.continuous][INFO] - Epoch 138 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0346/0.1251 [srnn-no-adapt]=0.0425/0.1377 [srnn-no-dales-skip]=0.0118/0.0618 [srnn-no-adapt-no-dales-skip]=0.0155/0.0707 [srnn]=0.0376/0.1332 [srnn-skip]=0.0187/0.0769
+[2026-08-27 00:06:16,023][train_srnn.training.continuous][INFO] - Epoch 139 start: positions[0]=100135  state.norm=326.5363
+[2026-08-27 00:06:36,685][train_srnn.training.continuous][INFO] - Epoch 139 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0345/0.1248 [srnn-no-adapt]=0.0423/0.1374 [srnn-no-dales-skip]=0.0118/0.0617 [srnn-no-adapt-no-dales-skip]=0.0154/0.0705 [srnn]=0.0374/0.1328 [srnn-skip]=0.0186/0.0768
+[2026-08-27 00:06:36,686][train_srnn.training.continuous][INFO] - Epoch 140 start: positions[0]=105135  state.norm=328.7521
+[2026-08-27 00:06:57,350][train_srnn.training.continuous][INFO] - Epoch 140 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0343/0.1244 [srnn-no-adapt]=0.0422/0.1372 [srnn-no-dales-skip]=0.0118/0.0617 [srnn-no-adapt-no-dales-skip]=0.0154/0.0704 [srnn]=0.0373/0.1325 [srnn-skip]=0.0186/0.0767
+[2026-08-27 00:06:57,351][train_srnn.training.continuous][INFO] - Epoch 141 start: positions[0]=110135  state.norm=327.5860
+[2026-08-27 00:07:17,956][train_srnn.training.continuous][INFO] - Epoch 141 (continuous, train-only, 20.6s): [srnn-no-adapt-no-dales]=0.0341/0.1239 [srnn-no-adapt]=0.0420/0.1369 [srnn-no-dales-skip]=0.0118/0.0617 [srnn-no-adapt-no-dales-skip]=0.0153/0.0702 [srnn]=0.0370/0.1321 [srnn-skip]=0.0185/0.0766
+[2026-08-27 00:07:17,957][train_srnn.training.continuous][INFO] - Epoch 142 start: positions[0]=115135  state.norm=332.3476
+[2026-08-27 00:07:39,156][train_srnn.training.continuous][INFO] - Epoch 142 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0337/0.1233 [srnn-no-adapt]=0.0416/0.1362 [srnn-no-dales-skip]=0.0118/0.0616 [srnn-no-adapt-no-dales-skip]=0.0152/0.0700 [srnn]=0.0367/0.1314 [srnn-skip]=0.0183/0.0763
+[2026-08-27 00:07:39,157][train_srnn.training.continuous][INFO] - Epoch 143 start: positions[0]=1162  state.norm=329.3356
+[2026-08-27 00:08:10,176][train_srnn.training.continuous][INFO] - Epoch 143 (continuous, 20.7s):
+[2026-08-27 00:08:10,176][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0336 train_metric=0.1231 valid_loss=0.0324 valid_metric=0.1200
+[2026-08-27 00:08:10,176][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0415 train_metric=0.1360 valid_loss=0.0387 valid_metric=0.1316
+[2026-08-27 00:08:10,176][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0118 train_metric=0.0615 valid_loss=0.0124 valid_metric=0.0607
+[2026-08-27 00:08:10,176][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0151 train_metric=0.0699 valid_loss=0.0150 valid_metric=0.0686
+[2026-08-27 00:08:10,176][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0365 train_metric=0.1310 valid_loss=0.0343 valid_metric=0.1269
+[2026-08-27 00:08:10,176][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0183 train_metric=0.0762 valid_loss=0.0184 valid_metric=0.0752
+[2026-08-27 00:08:20,578][__main__][INFO] - Test [epoch_143 @ epoch 143]:
+[2026-08-27 00:08:20,578][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0326 test_metric=0.1222
+[2026-08-27 00:08:20,578][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0392 test_metric=0.1331
+[2026-08-27 00:08:20,578][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0119 test_metric=0.0607
+[2026-08-27 00:08:20,578][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0152 test_metric=0.0690
+[2026-08-27 00:08:20,578][__main__][INFO] -   [srnn] test_loss=0.0350 test_metric=0.1292
+[2026-08-27 00:08:20,578][__main__][INFO] -   [srnn-skip] test_loss=0.0182 test_metric=0.0751
+[2026-08-27 00:08:20,579][train_srnn.training.continuous][INFO] - Epoch 144 start: positions[0]=6162  state.norm=329.1320
+  [periodic-upload] Epoch 144: uploading to GCS...
+[2026-08-27 00:08:41,433][train_srnn.training.continuous][INFO] - Epoch 144 (continuous, train-only, 20.9s): [srnn-no-adapt-no-dales]=0.0335/0.1230 [srnn-no-adapt]=0.0413/0.1357 [srnn-no-dales-skip]=0.0118/0.0615 [srnn-no-adapt-no-dales-skip]=0.0151/0.0698 [srnn]=0.0363/0.1306 [srnn-skip]=0.0182/0.0761
+[2026-08-27 00:08:41,434][train_srnn.training.continuous][INFO] - Epoch 145 start: positions[0]=11162  state.norm=328.2731
+[2026-08-27 00:09:02,088][train_srnn.training.continuous][INFO] - Epoch 145 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0333/0.1226 [srnn-no-adapt]=0.0410/0.1352 [srnn-no-dales-skip]=0.0117/0.0613 [srnn-no-adapt-no-dales-skip]=0.0150/0.0697 [srnn]=0.0360/0.1301 [srnn-skip]=0.0182/0.0760
+[2026-08-27 00:09:02,089][train_srnn.training.continuous][INFO] - Epoch 146 start: positions[0]=16162  state.norm=334.9263
+[2026-08-27 00:09:22,777][train_srnn.training.continuous][INFO] - Epoch 146 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0331/0.1222 [srnn-no-adapt]=0.0409/0.1350 [srnn-no-dales-skip]=0.0118/0.0613 [srnn-no-adapt-no-dales-skip]=0.0150/0.0695 [srnn]=0.0358/0.1297 [srnn-skip]=0.0181/0.0759
+[2026-08-27 00:09:22,778][train_srnn.training.continuous][INFO] - Epoch 147 start: positions[0]=21162  state.norm=337.7837
+[2026-08-27 00:09:43,470][train_srnn.training.continuous][INFO] - Epoch 147 (continuous, train-only, 20.7s): [srnn-no-adapt-no-dales]=0.0329/0.1216 [srnn-no-adapt]=0.0407/0.1347 [srnn-no-dales-skip]=0.0118/0.0613 [srnn-no-adapt-no-dales-skip]=0.0149/0.0694 [srnn]=0.0355/0.1293 [srnn-skip]=0.0180/0.0757
+[2026-08-27 00:09:43,471][train_srnn.training.continuous][INFO] - Epoch 148 start: positions[0]=26162  state.norm=326.3954
+[2026-08-27 00:10:04,661][train_srnn.training.continuous][INFO] - Epoch 148 (continuous, train-only, 21.2s): [srnn-no-adapt-no-dales]=0.0327/0.1213 [srnn-no-adapt]=0.0405/0.1343 [srnn-no-dales-skip]=0.0118/0.0612 [srnn-no-adapt-no-dales-skip]=0.0149/0.0693 [srnn]=0.0354/0.1289 [srnn-skip]=0.0179/0.0756
+[2026-08-27 00:10:04,662][train_srnn.training.continuous][INFO] - Epoch 149 start: positions[0]=31162  state.norm=325.7290
+[2026-08-27 00:10:35,676][train_srnn.training.continuous][INFO] - Epoch 149 (continuous, 20.7s):
+[2026-08-27 00:10:35,677][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales] train_loss=0.0325 train_metric=0.1211 valid_loss=0.0314 valid_metric=0.1177
+[2026-08-27 00:10:35,677][train_srnn.training.continuous][INFO] -   [srnn-no-adapt] train_loss=0.0403 train_metric=0.1340 valid_loss=0.0377 valid_metric=0.1298
+[2026-08-27 00:10:35,677][train_srnn.training.continuous][INFO] -   [srnn-no-dales-skip] train_loss=0.0116 train_metric=0.0609 valid_loss=0.0122 valid_metric=0.0601
+[2026-08-27 00:10:35,677][train_srnn.training.continuous][INFO] -   [srnn-no-adapt-no-dales-skip] train_loss=0.0148 train_metric=0.0691 valid_loss=0.0153 valid_metric=0.0685
+[2026-08-27 00:10:35,677][train_srnn.training.continuous][INFO] -   [srnn] train_loss=0.0352 train_metric=0.1285 valid_loss=0.0330 valid_metric=0.1243
+[2026-08-27 00:10:35,677][train_srnn.training.continuous][INFO] -   [srnn-skip] train_loss=0.0178 train_metric=0.0754 valid_loss=0.0180 valid_metric=0.0744
+[2026-08-27 00:10:46,070][__main__][INFO] - Test [epoch_149 @ epoch 149]:
+[2026-08-27 00:10:46,070][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0315 test_metric=0.1198
+[2026-08-27 00:10:46,070][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0382 test_metric=0.1313
+[2026-08-27 00:10:46,070][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0117 test_metric=0.0601
+[2026-08-27 00:10:46,070][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0153 test_metric=0.0688
+[2026-08-27 00:10:46,070][__main__][INFO] -   [srnn] test_loss=0.0337 test_metric=0.1266
+[2026-08-27 00:10:46,071][__main__][INFO] -   [srnn-skip] test_loss=0.0177 test_metric=0.0743
+[2026-08-27 00:10:56,462][__main__][INFO] - Test [last @ epoch 149]:
+[2026-08-27 00:10:56,462][__main__][INFO] -   [srnn-no-adapt-no-dales] test_loss=0.0315 test_metric=0.1198
+[2026-08-27 00:10:56,462][__main__][INFO] -   [srnn-no-adapt] test_loss=0.0382 test_metric=0.1313
+[2026-08-27 00:10:56,462][__main__][INFO] -   [srnn-no-dales-skip] test_loss=0.0117 test_metric=0.0601
+[2026-08-27 00:10:56,462][__main__][INFO] -   [srnn-no-adapt-no-dales-skip] test_loss=0.0153 test_metric=0.0688
+[2026-08-27 00:10:56,462][__main__][INFO] -   [srnn] test_loss=0.0337 test_metric=0.1266
+[2026-08-27 00:10:56,462][__main__][INFO] -   [srnn-skip] test_loss=0.0177 test_metric=0.0743
+=== Training complete 2026-08-27T00:11:00+00:00 ===
+SUCCESS
+=== Cleanup (exit=0) 2026-08-27T00:11:00+00:00 ===
