@@ -452,7 +452,10 @@ def main(cfg: DictConfig) -> None:
 
     # 4. Build model ----------------------------------------------------------
     if cfg.batched_ablations:
-        model = build_batched_model(cfg, cfg.batched_ablations)
+        model = build_batched_model(
+            cfg, cfg.batched_ablations,
+            ablation_seeds=cfg.get("batched_ablation_seeds", None),
+        )
     else:
         model = build_model(cfg)
     model = model.to(device)

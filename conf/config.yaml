@@ -46,6 +46,11 @@ amp: fp32      # fp32 | bf16. bf16 requires Ampere+ GPU (L4, A100, H100, RTX 30/
 
 # Ablation batching
 batched_ablations: null  # list of model variant names to run in parallel via bmm
+batched_ablation_seeds: null  # optional list of recurrent-matrix seeds; crossed
+                              # with batched_ablations (variant-major) so K =
+                              # len(ablations) * len(seeds). Variants sharing a
+                              # seed share one RMTMatrix, keeping the comparison
+                              # paired on W. Names become "<variant>-seed<seed>".
 
 # Freeze specific SRNN parameters at their init values (no Adam updates).
 # Logical names map to one or more nn.Parameter attrs on model.cell; missing
