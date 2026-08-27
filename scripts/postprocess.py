@@ -741,35 +741,90 @@ def plot_tau_evolution(out_dir: Path, run_label: str, snaps, k, name):
 def plot_W_EI_evolution(out_dir: Path, run_label: str, snaps, k, name):
     xs = x_axis(snaps)
     e_means, i_means, e_abs, i_abs = [], [], [], []
+    e_sds, i_sds, e_abs_sd, i_abs_sd = [], [], [], []
     for (_, _, ms) in snaps:
         W_eff, signs, sp = effective_W(ms, k)
         e_cols = signs > 0; i_cols = signs < 0; nz = sp != 0
         e_block = W_eff[:, e_cols]; i_block = W_eff[:, i_cols]
         e_nz = nz[:, e_cols]; i_nz = nz[:, i_cols]
+        # W_raw is per-element trainable regardless of per_neuron, so the
+        # spread across synapses is real and worth a band.
         if e_nz.any():
-            e_means.append(float(e_block[e_nz].mean()))
-            e_abs.append(float(np.abs(e_block[e_nz]).mean()))
+            v = e_block[e_nz]
+            e_means.append(float(v.mean())); e_sds.append(float(v.std()))
+            e_abs.append(float(np.abs(v).mean())); e_abs_sd.append(float(np.abs(v).std()))
         else:
-            e_means.append(np.nan); e_abs.append(np.nan)
+            e_means.append(np.nan); e_sds.append(np.nan)
+            e_abs.append(np.nan); e_abs_sd.append(np.nan)
         if i_nz.any():
-            i_means.append(float(i_block[i_nz].mean()))
-            i_abs.append(float(np.abs(i_block[i_nz]).mean()))
+            v = i_block[i_nz]
+            i_means.append(float(v.mean())); i_sds.append(float(v.std()))
+            i_abs.append(float(np.abs(v).mean())); i_abs_sd.append(float(np.abs(v).std()))
         else:
-            i_means.append(np.nan); i_abs.append(np.nan)
+            i_means.append(np.nan); i_sds.append(np.nan)
+            i_abs.append(np.nan); i_abs_sd.append(np.nan)
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 4))
-    axes[0].plot(xs, e_means, "o-", color="C3", label="mean E (signed)")
-    axes[0].plot(xs, i_means, "o-", color="C0", label="mean I (signed)")
+    def _band(ax, m, s, colour, label):
+        m = np.asarray(m, dtype=float); s = np.asarray(s, dtype=float)
+        ax.plot(xs, m, "o-", color=colour, ms=3, label=label)
+        ax.fill_between(xs, m - s, m + s, alpha=0.18, color=colour, lw=0)
+
+    _band(axes[0], e_means, e_sds, "C3", "mean E (signed) ±std")
+    _band(axes[0], i_means, i_sds, "C0", "mean I (signed) ±std")
     axes[0].axhline(0, color="k", lw=0.5)
     axes[0].set_title("Mean non-zero W_eff (signed)"); axes[0].set_xlabel("epoch"); axes[0].grid(alpha=0.3); axes[0].legend()
-    axes[1].plot(xs, e_abs, "o-", color="C3", label="|E|")
-    axes[1].plot(xs, i_abs, "o-", color="C0", label="|I|")
+    _band(axes[1], e_abs, e_abs_sd, "C3", "|E| ±std")
+    _band(axes[1], i_abs, i_abs_sd, "C0", "|I| ±std")
     axes[1].set_title("Mean |W_eff| non-zero"); axes[1].set_xlabel("epoch"); axes[1].grid(alpha=0.3); axes[1].legend()
     fig.suptitle(f"{run_label} — recurrent E vs I weights ({name})", fontsize=11)
     plt.tight_layout()
     out = out_dir / "W_EI_evolution.png"
     plt.savefig(out, dpi=120); plt.close(fig)
     print(f"    wrote {name}/W_EI_evolution.png")
+
+
+def plot_W_io_evolution(out_dir: Path, run_label: str, snaps, k, name):
+    """Input / output weights and the output bias, mean ±std.
+
+    Separate from W_EI_evolution.png, which covers the recurrent matrix. All
+    three quantities here are per-element trainable irrespective of
+    per_neuron -- that flag only gates the adaptation *_vec tensors -- so the
+    band is always meaningful. For W_in_eff the std across synapses is 8x its
+    mean and for W_out_eff 35x, i.e. the mean alone says very little.
+    """
+    xs = x_axis(snaps)
+    series = {key: ([], []) for key in ("W_in_eff", "W_out_eff", "readout_bias")}
+
+    for (_, _, ms) in snaps:
+        # W_in: 75 of 300 rows are mask-zeroed by the neuron partition, so
+        # restrict to live entries or the mean is dragged toward zero.
+        win = effective_W_in(ms, k)
+        win = win[win != 0]
+        wout = effective_W_out(ms, k).reshape(-1)
+        bias = ms["readout_bias"][k].numpy().reshape(-1)
+        for key, v in (("W_in_eff", win), ("W_out_eff", wout),
+                       ("readout_bias", bias)):
+            series[key][0].append(float(v.mean()) if v.size else np.nan)
+            series[key][1].append(float(v.std()) if v.size else np.nan)
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    titles = {"W_in_eff": "W_in_eff (live entries)",
+              "W_out_eff": "W_out_eff = readout_weight × W_out_gain",
+              "readout_bias": "readout_bias (not gain-scaled)"}
+    for ax, (key, (m, s)) in zip(axes, series.items()):
+        m = np.asarray(m); s = np.asarray(s)
+        ax.plot(xs, m, "o-", color="C2", ms=3, label="mean")
+        ax.fill_between(xs, m - s, m + s, alpha=0.18, color="C2", lw=0,
+                        label="±std")
+        ax.axhline(0, color="k", lw=0.5)
+        ax.set_title(titles[key]); ax.set_xlabel("epoch"); ax.grid(alpha=0.3)
+        ax.legend(fontsize=8)
+    fig.suptitle(f"{run_label} — input / output weights ({name})", fontsize=11)
+    plt.tight_layout()
+    out = out_dir / "W_io_evolution.png"
+    plt.savefig(out, dpi=120); plt.close(fig)
+    print(f"    wrote {name}/W_io_evolution.png")
 
 
 def stats(arr, mask=None):
@@ -838,7 +893,10 @@ def write_param_table(out_dir: Path, run_label: str, snaps, k, name):
     add("a_0 (threshold)", effective_a_0(init_ms, k), effective_a_0(last_ms, k))
 
     # Readout
-    add("readout_weight", init_ms["readout_weight"][k].numpy(), last_ms["readout_weight"][k].numpy())
+    # Effective, i.e. gain-applied — the table header promises post-transform
+    # values, and this is what W_io_evolution.png plots. The bias is NOT
+    # gain-scaled (sequence_model.py:252), so it stays raw.
+    add("W_out_eff (readout × gain)", effective_W_out(init_ms, k), effective_W_out(last_ms, k))
     add("readout_bias", init_ms["readout_bias"][k].numpy(), last_ms["readout_bias"][k].numpy())
 
     if "ic.ic" in init_ms and init_ms["ic.ic"].shape[0] == last_ms["cell.skip_flags"].shape[0]:
@@ -895,8 +953,10 @@ def build_report(run_dir: Path, ablation_names: list[str], variants_filter: list
         out = run_dir / name
         tau_p = out / "tau_evolution.png"
         w_p = out / "W_EI_evolution.png"
+        wio_p = out / "W_io_evolution.png"
         tbl_p = out / "param_table.txt"
-        if not (tau_p.exists() or w_p.exists() or tbl_p.exists()):
+        if not (tau_p.exists() or w_p.exists() or wio_p.exists()
+                or tbl_p.exists()):
             continue
         md += ["\\newpage", "", f"# {name}", ""]
         if tau_p.exists():
@@ -904,6 +964,9 @@ def build_report(run_dir: Path, ablation_names: list[str], variants_filter: list
             md.append("")
         if w_p.exists():
             md.append(f"![W\\_EI evolution]({name}/W_EI_evolution.png){{ width=95% }}")
+            md.append("")
+        if wio_p.exists():
+            md.append(f"![W\\_io evolution]({name}/W_io_evolution.png){{ width=95% }}")
             md.append("")
         if tbl_p.exists():
             md += ["\\newpage", "", f"# {name} — parameter table", "", "```text"]
@@ -966,6 +1029,7 @@ def run_per_variant(run_dir: Path, snaps, ablation_names: list[str], variants_fi
         print(f"  [{k}] {name}")
         plot_tau_evolution(out, run_dir.name, snaps, k, name)
         plot_W_EI_evolution(out, run_dir.name, snaps, k, name)
+        plot_W_io_evolution(out, run_dir.name, snaps, k, name)
         write_param_table(out, run_dir.name, snaps, k, name)
 
 
