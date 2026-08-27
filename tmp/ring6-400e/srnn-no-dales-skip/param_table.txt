@@ -1,0 +1,37 @@
+# ring6-400e — variant srnn-no-dales-skip (k=2)
+# Effective values (post-transform). Means/stds computed over the indicated dimension.
+effective parameter                  init mean    final mean    init std   final std          n
+-----------------------------------------------------------------------------------------------
+tau_global (s)                              +1      +0.71013           —           —     scalar
+tau_d (s)                                 +0.1     +0.043403           0           0        300
+tau_a_E[j=0] (s)                         +0.25      +0.10724           0           0        150
+tau_a_E[j=1] (s)                       +1.5896      +0.68185           0           0        150
+tau_a_E[j=2] (s)                            +4       +1.7158           0           0        150
+tau_a_I[j=0] (s)                         +0.25      +0.15645           0           0        150
+tau_a_I[j=1] (s)                       +1.5896      +0.99477           0           0        150
+tau_a_I[j=2] (s)                            +4       +2.5032           0           0        150
+tau_b_rec_E (s)                             +1      +0.33078           0           0        150
+tau_b_rel_E (s)                          +0.25      +0.32892           0           0        150
+tau_b_rec_I (s)                             +1      +0.26886           0           0        150
+tau_b_rel_I (s)                          +0.25      +0.31483           0           0        150
+W_eff (E src, signed)                  +0.2326      +0.38439     0.07663      0.2588      15048
+W_eff (I src, signed)                 -0.31062      -0.52445     0.07727      0.2847      14977
+|W_eff| (E src)                       +0.23267      +0.40465     0.07641      0.2258      15048
+|W_eff| (I src)                       +0.31062      +0.53241     0.07724      0.2695      14977
+W_in_eff (input neurons)           -0.00021194     +0.017065     0.09952      0.2314       1275
+c_E[j=0] (SFA coupling)                  +0.05     +0.041108           0           0        150
+c_E[j=1] (SFA coupling)                  +0.05     +0.041108           0           0        150
+c_E[j=2] (SFA coupling)                  +0.05     +0.041108           0           0        150
+c_0_E[j=0] (SFA offset)                     +0     -0.086949           0           0        150
+c_0_E[j=1] (SFA offset)                     +0     -0.086949           0           0        150
+c_0_E[j=2] (SFA offset)                     +0     -0.086949           0           0        150
+c_I[j=0] (SFA coupling)                  +0.05      +0.04975           0           0        150
+c_I[j=1] (SFA coupling)                  +0.05      +0.04975           0           0        150
+c_I[j=2] (SFA coupling)                  +0.05      +0.04975           0           0        150
+c_0_I[j=0] (SFA offset)                     +0     +0.070548           0           0        150
+c_0_I[j=1] (SFA offset)                     +0     +0.070548           0           0        150
+c_0_I[j=2] (SFA offset)                     +0     +0.070548           0           0        150
+a_0 (threshold)                          +0.35      +0.27168           0           0        300
+W_out_eff (readout × gain)         -0.00031521   -8.2305e-05     0.06595      0.4076       1275
+readout_bias                                +0    +0.0077873           0      0.0891         17
+ic.ic (per-variant init)              +0.17587      +0.17587      0.3587      0.3587       1500
