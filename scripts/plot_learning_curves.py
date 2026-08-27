@@ -9,7 +9,8 @@ on the persistence baseline E||y-x||^2), so plotting them on shared axes hides
 all within-group motion. They get separate panels with independent y-scales.
 
 Usage:
-    python scripts/plot_learning_curves.py tmp/dales-skip-4s [-o out.png]
+    python scripts/plot_learning_curves.py tmp/ring6-150e [-o out.png]
+    python scripts/plot_learning_curves.py tmp/ring6-150e --loglog
 """
 import argparse
 import csv
@@ -39,10 +40,20 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir", type=pathlib.Path)
     ap.add_argument("-o", "--out", type=pathlib.Path, default=None)
+    ap.add_argument("--loglog", action="store_true",
+                    help="log-log axes; a power law then plots as a straight "
+                         "line, so the convergence exponent is readable")
+    ap.add_argument("--both", action="store_true",
+                    help="one figure with linear AND log-log rows, so the "
+                         "early transient and the asymptotic slope are "
+                         "visible side by side")
     args = ap.parse_args()
 
     tr, te, variants = read_history(args.run_dir)
-    out = args.out or args.run_dir / "learning_curves.png"
+    default_name = ("learning_curves_both.png" if args.both else
+                    "learning_curves_loglog.png" if args.loglog else
+                    "learning_curves.png")
+    out = args.out or args.run_dir / default_name
 
     no_skip = [v for v in variants if "skip" not in v]
     skip = [v for v in variants if "skip" in v]
@@ -51,21 +62,43 @@ def main():
     cmap = plt.get_cmap("tab10")
     colors = {v: cmap(i % 10) for i, v in enumerate(variants)}
 
-    fig, axes = plt.subplots(2, 2, figsize=(13, 8.5))
+    if args.both:
+        # (metric, log?) per row
+        rows = [("valid_loss", False), ("valid_loss", True),
+                ("train_loss", False), ("train_loss", True)]
+    else:
+        rows = [("valid_loss", args.loglog), ("train_loss", args.loglog)]
 
-    for row, col_name in enumerate(("valid_loss", "train_loss")):
+    fig, axes = plt.subplots(len(rows), 2, figsize=(13, 4.25 * len(rows)),
+                             squeeze=False)
+
+    for row, (col_name, logscale) in enumerate(rows):
         for col, (gname, gvars) in enumerate(groups):
             ax = axes[row, col]
             for v in gvars:
                 e, y = series(tr, v, col_name)
-                ax.plot(e, y, "o-", color=colors[v], label=v, lw=1.7, ms=5)
+                if logscale:
+                    # epoch 0 has no place on a log axis; drop it rather than
+                    # silently shifting every point by one.
+                    e, y = zip(*[(a, b) for a, b in zip(e, y) if a > 0 and b > 0])
+                ax.plot(e, y, "o-", color=colors[v], label=v, lw=1.7, ms=4)
+            if logscale:
+                ax.set_xscale("log")
+                ax.set_yscale("log")
+                ax.grid(alpha=0.3, which="major")
+                ax.grid(alpha=0.12, which="minor")
+            else:
+                ax.grid(alpha=0.3)
             ax.set_xlabel("epoch")
             ax.set_ylabel(col_name.replace("_", " "))
-            ax.set_title(f"{col_name.replace('_', ' ').title()} — {gname}")
-            ax.grid(alpha=0.3)
+            scale_tag = " (log-log)" if logscale else " (linear)"
+            ax.set_title(f"{col_name.replace('_', ' ').title()} — {gname}"
+                         f"{scale_tag}")
             ax.legend(fontsize=8, loc="best")
 
-    fig.suptitle(f"{args.run_dir.name} — learning curves", y=0.995)
+    scale = (" — linear and log-log" if args.both
+             else " (log-log)" if args.loglog else "")
+    fig.suptitle(f"{args.run_dir.name} — learning curves{scale}", y=0.995)
     fig.tight_layout()
     fig.savefig(out, dpi=150, bbox_inches="tight")
     print(f"wrote {out}")
