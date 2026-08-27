@@ -603,6 +603,44 @@ def effective_c_0(ms, k, side):
     return (ms[vec_key][k] + ms[sc_key][k]).numpy()
 
 
+def is_per_neuron(ms, k) -> bool:
+    """True iff variant k trains its ``*_vec`` tensors per neuron.
+
+    BatchedSRNNCell allocates per-neuron shapes regardless of the flag
+    (KnownIssues §1); the flag survives only as the gradient-linking masks
+    installed at srnn_cell.py:1027, which zero the ``*_vec`` gradient when
+    per_neuron=False. ``_isp_tau_d_vec_mask`` is the robust probe because
+    tau_d exists for every variant, unlike the SFA/STD masks.
+    """
+    m = ms.get("cell._isp_tau_d_vec_mask")
+    return bool(m is not None and float(m[k].reshape(-1)[0]) > 0.5)
+
+
+def effective_W_out(ms, k):
+    """readout_weight * W_out_gain.
+
+    Note the bias is deliberately NOT gain-scaled — see sequence_model.py:252
+    ("Bias unaffected"), so W_out_gain shifts the weight/bias balance during
+    training.
+    """
+    return (ms["readout_weight"][k] * ms["W_out_gain"][k]).numpy()
+
+
+def active_js(ms, k, side: str) -> list[int]:
+    """Indices of the active SFA timescales for variant k on the given side.
+
+    Returns [] when the side is inactive or the mask is the degenerate
+    placeholder buffer (size <= 1) registered at srnn_cell.py:1067.
+    """
+    m = ms.get(f"cell.sfa_{side}_mask")
+    if m is None:
+        return []
+    v = m[k, 0, :].numpy()
+    if v.size <= 1:
+        return []
+    return [int(j) for j in np.where(v != 0)[0]]
+
+
 def is_tau_active(ms, k, key):
     """Whether the given effective tau drives the loss for variant k."""
     if key in ("tau_global", "tau_d"):
@@ -628,19 +666,39 @@ def _grey_overlay(ax):
 
 def plot_tau_evolution(out_dir: Path, run_label: str, snaps, k, name):
     xs = x_axis(snaps)
+    last_ms = snaps[-1][2]
+    per_neuron = is_per_neuron(last_ms, k)
+
+    # Which j-slots to draw per key. With per_neuron=False every *_vec tensor
+    # is frozen by its gradient mask (srnn_cell.py:1027), so the population
+    # std is 0 and the only real variation is ACROSS timescales — plot those
+    # as separate lines instead of averaging them into one meaningless number.
+    js = {"tau_a_E": active_js(last_ms, k, "E"),
+          "tau_a_I": active_js(last_ms, k, "I")}
+
     series: dict[str, list[float]] = {}
     for (_, _, ms) in snaps:
         tau = effective_taus(ms, k)
         for key, arr in tau.items():
             if key == "tau_global":
                 series.setdefault(key, []).append(arr)
+                continue
+            if not per_neuron:
+                if arr.ndim > 1 and js.get(key):
+                    for j in js[key]:
+                        series.setdefault(f"{key}|j={j}", []).append(arr[:, j].mean())
+                else:
+                    series.setdefault(f"{key}|", []).append(arr.mean())
             else:
                 a = arr.flatten() if arr.ndim > 1 else arr
                 series.setdefault(key + "_mean", []).append(a.mean())
                 series.setdefault(key + "_std", []).append(a.std())
 
-    last_ms = snaps[-1][2]
-    keys_present = sorted({s.replace("_mean", "").replace("_std", "") for s in series if s != "tau_global"})
+    if per_neuron:
+        keys_present = sorted({s.replace("_mean", "").replace("_std", "")
+                               for s in series if s != "tau_global"})
+    else:
+        keys_present = sorted({s.split("|")[0] for s in series if s != "tau_global"})
     n = len(keys_present) + 1
     cols = 3; rows = (n + cols - 1) // cols
     fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 3 * rows), squeeze=False)
@@ -648,20 +706,32 @@ def plot_tau_evolution(out_dir: Path, run_label: str, snaps, k, name):
     flat[0].plot(xs, series["tau_global"], "o-", lw=1.5, ms=4)
     flat[0].set_title("tau_global"); flat[0].set_xlabel("epoch"); flat[0].set_ylabel("seconds"); flat[0].grid(alpha=0.3)
     for i, key in enumerate(keys_present, start=1):
-        m = np.array(series[key + "_mean"]); s = np.array(series[key + "_std"])
         ax = flat[i]
-        ax.plot(xs, m, "o-", lw=1.5, ms=4, color="C0", label="mean")
-        ax.fill_between(xs, m - s, m + s, alpha=0.2, color="C0", label="±std")
+        if per_neuron:
+            m = np.array(series[key + "_mean"]); s = np.array(series[key + "_std"])
+            ax.plot(xs, m, "o-", lw=1.5, ms=4, color="C0", label="mean")
+            ax.fill_between(xs, m - s, m + s, alpha=0.2, color="C0", label="±std")
+        else:
+            for c, sk in enumerate(sorted(s for s in series if s.startswith(key + "|"))):
+                lbl = sk.split("|")[1] or None
+                ax.plot(xs, np.array(series[sk]), "o-", lw=1.5, ms=4,
+                        color=f"C{c}", label=lbl)
+            ax.set_yscale("log")
         active = is_tau_active(last_ms, k, key)
         title = f"effective {key}" + ("" if active else "  (masked — tau_global only)")
         ax.set_title(title); ax.set_xlabel("epoch"); ax.set_ylabel("seconds"); ax.grid(alpha=0.3)
         if not active:
             _grey_overlay(ax)
-        if i == 1:
+        if per_neuron:
+            if i == 1:
+                ax.legend(fontsize=8)
+        elif len(js.get(key, [])) > 1:
             ax.legend(fontsize=8)
     for j in range(len(keys_present) + 1, len(flat)):
         flat[j].axis("off")
-    fig.suptitle(f"{run_label} — effective time constants ({name})", fontsize=11)
+    mode = "per-neuron mean ±std" if per_neuron else "per-timescale (log y)"
+    fig.suptitle(f"{run_label} — effective time constants ({name}) — {mode}",
+                 fontsize=11)
     plt.tight_layout()
     out = out_dir / "tau_evolution.png"
     plt.savefig(out, dpi=120); plt.close(fig)
@@ -722,24 +792,15 @@ def write_param_table(out_dir: Path, run_label: str, snaps, k, name):
     t0 = effective_taus(init_ms, k); t1 = effective_taus(last_ms, k)
     rows.append(("tau_global (s)", f"{t0['tau_global']:+.5g}", f"{t1['tau_global']:+.5g}", "—", "—", "scalar"))
 
-    def _active_js(ms, side: str) -> list[int]:
-        m = ms.get(f"cell.sfa_{side}_mask")
-        if m is None:
-            return []
-        v = m[k, 0, :].numpy()
-        if v.size <= 1:
-            return []
-        return [int(j) for j in np.where(v != 0)[0]]
-
     # Per-timescale tau_a_E / tau_a_I (rest of taus collapsed)
     for key in ("tau_d", "tau_a_E", "tau_a_I", "tau_b_rec_E", "tau_b_rel_E", "tau_b_rec_I", "tau_b_rel_I"):
         if key not in t0:
             continue
         if key == "tau_a_E":
-            for j in _active_js(last_ms, "E"):
+            for j in active_js(last_ms, k, "E"):
                 add(f"tau_a_E[j={j}] (s)", t0[key][:, j], t1[key][:, j])
         elif key == "tau_a_I":
-            for j in _active_js(last_ms, "I"):
+            for j in active_js(last_ms, k, "I"):
                 add(f"tau_a_I[j={j}] (s)", t0[key][:, j], t1[key][:, j])
         else:
             add(f"{key} (s)", t0[key], t1[key])
@@ -761,7 +822,7 @@ def write_param_table(out_dir: Path, run_label: str, snaps, k, name):
 
     # SFA couplings + offsets, split per-timescale (active only)
     for side in ("E", "I"):
-        active = _active_js(last_ms, side)
+        active = active_js(last_ms, k, side)
         if not active:
             continue
         c0 = effective_c(init_ms, k, side); c1 = effective_c(last_ms, k, side)
