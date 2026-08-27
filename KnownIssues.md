@@ -575,3 +575,103 @@ never crossed the threshold, so switching to per-variant clipping does not make
 them non-comparable — it only changes behaviour in the regime none of them
 reached. The interim auto-disable (commit `9b27859`) is removed; `cfg.grad_clip`
 is honoured again in batched mode.
+
+---
+
+## 15. `a_0` and `c_0_E`/`c_0_I` are over-parameterized (exact flat direction)
+
+**Summary.** The SFA baseline `c_0` and the firing threshold `a_0` affect the
+model only through their sum, so the loss has an exactly flat direction. From
+`train_srnn/models/srnn_cell.py` (batched paths at :1367-1376, :1583-1592,
+:1676-1688; single-cell equivalents at :531-536, :574):
+
+```
+x_eff_i   = x_i − Σ_j c_ij · a_ij
+r_i       = f(x_eff_i − a_0_i)
+τ_ij ȧ_ij = −a_ij + c_0_ij + r_i
+```
+
+Here `j` indexes the **SFA timescale** (`n_a` channels, 3 in the current
+presets), not a presynaptic neuron — `a_ij` is neuron `i`'s own adaptation
+state driven by its own rate `r_i`. The presynaptic sum lives in the separate
+`W_eff @ br` term and is unaffected by any of this.
+
+Substituting `ã_ij ≡ a_ij − c_0_ij` gives `τ_ij dã_ij/dt = −ã_ij + r_i`, which
+is free of `c_0`, and
+
+```
+r_i = f( x_i − Σ_j c_ij ã_ij − [ a_0_i + Σ_j c_ij · c_0_ij ] )
+```
+
+So the two parameters enter only via
+
+**θ_i = a_0_i + Σ_j c_ij · c_0_ij**
+
+This is an exact *global* reparameterization, not a steady-state
+approximation. Nothing in the cell breaks it: `a` is never clamped (the
+`.clamp(0, 1)` calls at :613-634 are on the STD variable `b`), and
+`c = exp(log_c_gain) · softplus(isp_c_vec) > 0` always, so
+`Σ_j c_ij ≠ 0` on any neuron with an active SFA channel.
+
+**Verified.** 60-step float64 rollout, K=2, applying `a → a+δ`, `c_0 → c_0+δ`,
+`a_0 → a_0 − Σ_j c_j δ` (δ = 0.137):
+
+```
+max |y_reparam − y_orig| : 3.3e-16      (output scale 0.53)
+```
+
+**Degrees of freedom.**
+
+- `per_neuron=False` (all current runs): the trainable set is three scalars per
+  variant — `a_0_scalar`, `c_0_E_scalar`, `c_0_I_scalar` — mapping onto two
+  identifiable dofs (θ_E, θ_I), since `a_0_scalar` is shared across E and I
+  while the two `c_0` scalars are separate. **Exactly one flat direction.**
+- `per_neuron=True`: much larger. A neuron's `n_a` values of `c_0_ij` enter only
+  through the scalar `Σ_j c_ij c_0_ij`, so `n_a − 1` dims per neuron are
+  redundant among the `c_0`s themselves, and the remaining one is redundant
+  with `a_0_i`. The whole `c_0` tensor (~3N params at `n_a=3`) is dead.
+
+**Is it harmful?** Numerically, no. The direction is *exactly* flat, so its
+gradient is exactly zero and Adam cannot drift along it. Measured on
+`ring6-400e` (400 epochs, `per_neuron=False`):
+
+```
+variant                     θ_E             θ_I          a_0          Σc·c_0 (E / I)
+srnn                  0.350 → 0.156   0.350 → 0.222   0.350 → 0.190   −0.034 / +0.032
+srnn-no-dales-skip    0.350 → 0.259   0.350 → 0.282   0.350 → 0.272   −0.013 / +0.011
+```
+
+The common component of `Σc·c_0` is −0.001, i.e. ~0: the optimizer used `a_0`
+for the shift common to E and I and `c_0` purely for the E/I *differential*,
+which is the identifiable part. No wandering along the null direction.
+
+**The cost is interpretive.** `a_0`, `c_0_E` and `c_0_I` are individually
+meaningless; only θ_E and θ_I are. `scripts/postprocess.py:plot_offsets_evolution`
+currently plots all three raw traces (`offsets_evolution.png`), which cannot be
+read as-is. It should plot θ_E and θ_I alongside or instead.
+
+**Do NOT fix by pinning `a_0 = 0`.** Three reasons:
+
+1. It would bias exactly the comparison `ring2x5-100e` is running.
+   `srnn-no-adapt-no-dales-skip` has no SFA, so its `c_0` is mask-zeroed and
+   `a_0` is its *only* threshold. Pinning `a_0` leaves the no-adaptation arm
+   with a nonlinearity it cannot translate at all while the adaptation arm
+   still translates via `c_0` — a handicap on the control condition.
+2. `a_0` is the structurally primary parameter (threshold of the piecewise
+   sigmoid, present in every variant); `c_0` is a baseline adaptation level
+   whose only effect is a threshold shift.
+3. With `a_0` pinned the effective threshold becomes `Σ_j c_ij c_0_ij`, a
+   product of two trained quantities (`c` is itself trainable via
+   `log_c_gain`), rather than a free parameter.
+
+**Minimal identifiable parameterization.** Keep `a_0`, freeze *one* of the two
+`c_0`s at zero: `freeze_params=[c_0_E]`. That is 2 params for 2 dofs with no
+expressiveness lost — note that freezing *both* would force θ_E = θ_I, and the
+table above shows the model actively uses that differential. No code change
+needed: `FREEZE_NAME_MAP` (`train.py:41-62`) already covers `c_0_E`/`c_0_I` and
+`c_0_E_vec` initializes to zeros.
+
+**Why not applied yet.** Changing the parameterization would break
+comparability with `ring6-400e` and `ring2x5-100e` for no numerical gain, since
+the flat direction costs nothing. Revisit when starting a fresh comparison
+family, or if a per-neuron run makes the dead-parameter count matter.
