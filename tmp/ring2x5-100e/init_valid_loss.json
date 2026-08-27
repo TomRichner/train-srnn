@@ -1,0 +1,12 @@
+{
+  "srnn-no-dales-skip-seed1": 0.11790463142096996,
+  "srnn-no-dales-skip-seed2": 0.11798816919326782,
+  "srnn-no-dales-skip-seed3": 0.11814603209495544,
+  "srnn-no-dales-skip-seed4": 0.11720752529799938,
+  "srnn-no-dales-skip-seed5": 0.11889449134469032,
+  "srnn-no-adapt-no-dales-skip-seed1": 0.13545899838209152,
+  "srnn-no-adapt-no-dales-skip-seed2": 0.14728708565235138,
+  "srnn-no-adapt-no-dales-skip-seed3": 0.20783673226833344,
+  "srnn-no-adapt-no-dales-skip-seed4": 0.1996704265475273,
+  "srnn-no-adapt-no-dales-skip-seed5": 0.16579778119921684
+}

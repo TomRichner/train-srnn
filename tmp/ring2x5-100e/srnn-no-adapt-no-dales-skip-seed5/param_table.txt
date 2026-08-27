@@ -1,0 +1,19 @@
+# ring2x5-100e — variant srnn-no-adapt-no-dales-skip-seed5 (k=9)
+# Effective values (post-transform). Means/stds computed over the indicated dimension.
+effective parameter                  init mean    final mean    init std   final std          n
+-----------------------------------------------------------------------------------------------
+tau_global (s)                              +1      +0.75196           —           —     scalar
+tau_d (s)                                 +0.1     +0.049365           0           0        300
+tau_b_rec_E (s)                             +1      +0.75196           0           0        150
+tau_b_rel_E (s)                          +0.25      +0.18799           0           0        150
+tau_b_rec_I (s)                             +1      +0.75196           0           0        150
+tau_b_rel_I (s)                          +0.25      +0.18799           0           0        150
+W_eff (E src, signed)                 +0.23266      +0.31564      0.0779       0.129      14942
+W_eff (I src, signed)                 -0.31065      -0.41783     0.07739      0.1379      15085
+|W_eff| (E src)                       +0.23271      +0.31755     0.07774      0.1243      14942
+|W_eff| (I src)                       +0.31065      +0.41872     0.07738      0.1352      15085
+W_in_eff (input neurons)           -0.00056932    -0.0044341     0.09975      0.1856       1275
+a_0 (threshold)                          +0.35      +0.34474           0           0        300
+W_out_eff (readout × gain)          -0.0005528    +0.0016052     0.06596      0.2248       1275
+readout_bias                                +0     +0.014223           0     0.08062         17
+ic.ic (per-variant init)              +0.17253      +0.17253      0.7022      0.7022       1500
