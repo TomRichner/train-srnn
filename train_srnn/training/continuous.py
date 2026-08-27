@@ -34,6 +34,7 @@ from train_srnn.training.closed_loop import (
     summarize_alpha,
 )
 from train_srnn.utils.cell_loop import empty_time_buffer, mark_cudagraph_step
+from train_srnn.utils.grad_clip import clip_grad_norm_per_variant
 from train_srnn.utils.checkpoint import (
     append_history_row,
     append_test_history_row,
@@ -455,13 +456,12 @@ def run_continuous_training(
 
     grad_clip = float(cfg.get("grad_clip", 0.0) or 0.0)
     # clip_grad_norm_ takes ONE norm over the whole model, so in batched-
-    # ablation mode a single variant's gradient throttles every other
-    # variant's step. Disable until per-variant clipping lands — see
+    # ablation mode a single variant's gradient would throttle every other
+    # variant's step. Clip each variant's slice independently instead — see
     # KnownIssues §14. Nothing else couples the variants.
     if grad_clip > 0 and K is not None:
-        log.info("grad_clip=%g disabled: clipping is global across the K=%d "
-                 "batched variants (KnownIssues §14)", grad_clip, K)
-        grad_clip = 0.0
+        log.info("grad_clip=%g applied per-variant across the K=%d batched "
+                 "variants (KnownIssues §14)", grad_clip, K)
 
     # Optional per-phase profiler (off by default).
     profile_enabled = bool(cfg.get("continuous_profile", False))
@@ -539,7 +539,11 @@ def run_continuous_training(
                 loss.backward()
             with timer.section("optim_step"):
                 if grad_clip > 0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
+                    if K is not None:
+                        clip_grad_norm_per_variant(model.parameters(), grad_clip, K)
+                    else:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(),
+                                                       max_norm=grad_clip)
                 optimizer.step()
                 if scheduler is not None:
                     scheduler.step()

@@ -534,38 +534,44 @@ and 0.720-0.808 across ten ring positions at the end, against `grad_clip: 1.0`
 training and ended 1.24x below the threshold, so a longer run, a larger `size`,
 more variants, or a higher lr could all cross it.
 
-**Mitigation in place.** Clipping is now **disabled automatically when
-`batched_ablations` is active** (K is not None), with a one-time log line.
-Single-variant runs are unaffected and still honour `cfg.grad_clip`.
+**FIXED** (2026-08-27). Each variant's gradient slice is now clipped
+independently by `train_srnn/utils/grad_clip.py:clip_grad_norm_per_variant`,
+wired into both the ring trainer (`train_srnn/training/continuous.py`) and the
+windowed loop (`train.py`). Single-variant runs still take
+`torch.nn.utils.clip_grad_norm_` unchanged.
 
-**Fix sketch.** Clip each variant's slice independently. Every trainable tensor
-is `(K, ...)`, so the slices are already separable and no host sync is needed:
+Every trainable tensor is `(K, ...)`-shaped, so the slices are separable and no
+host sync is needed — cost is one extra reduction per parameter:
 
 ```python
-def clip_grad_norm_per_variant(model, max_norm, K):
-    """Per-variant analogue of clip_grad_norm_ for BatchedSRNNCell models."""
-    sq, grads = None, []
-    for p in model.parameters():
+@torch.no_grad()
+def clip_grad_norm_per_variant(parameters, max_norm, K):
+    grads, sq = [], None
+    for p in parameters:
         if p.grad is None:
             continue
         g = p.grad
-        assert g.shape[0] == K          # holds for every batched parameter
-        s = (g.reshape(K, -1) ** 2).sum(1)
+        if g.dim() == 0 or g.shape[0] != K:
+            raise ValueError(...)     # variants would share a trainable tensor
+        s = (g.reshape(K, -1).float() ** 2).sum(1)
         sq = s if sq is None else sq + s
         grads.append(g)
     norms = sq.sqrt()
     scale = (max_norm / (norms + 1e-6)).clamp(max=1.0)
     for g in grads:
-        g.mul_(scale.view(-1, *([1] * (g.dim() - 1))))
-    return norms                        # also useful to log per-variant
+        g.mul_(scale.view(-1, *([1] * (g.dim() - 1))).to(g.dtype))
+    return norms                      # pre-clip norms, one per variant
 ```
 
-Cost is one extra reduction per parameter. Returning `norms` would additionally
-give per-variant gradient-norm logging, which does not exist today.
+Verified against `torch.nn.utils.clip_grad_norm_` applied variant-by-variant:
+for pre-clip norms 5.0 / 0.5 / 1.0 at `max_norm=1.0` both produce identical
+gradients (the 0.5 variant untouched, the 5.0 variant scaled by 0.2).
 
-**Why not fix now.** Switching to per-variant clipping changes the optimisation
-for any run where the global threshold *would* have been crossed, making new
-results non-comparable with `ring6-400e` and earlier batched runs for no
-present benefit — clipping never fired in those. Disabling it in batched mode
-is the conservative interim: it makes batched and individual training exactly
-equivalent, which is the property the ablation comparison depends on.
+The returned `norms` gives per-variant gradient-norm logging for free; nothing
+consumes it yet.
+
+**Comparability with earlier runs.** `ring6-400e` and every earlier batched run
+never crossed the threshold, so switching to per-variant clipping does not make
+them non-comparable — it only changes behaviour in the regime none of them
+reached. The interim auto-disable (commit `9b27859`) is removed; `cfg.grad_clip`
+is honoured again in batched mode.

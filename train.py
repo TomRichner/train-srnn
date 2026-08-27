@@ -27,6 +27,7 @@ from train_srnn.utils.checkpoint import (
     save_checkpoint,
     write_progress,
 )
+from train_srnn.utils.grad_clip import clip_grad_norm_per_variant
 from train_srnn.utils.lr_schedule import WarmupHoldCosineSchedule
 from train_srnn.utils.trainable_ic import compute_burn_in
 
@@ -255,10 +256,15 @@ def run_epoch(
             optimizer.zero_grad()
             loss.backward()
             grad_clip = cfg.get("grad_clip", 0.0)
-            # Global across batched variants — see KnownIssues §14. The
-            # one-time notice is emitted at model-build time.
-            if grad_clip and grad_clip > 0 and K is None:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
+            # clip_grad_norm_ takes one norm over the whole model, which in
+            # batched-ablation mode would let one variant throttle every
+            # other variant's step — clip per variant instead (KnownIssues
+            # §14). The one-time notice is emitted at model-build time.
+            if grad_clip and grad_clip > 0:
+                if K is not None:
+                    clip_grad_norm_per_variant(model.parameters(), grad_clip, K)
+                else:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
             optimizer.step()
             if scheduler is not None:
                 scheduler.step()
@@ -494,8 +500,8 @@ def main(cfg: DictConfig) -> None:
             log.info("torch.compile (cell-level) deferred to continuous trainer")
 
     if cfg.get("grad_clip", 0.0) and K is not None:
-        log.info("grad_clip=%s disabled: clipping is global across the K=%d "
-                 "batched variants (KnownIssues §14)", cfg.grad_clip, K)
+        log.info("grad_clip=%s applied per-variant across the K=%d batched "
+                 "variants (KnownIssues §14)", cfg.grad_clip, K)
 
     # 6. Optimizer + LR schedule ----------------------------------------------
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
