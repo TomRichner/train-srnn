@@ -784,6 +784,74 @@ def plot_W_EI_evolution(out_dir: Path, run_label: str, snaps, k, name):
     print(f"    wrote {name}/W_EI_evolution.png")
 
 
+def _offset_series(snaps, k, getter, js):
+    """Collect per-j (or collapsed) mean series plus std, for an offset term."""
+    lines, sds = {}, {}
+    for (_, _, ms) in snaps:
+        arr = getter(ms)
+        if arr is None:
+            return None, None
+        if arr.ndim > 1 and js:
+            for j in js:
+                lines.setdefault(f"j={j}", []).append(float(arr[:, j].mean()))
+                sds.setdefault(f"j={j}", []).append(float(arr[:, j].std()))
+        else:
+            lines.setdefault("", []).append(float(arr.mean()))
+            sds.setdefault("", []).append(float(arr.std()))
+    return lines, sds
+
+
+def plot_offsets_evolution(out_dir: Path, run_label: str, snaps, k, name):
+    """SFA offsets c_0_E / c_0_I and the activation threshold a_0.
+
+    These are additive companions to the multiplicative gains: a_0 shifts the
+    input to the nonlinearity (r = phi(x - a_0 - c*sum(a))) and is the only
+    per-neuron DC term in the cell -- there is no input bias, cell.W_in being a
+    bare matrix. Under per_neuron=False the *_vec halves are frozen and only
+    the scalars move, so these draw as lines; c_0 additionally has all its j
+    slots degenerate because its init is uniform.
+    """
+    xs = x_axis(snaps)
+    last_ms = snaps[-1][2]
+    per_neuron = is_per_neuron(last_ms, k)
+
+    panels = []
+    for side in ("E", "I"):
+        js = active_js(last_ms, k, side)
+        if not js:
+            continue
+        lines, sds = _offset_series(
+            snaps, k, lambda ms, s=side: effective_c_0(ms, k, s), js)
+        if lines:
+            panels.append((f"c_0_{side} (SFA offset)", lines, sds))
+    panels.append(("a_0 (threshold)", *_offset_series(
+        snaps, k, lambda ms: effective_a_0(ms, k), None)))
+
+    if not panels:
+        return
+    fig, axes = plt.subplots(1, len(panels), figsize=(5 * len(panels), 4),
+                             squeeze=False)
+    for ax, (title, lines, sds) in zip(axes[0], panels):
+        for c, (lbl, ys) in enumerate(sorted(lines.items())):
+            ys = np.asarray(ys)
+            ax.plot(xs, ys, "o-", color=f"C{c}", ms=3, label=lbl or None)
+            if per_neuron:
+                s = np.asarray(sds[lbl])
+                ax.fill_between(xs, ys - s, ys + s, alpha=0.18,
+                                color=f"C{c}", lw=0)
+        ax.axhline(0, color="k", lw=0.5)
+        ax.set_title(title); ax.set_xlabel("epoch"); ax.grid(alpha=0.3)
+        if len(lines) > 1:
+            ax.legend(fontsize=8)
+    mode = "mean ±std" if per_neuron else "scalar-driven (vec frozen)"
+    fig.suptitle(f"{run_label} — offsets and threshold ({name}) — {mode}",
+                 fontsize=11)
+    plt.tight_layout()
+    out = out_dir / "offsets_evolution.png"
+    plt.savefig(out, dpi=120); plt.close(fig)
+    print(f"    wrote {name}/offsets_evolution.png")
+
+
 def plot_W_io_evolution(out_dir: Path, run_label: str, snaps, k, name):
     """Input / output weights and the output bias, mean ±std.
 
@@ -954,9 +1022,10 @@ def build_report(run_dir: Path, ablation_names: list[str], variants_filter: list
         tau_p = out / "tau_evolution.png"
         w_p = out / "W_EI_evolution.png"
         wio_p = out / "W_io_evolution.png"
+        off_p = out / "offsets_evolution.png"
         tbl_p = out / "param_table.txt"
         if not (tau_p.exists() or w_p.exists() or wio_p.exists()
-                or tbl_p.exists()):
+                or off_p.exists() or tbl_p.exists()):
             continue
         md += ["\\newpage", "", f"# {name}", ""]
         if tau_p.exists():
@@ -967,6 +1036,9 @@ def build_report(run_dir: Path, ablation_names: list[str], variants_filter: list
             md.append("")
         if wio_p.exists():
             md.append(f"![W\\_io evolution]({name}/W_io_evolution.png){{ width=95% }}")
+            md.append("")
+        if off_p.exists():
+            md.append(f"![Offsets and threshold]({name}/offsets_evolution.png){{ width=95% }}")
             md.append("")
         if tbl_p.exists():
             md += ["\\newpage", "", f"# {name} — parameter table", "", "```text"]
@@ -1030,6 +1102,7 @@ def run_per_variant(run_dir: Path, snaps, ablation_names: list[str], variants_fi
         plot_tau_evolution(out, run_dir.name, snaps, k, name)
         plot_W_EI_evolution(out, run_dir.name, snaps, k, name)
         plot_W_io_evolution(out, run_dir.name, snaps, k, name)
+        plot_offsets_evolution(out, run_dir.name, snaps, k, name)
         write_param_table(out, run_dir.name, snaps, k, name)
 
 
