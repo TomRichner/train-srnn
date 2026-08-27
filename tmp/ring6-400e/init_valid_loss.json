@@ -1,0 +1,8 @@
+{
+  "srnn-no-adapt-no-dales": 1.00639209151268,
+  "srnn-no-adapt": 1.0087217688560486,
+  "srnn-no-dales-skip": 0.11799030937254429,
+  "srnn-no-adapt-no-dales-skip": 0.13598432019352913,
+  "srnn": 0.9989731758832932,
+  "srnn-skip": 0.11770262010395527
+}
