@@ -255,7 +255,9 @@ def run_epoch(
             optimizer.zero_grad()
             loss.backward()
             grad_clip = cfg.get("grad_clip", 0.0)
-            if grad_clip and grad_clip > 0:
+            # Global across batched variants — see KnownIssues §14. The
+            # one-time notice is emitted at model-build time.
+            if grad_clip and grad_clip > 0 and K is None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
             optimizer.step()
             if scheduler is not None:
@@ -490,6 +492,10 @@ def main(cfg: DictConfig) -> None:
             model = torch.compile(model, **compile_kwargs)
         else:
             log.info("torch.compile (cell-level) deferred to continuous trainer")
+
+    if cfg.get("grad_clip", 0.0) and K is not None:
+        log.info("grad_clip=%s disabled: clipping is global across the K=%d "
+                 "batched variants (KnownIssues §14)", cfg.grad_clip, K)
 
     # 6. Optimizer + LR schedule ----------------------------------------------
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)

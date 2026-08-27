@@ -486,3 +486,82 @@ being unrelated to accuracy. Loss is unaffected — only the metric.
 `torch.abs((logits[k].squeeze(-1) if ... else logits[k]) - target)`. Left
 untouched for now because no active task exercises it and changing it would
 alter historical metric values for nothing.
+
+---
+
+## 14. Gradient clipping is global across batched-ablation variants
+
+**Summary.** `torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)`
+computes **one norm over every parameter in the model** and rescales all
+gradients by a single factor. In `batched_ablations` mode every trainable
+tensor is `(K, ...)`-shaped, so that single factor is shared by all K variants:
+one variant with a large gradient throttles the step size of all the others.
+
+This is the only place batched and individually-trained variants are not
+equivalent. Everything else is properly isolated — there are no shared
+trainable tensors (verified: every parameter is `(K, ...)`), so
+`∂(Σⱼ lossⱼ)/∂θₖ = ∂lossₖ/∂θₖ`, and Adam's update is elementwise.
+
+**Where.**
+- `train.py:257-259` (windowed loop)
+- `train_srnn/training/continuous.py:526-527` (ring trainer)
+
+**Scale of the problem.** The global norm grows roughly as `√K` relative to a
+single variant's, so clipping engages sooner in batched mode than it would for
+any variant run alone. Per-variant norms are also uneven — measured at the end
+of `ring6-400e` (K=6, size=300):
+
+```
+srnn-skip                     0.513   <- 2.8x the smallest
+srnn-no-adapt-no-dales-skip   0.393
+srnn-no-adapt-no-dales        0.245
+srnn-no-adapt                 0.225
+srnn-no-dales-skip            0.217
+srnn                          0.181
+global                        0.779
+```
+
+So if the threshold were crossed, `srnn-skip` would be driving it while `srnn`
+got throttled for a gradient that is not its own.
+
+**Did it actually bite?** No. On `ring6-400e` the global norm was 0.444 at init
+and 0.720-0.808 across ten ring positions at the end, against `grad_clip: 1.0`
+— never clipped, so those results are unaffected. But the norm *grew* over
+training and ended 1.24x below the threshold, so a longer run, a larger `size`,
+more variants, or a higher lr could all cross it.
+
+**Mitigation in place.** Clipping is now **disabled automatically when
+`batched_ablations` is active** (K is not None), with a one-time log line.
+Single-variant runs are unaffected and still honour `cfg.grad_clip`.
+
+**Fix sketch.** Clip each variant's slice independently. Every trainable tensor
+is `(K, ...)`, so the slices are already separable and no host sync is needed:
+
+```python
+def clip_grad_norm_per_variant(model, max_norm, K):
+    """Per-variant analogue of clip_grad_norm_ for BatchedSRNNCell models."""
+    sq, grads = None, []
+    for p in model.parameters():
+        if p.grad is None:
+            continue
+        g = p.grad
+        assert g.shape[0] == K          # holds for every batched parameter
+        s = (g.reshape(K, -1) ** 2).sum(1)
+        sq = s if sq is None else sq + s
+        grads.append(g)
+    norms = sq.sqrt()
+    scale = (max_norm / (norms + 1e-6)).clamp(max=1.0)
+    for g in grads:
+        g.mul_(scale.view(-1, *([1] * (g.dim() - 1))))
+    return norms                        # also useful to log per-variant
+```
+
+Cost is one extra reduction per parameter. Returning `norms` would additionally
+give per-variant gradient-norm logging, which does not exist today.
+
+**Why not fix now.** Switching to per-variant clipping changes the optimisation
+for any run where the global threshold *would* have been crossed, making new
+results non-comparable with `ring6-400e` and earlier batched runs for no
+present benefit — clipping never fired in those. Disabling it in batched mode
+is the conservative interim: it makes batched and individual training exactly
+equivalent, which is the property the ablation comparison depends on.

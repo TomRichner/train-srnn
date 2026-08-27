@@ -447,6 +447,14 @@ def run_continuous_training(
     positions = _init_positions(B, T, device)
 
     grad_clip = float(cfg.get("grad_clip", 0.0) or 0.0)
+    # clip_grad_norm_ takes ONE norm over the whole model, so in batched-
+    # ablation mode a single variant's gradient throttles every other
+    # variant's step. Disable until per-variant clipping lands — see
+    # KnownIssues §14. Nothing else couples the variants.
+    if grad_clip > 0 and K is not None:
+        log.info("grad_clip=%g disabled: clipping is global across the K=%d "
+                 "batched variants (KnownIssues §14)", grad_clip, K)
+        grad_clip = 0.0
 
     # Optional per-phase profiler (off by default).
     profile_enabled = bool(cfg.get("continuous_profile", False))
