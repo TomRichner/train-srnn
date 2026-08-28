@@ -40,10 +40,11 @@ import argparse
 import copy
 import csv
 import os
+import re
 import shutil
 import subprocess
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
 
@@ -359,15 +360,54 @@ def _is_skip(variant: str) -> bool:
     return "-skip" in variant
 
 
+# Matches the "-seed<int>" suffix that build_batched_model appends when
+# `batched_ablation_seeds` is set (train_srnn/models/factory.py:_SEED_SEP).
+_SEED_SUFFIX_RE = re.compile(r"^(?P<base>.+)-seed(?P<seed>\d+)$")
+
+
+def split_variant_seed(variant: str) -> tuple[str, int | None]:
+    """('srnn-skip-seed3') -> ('srnn-skip', 3); ('srnn-skip') -> ('srnn-skip', None)."""
+    m = _SEED_SUFFIX_RE.match(variant)
+    return (m.group("base"), int(m.group("seed"))) if m else (variant, None)
+
+
+def variant_style_map(variants: list[str], cmap=None):
+    """One colour per *base* variant — every seed of a variant shares it.
+
+    Returns ``(colour_by_variant, label_by_variant)``. Only the first variant
+    of each base carries a legend label, so a 2-variant x 5-seed run gets a
+    2-entry legend rather than 10 near-identical ones. Runs with no seed
+    suffix behave exactly as before: one colour and one legend entry each.
+    """
+    cmap = cmap or plt.get_cmap("tab10")
+    base_index: dict[str, int] = {}
+    for v in variants:
+        base, _ = split_variant_seed(v)
+        base_index.setdefault(base, len(base_index))
+    n_seeds = Counter(split_variant_seed(v)[0] for v in variants)
+
+    colour, label, labelled = {}, {}, set()
+    for v in variants:
+        base, _ = split_variant_seed(v)
+        colour[v] = cmap(base_index[base] % 10)
+        if base in labelled:
+            label[v] = "_nolegend_"
+        else:
+            labelled.add(base)
+            label[v] = base if n_seeds[base] == 1 else f"{base} ({n_seeds[base]} seeds)"
+    return colour, label
+
+
 def _draw_curves(axes, th, variant_subset, cmap):
-    for i, v in enumerate(variant_subset):
+    colour, label = variant_style_map(variant_subset, cmap)
+    for v in variant_subset:
         rows = th[v]
         ep = [int(r["epoch"]) + 1 for r in rows]
-        c = cmap(i % 10)
-        axes[0, 0].plot(ep, [float(r["train_loss"]) for r in rows], color=c, label=v, lw=1)
-        axes[0, 1].plot(ep, [float(r["valid_loss"]) for r in rows], color=c, label=v, lw=1)
-        axes[1, 0].plot(ep, [float(r["train_metric"]) for r in rows], color=c, label=v, lw=1)
-        axes[1, 1].plot(ep, [float(r["valid_metric"]) for r in rows], color=c, label=v, lw=1)
+        c, lb = colour[v], label[v]
+        axes[0, 0].plot(ep, [float(r["train_loss"]) for r in rows], color=c, label=lb, lw=1)
+        axes[0, 1].plot(ep, [float(r["valid_loss"]) for r in rows], color=c, label=lb, lw=1)
+        axes[1, 0].plot(ep, [float(r["train_metric"]) for r in rows], color=c, label=lb, lw=1)
+        axes[1, 1].plot(ep, [float(r["valid_metric"]) for r in rows], color=c, label=lb, lw=1)
     axes[0, 0].set_title("train_loss");  axes[0, 1].set_title("valid_loss")
     axes[1, 0].set_title("train_metric"); axes[1, 1].set_title("valid_metric")
     for ax in axes.flat:
@@ -413,14 +453,15 @@ def _save_semilogy_direct(run_dir: Path, group_label: str, variants_in_group: li
         return
     cmap = plt.get_cmap("tab10")
     fig, axes = plt.subplots(2, 2, figsize=(13, 9))
-    for i, v in enumerate(variants_in_group):
+    colour, label = variant_style_map(variants_in_group, cmap)
+    for v in variants_in_group:
         rows = th[v]
         ep = [int(r["epoch"]) + 1 for r in rows]
-        c = cmap(i % 10)
-        axes[0, 0].semilogy(ep, [float(r["train_loss"]) for r in rows], color=c, label=v, lw=1)
-        axes[0, 1].semilogy(ep, [float(r["valid_loss"]) for r in rows], color=c, label=v, lw=1)
-        axes[1, 0].semilogy(ep, [float(r["train_metric"]) for r in rows], color=c, label=v, lw=1)
-        axes[1, 1].semilogy(ep, [float(r["valid_metric"]) for r in rows], color=c, label=v, lw=1)
+        c, lb = colour[v], label[v]
+        axes[0, 0].semilogy(ep, [float(r["train_loss"]) for r in rows], color=c, label=lb, lw=1)
+        axes[0, 1].semilogy(ep, [float(r["valid_loss"]) for r in rows], color=c, label=lb, lw=1)
+        axes[1, 0].semilogy(ep, [float(r["train_metric"]) for r in rows], color=c, label=lb, lw=1)
+        axes[1, 1].semilogy(ep, [float(r["valid_metric"]) for r in rows], color=c, label=lb, lw=1)
     axes[0, 0].set_title("train_loss");  axes[0, 1].set_title("valid_loss")
     axes[1, 0].set_title("train_metric"); axes[1, 1].set_title("valid_metric")
     for ax in axes.flat:
