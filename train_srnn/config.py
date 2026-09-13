@@ -168,11 +168,27 @@ class Cheetah100ActConfig(Cheetah100Config):
     input_size: int = 23; output_size: int = 23
 
 
+@dataclass
+class SyntheticConfig(TraceTaskConfig):
+    """Deterministic sinusoid trace for data-free smoke tests."""
+    name: str = "synthetic"; dataset: str = "synthetic"
+    seed: int = 0
+    train_samples: int = 4001; eval_samples: int = 401
+    sample_rate_hz: float = 100.0
+    train_trace_max_len: Optional[int] = 3989   # prime
+    h: float = 0.01
+    input_size: int = 4; output_size: int = 4
+    seq_len: int = 100; stride: int = 50
+    batch_size: int = 4
+    window_len: int = 100; bptt_len: int = 50; bptt_chunk_len: Optional[int] = 10
+
+
 TASK_CONFIGS: dict[str, type[TaskConfig]] = {
     "har": HarConfig, "smnist": SmnistConfig, "gesture": GestureConfig,
     "occupancy": OccupancyConfig, "ozone": OzoneConfig, "person": PersonConfig,
     "power": PowerConfig, "traffic": TrafficConfig,
     "cheetah100": Cheetah100Config, "cheetah100_act": Cheetah100ActConfig,
+    "synthetic": SyntheticConfig,
 }
 
 

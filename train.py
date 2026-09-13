@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from pathlib import Path
 
 import hydra
 import numpy as np
@@ -11,7 +12,7 @@ import torch
 import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 
-from train_srnn.data.datasets import load_dataset
+from train_srnn.data import build_task
 from train_srnn.data.transforms import wrap_eval_batch, wrap_train_batch
 from train_srnn.models.factory import build_batched_model, build_model
 from train_srnn.training.closed_loop import (
@@ -423,26 +424,12 @@ def main(cfg: DictConfig) -> None:
         log.info("AMP enabled: bf16 (autocast dtype=torch.bfloat16)")
 
     # 3. Load data ------------------------------------------------------------
-    # Loader-specific task fields (e.g. cheetah100's include_actions) are
-    # forwarded; load_dataset drops the ones the loader does not accept.
-    loader_kwargs = {
-        k: v for k, v in OmegaConf.to_container(cfg.task, resolve=True).items()
-        if k not in ("name", "data_dir")
-    }
-    dataset = load_dataset(cfg.task.name, cfg.task.data_dir, **loader_kwargs)
-    train_x, train_y = dataset["train"]
-    valid_x, valid_y = dataset["valid"]
-    test_x, test_y = dataset["test"]
-
-    # Assert channel count (loaders that report input_size in meta) matches
-    # task YAML so the model builds against the right feature count.
-    meta = dataset.get("meta", {})
-    meta_in = meta.get("input_size")
-    if meta_in is not None and meta_in != cfg.task.input_size:
-        raise ValueError(
-            f"Dataset input_size={meta_in} does not match task YAML "
-            f"input_size={cfg.task.input_size}. Override with "
-            f"task.input_size={meta_in} task.output_size={meta_in}.")
+    task = build_task(cfg)
+    dataset = task.load(Path(cfg.task.data_dir))
+    task.validate(dataset)
+    train_x, train_y = dataset.train
+    valid_x, valid_y = dataset.valid
+    test_x, test_y = dataset.test
 
     # 4. Build model ----------------------------------------------------------
     if cfg.model.type == "srnn":
@@ -503,8 +490,8 @@ def main(cfg: DictConfig) -> None:
     # chunk; the windowed trainer steps once per mini-batch. Sizing the warmup against the
     # wrong cadence — as we previously did with the windowed formula — made
     # warmup absurdly short for continuous runs (~0.4 epochs at B=48).
-    if cfg.task.trainer == "continuous" and "train_trace" in dataset:
-        T_train = int(dataset["train_trace"].shape[0])
+    if cfg.task.trainer == "continuous" and dataset.train_trace is not None:
+        T_train = int(dataset.train_trace.shape[0])
         chunk_len = int(cfg.task.bptt_chunk_len or 250)
         B = int(cfg.task.batch_size)
         steps_per_epoch = (T_train + B * chunk_len - 1) // (B * chunk_len)
@@ -533,10 +520,7 @@ def main(cfg: DictConfig) -> None:
     )
 
     # 7. Loss function --------------------------------------------------------
-    if cfg.task.task_type == "classification":
-        criterion = nn.CrossEntropyLoss()
-    else:
-        criterion = nn.MSELoss()
+    criterion = task.criterion()
 
     # 7b. Optional resume: full-state restore from a prior checkpoint ---------
     # Loads model + optimizer + scheduler. RNG state is intentionally NOT
@@ -637,7 +621,7 @@ def main(cfg: DictConfig) -> None:
     # "train_trace" can use it — nothing in continuous.py is task-specific,
     # channel count and rate are read off the trace.
     if cfg.task.trainer == "continuous":
-        if "train_trace" not in dataset:
+        if dataset.train_trace is None:
             log.warning(
                 "task.trainer=continuous but the %s loader returned no "
                 "'train_trace' key; falls back to the windowed loop.",
@@ -646,7 +630,7 @@ def main(cfg: DictConfig) -> None:
             from train_srnn.training.continuous import run_continuous_training
             import time as _time
             _t0 = _time.perf_counter()
-            train_trace_t = torch.tensor(dataset["train_trace"],
+            train_trace_t = torch.tensor(dataset.train_trace,
                                           dtype=torch.float32, device=device)
             if device.type == "cuda":
                 torch.cuda.synchronize()

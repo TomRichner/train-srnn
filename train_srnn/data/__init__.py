@@ -1,50 +1,9 @@
-"""Data loading and augmentation."""
+"""Tasks, datasets, and augmentation.
 
-from .datasets import (
-    load_dataset,
-    load_smnist,
-    load_har,
-    load_gesture,
-    load_occupancy,
-    load_traffic,
-    load_power,
-    load_ozone,
-    load_person,
-    cut_in_sequences,
-)
+Importing the submodules registers every task in ``TASKS``.
+"""
 
-from .transforms import (
-    time_stretch,
-    time_stretch_batch,
-    random_stretch_factor,
-    palindrome_loop,
-    palindrome_loop_batch,
-    compute_n_loops,
-    random_window,
-    wrap_train_batch,
-    wrap_eval_batch,
-)
+from train_srnn.data import cheetah100, classic, synthetic  # noqa: F401  (registration)
+from train_srnn.data.task import TASKS, Batch, Dataset, Task, TraceTask, build_task
 
-__all__ = [
-    # Dataset loaders
-    "load_dataset",
-    "load_smnist",
-    "load_har",
-    "load_gesture",
-    "load_occupancy",
-    "load_traffic",
-    "load_power",
-    "load_ozone",
-    "load_person",
-    "cut_in_sequences",
-    # Transforms
-    "time_stretch",
-    "time_stretch_batch",
-    "random_stretch_factor",
-    "palindrome_loop",
-    "palindrome_loop_batch",
-    "compute_n_loops",
-    "random_window",
-    "wrap_train_batch",
-    "wrap_eval_batch",
-]
+__all__ = ["TASKS", "Batch", "Dataset", "Task", "TraceTask", "build_task"]
