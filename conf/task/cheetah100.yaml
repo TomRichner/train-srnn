@@ -4,7 +4,7 @@
 # prediction impossible in a chaotic system.
 # Source: ~/Desktop/local_code/gen-half-cheetah-dataset
 name: cheetah100
-data_dir: train_srnn/data/cheetah100
+data_dir: ${paths.data_dir}/cheetah100
 
 # ── Loader kwargs (load_cheetah100) ──────────────────────────────────────
 include_actions: false     # true -> append the 6 control channels (see _act)

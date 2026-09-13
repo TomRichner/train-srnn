@@ -97,5 +97,17 @@ closed_loop:
 # (its own CSVs/checkpoints in the new output_dir). Set to null to disable.
 init_ckpt: null
 
-# Cloud/output
-output_dir: results/${task.name}/${model.name}_${size}
+# Paths. Datasets and run outputs live outside the repo under $SRNN_HOME
+# (see train_srnn/paths.py); override per run with paths.data_dir=... etc.
+paths:
+  data_dir: ${srnn_path:data}
+  results_dir: ${srnn_path:results}
+run_name: ${model.name}_${size}
+output_dir: ${paths.results_dir}/${task.name}/${run_name}
+
+hydra:
+  run:
+    dir: ${output_dir}
+  output_subdir: .hydra
+  job:
+    chdir: false

@@ -1,5 +1,5 @@
 name: occupancy
-data_dir: train_srnn/data/occupancy
+data_dir: ${paths.data_dir}/occupancy
 seq_len: 16
 input_size: 5
 output_size: 2

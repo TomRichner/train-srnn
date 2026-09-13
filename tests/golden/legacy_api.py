@@ -13,6 +13,8 @@ import numpy as np
 import torch
 from hydra import compose, initialize_config_dir
 
+import train_srnn  # noqa: F401  (registers the ${srnn_path:...} resolver)
+
 REPO = pathlib.Path(__file__).resolve().parents[2]
 GOLDEN_DIR = pathlib.Path(__file__).resolve().parent
 

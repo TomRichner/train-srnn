@@ -10,7 +10,7 @@ defaults:
   - cheetah100
 
 name: cheetah100_act
-data_dir: train_srnn/data/cheetah100
+data_dir: ${paths.data_dir}/cheetah100
 include_actions: true
 input_size: 23             # 17 obs + 6 zero-order-held control channels
 output_size: 23

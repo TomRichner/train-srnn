@@ -1,5 +1,5 @@
 name: smnist
-data_dir: train_srnn/data/smnist
+data_dir: ${paths.data_dir}/smnist
 seq_len: 28
 input_size: 28
 output_size: 10

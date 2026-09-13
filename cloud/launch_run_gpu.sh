@@ -86,7 +86,7 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size="$BOOT_DISK_SIZE" \
     --boot-disk-type="$BOOT_DISK_TYPE" \
     --scopes=cloud-platform \
-    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,cleanup=$CLEANUP,skip-refresh=0,branch=$BRANCH,install-nvidia-driver=True" \
+    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,cleanup=$CLEANUP,skip-refresh=0,branch=$BRANCH,repo-url=$REPO_URL,install-nvidia-driver=True" \
     --metadata-from-file="startup-script=$SCRIPT_DIR/startup_gpu.sh,train-args=$TRAIN_ARGS_FILE" \
     $SCHEDULING_ARGS \
     --quiet

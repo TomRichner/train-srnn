@@ -70,7 +70,7 @@ echo "$EXTRA_ARGS" > "$TRAIN_ARGS_FILE"
 echo "Updating metadata on $VM_NAME ($VM_ZONE)..."
 gcloud compute instances add-metadata "$VM_NAME" \
     --zone="$VM_ZONE" --project="$GCP_PROJECT" \
-    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,cleanup=$CLEANUP,skip-refresh=$SKIP_REFRESH,branch=$BRANCH" \
+    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,cleanup=$CLEANUP,skip-refresh=$SKIP_REFRESH,branch=$BRANCH,repo-url=$REPO_URL" \
     --metadata-from-file="train-args=$TRAIN_ARGS_FILE,startup-script=$SCRIPT_DIR/startup_gpu.sh" --quiet
 rm -f "$TRAIN_ARGS_FILE"
 

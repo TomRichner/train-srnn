@@ -22,6 +22,7 @@ case "$CLEANUP" in
 esac
 SKIP_REFRESH=$(curl -sf -H "$META_HEADER" "$META_URL/skip-refresh" || echo "0")
 BRANCH=$(curl -sf -H "$META_HEADER" "$META_URL/branch" || echo "main")
+REPO_URL=$(curl -sf -H "$META_HEADER" "$META_URL/repo-url" || echo "git@github.com:TomRichner/train-srnn.git")
 
 # Per-run log path so re-dispatches don't accumulate into one file.
 LOG="/var/log/training-${RUN_NAME}-${SEED}.log"
@@ -30,17 +31,21 @@ exec > >(tee -a "$LOG") 2>&1
 RESULTS_PREFIX="$BUCKET/results-pytorch/$RUN_NAME/$MODEL/$EXPERIMENT/seed$SEED"
 VM_NAME=$(hostname)
 
-# WORKDIR persists for stop/keep so re-dispatches reuse the on-disk repo.
+# WORKDIR (repo checkout) and SRNN_HOME (datasets + run outputs) persist for
+# stop/keep so re-dispatches reuse the on-disk copies.
 if [ "$CLEANUP" = "delete" ]; then
     WORKDIR="/tmp/workdir"
+    export SRNN_HOME="/tmp/srnn-work"
 else
     WORKDIR="/opt/train-srnn"
+    export SRNN_HOME="/opt/srnn-work"
     sudo mkdir -p /opt && sudo chown "$(id -u):$(id -g)" /opt 2>/dev/null || true
 fi
+mkdir -p "$SRNN_HOME"
 WATCHER_PID=""
 
 echo "Run: $RUN_NAME | Experiment: $EXPERIMENT | Model: $MODEL | Seed: $SEED"
-echo "Cleanup: $CLEANUP | Skip-refresh: $SKIP_REFRESH | Branch: $BRANCH | Workdir: $WORKDIR"
+echo "Cleanup: $CLEANUP | Skip-refresh: $SKIP_REFRESH | Branch: $BRANCH | Workdir: $WORKDIR | SRNN_HOME: $SRNN_HOME"
 
 # Cleanup handler
 cleanup() {
@@ -59,8 +64,8 @@ cleanup() {
 
     # Upload final results (only this run's output dir; per-run scoping
     # avoids re-uploading stale artifacts from prior runs on the same VM).
-    if [ -n "${RUN_OUTPUT:-}" ] && [ -d "$WORKDIR/$RUN_OUTPUT" ]; then
-        gcloud storage cp -r "$WORKDIR/$RUN_OUTPUT/*" "$RESULTS_PREFIX/" 2>/dev/null || true
+    if [ -n "${RUN_OUTPUT:-}" ] && [ -d "$RUN_OUTPUT" ]; then
+        gcloud storage cp -r "$RUN_OUTPUT/*" "$RESULTS_PREFIX/" 2>/dev/null || true
     fi
 
     # Upload log
@@ -105,14 +110,15 @@ json.dump(meta, open('/tmp/metadata.json', 'w'), indent=2)
 }
 trap cleanup EXIT
 
-# Step 1: Clone or refresh the private repo. Gated by skip-refresh.
+# Step 1: Clone or refresh the repo. Gated by skip-refresh. An ssh repo-url
+# needs the deploy key from Secret Manager; an https URL (public repo) does not.
 GCP_ZONE=$(curl -sf -H "$META_HEADER" "http://metadata.google.internal/computeMetadata/v1/instance/zone" | rev | cut -d/ -f1 | rev)
 GCP_PROJECT=$(curl -sf -H "$META_HEADER" "http://metadata.google.internal/computeMetadata/v1/project/project-id")
-REPO_URL="git@github.com:TomRichner/train-srnn.git"
 
 if [ "$SKIP_REFRESH" = "1" ] && [ -d "$WORKDIR/.git" ]; then
     echo "skip-refresh=1; using existing $WORKDIR (no git fetch)"
 else
+  if [[ "$REPO_URL" == git@* ]]; then
     # Fetch deploy key from Secret Manager
     SSH_DIR="/root/.ssh"
     DEPLOY_KEY="$SSH_DIR/deploy_key"
@@ -140,6 +146,7 @@ Host github.com
     IdentitiesOnly yes
 SSHEOF
     chmod 600 "$SSH_DIR/config"
+  fi
 
     # Clone with retry — or git fetch + reset if a checkout already exists.
     # Honors the per-run "branch" metadata key (default: main); lets feature
@@ -169,7 +176,7 @@ SSHEOF
     fi
 
     # Scrub deploy key from disk
-    rm -f "$DEPLOY_KEY" "$SSH_DIR/config"
+    if [ -n "${DEPLOY_KEY:-}" ]; then rm -f "$DEPLOY_KEY" "$SSH_DIR/config"; fi
 fi
 
 cd "$WORKDIR"
@@ -182,11 +189,12 @@ START_TIME=$(date +%s)
 START_TIME_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Step 2: Download dataset from GCS (skipped on skip-refresh — reuse on-disk copy)
-if [ "$SKIP_REFRESH" = "1" ] && [ -d "train_srnn/data/$EXPERIMENT" ]; then
-    echo "skip-refresh=1; reusing on-disk dataset at train_srnn/data/$EXPERIMENT"
+DATA_DIR="$SRNN_HOME/data/$EXPERIMENT"
+if [ "$SKIP_REFRESH" = "1" ] && [ -d "$DATA_DIR" ]; then
+    echo "skip-refresh=1; reusing on-disk dataset at $DATA_DIR"
 else
-    mkdir -p "train_srnn/data/$EXPERIMENT"
-    gcloud storage cp -r "$BUCKET/datasets/$EXPERIMENT/*" "train_srnn/data/$EXPERIMENT/" || true
+    mkdir -p "$DATA_DIR"
+    gcloud storage cp -r "$BUCKET/datasets/$EXPERIMENT/*" "$DATA_DIR/" || true
 fi
 
 # Step 3: Python dependencies (skipped on skip-refresh — assume already installed)
@@ -196,7 +204,7 @@ if [ "$SKIP_REFRESH" = "1" ]; then
     echo "skip-refresh=1; skipping pip install (assuming Hydra stack present)"
 else
     echo "Installing Hydra stack into system Python..."
-    sudo pip3 install --quiet hydra-core omegaconf h5py scipy pandas
+    sudo pip3 install --quiet hydra-core omegaconf scipy pandas
 fi
 
 # Wait for NVIDIA driver to finish installing (DLVM installs it on first boot,
@@ -224,8 +232,9 @@ print(f'  GPU:   {torch.cuda.get_device_name(0)}  ({torch.cuda.get_device_proper
 echo "=== Training start $(date -Iseconds) ==="
 
 # Per-run output dir keeps re-dispatches isolated on disk so the GCS upload
-# only ships *this run's* artifacts, not stale ones from prior runs.
-RUN_OUTPUT="results/$EXPERIMENT/${RUN_NAME}_seed${SEED}"
+# only ships *this run's* artifacts. Must match train.py's output_dir =
+# ${paths.results_dir}/${task.name}/${run_name}.
+RUN_OUTPUT="$SRNN_HOME/results/$EXPERIMENT/${RUN_NAME}_seed${SEED}"
 mkdir -p "$RUN_OUTPUT"
 
 # Add parent dir to PYTHONPATH so `train_srnn` package is importable
@@ -240,7 +249,7 @@ if [ "$EPOCHS" -gt 50 ]; then
 else
     UPLOAD_INTERVAL=5
 fi
-RESULTS_DIR="$WORKDIR/$RUN_OUTPUT"
+RESULTS_DIR="$RUN_OUTPUT"
 
 (
     LAST_UPLOADED=0
@@ -269,7 +278,7 @@ python3 train.py \
     task=$EXPERIMENT \
     seed=$SEED \
     $TRAIN_ARGS \
-    output_dir="$RUN_OUTPUT"
+    run_name="${RUN_NAME}_seed${SEED}"
 set +f
 
 echo "=== Training complete $(date -Iseconds) ==="
