@@ -427,7 +427,7 @@ def main(cfg: DictConfig) -> None:
         log.info("AMP enabled: bf16 (autocast dtype=torch.bfloat16)")
 
     # 3. Load data ------------------------------------------------------------
-    # Forward any extra task-level loader kwargs (used by seeg for
+    # Forward any extra task-level loader kwargs (used by cheetah100 for
     # subject_id/block/sleep/cond/decimate/seq_len/stride).
     _loader_reserved = {"name", "data_dir", "input_size", "output_size",
                         "task_type", "per_timestep_labels", "batch_size"}
@@ -511,8 +511,7 @@ def main(cfg: DictConfig) -> None:
 
     # Steps-per-epoch must match the trainer that will actually fire
     # ``scheduler.step()``. The continuous trainer steps once per BPTT chunk
-    # (15 calls/epoch at seeg defaults); the windowed trainer steps once per
-    # mini-batch (~3 calls/epoch at seeg). Sizing the warmup against the
+    # chunk; the windowed trainer steps once per mini-batch. Sizing the warmup against the
     # wrong cadence — as we previously did with the windowed formula — made
     # warmup absurdly short for continuous runs (~0.4 epochs at B=48).
     if cfg.get("continuous_train", False) and "train_trace" in dataset:

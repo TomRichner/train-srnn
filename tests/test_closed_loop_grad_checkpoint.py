@@ -22,9 +22,9 @@ from omegaconf import OmegaConf
 from train_srnn.models.factory import build_batched_model, build_model
 
 
-def _make_seeg_cfg(num_units: int = 16, n_features: int = 4,
+def _make_cfg(num_units: int = 16, n_features: int = 4,
                    no_sfa: bool = True) -> OmegaConf:
-    """Minimal SEEG-shaped config matching test_closed_loop_forward.py."""
+    """Minimal autoregressive config matching test_closed_loop_forward.py."""
     model_cfg = {
         "type": "srnn",
         "name": "srnn-test",
@@ -53,7 +53,7 @@ def _make_seeg_cfg(num_units: int = 16, n_features: int = 4,
 def _build_paired_models_single():
     """Build two SequenceModels initialized identically."""
     torch.manual_seed(0)
-    cfg = _make_seeg_cfg()
+    cfg = _make_cfg()
     a = build_model(cfg)
     b = copy.deepcopy(a)
     return cfg, a, b
@@ -61,7 +61,7 @@ def _build_paired_models_single():
 
 def _build_paired_models_batched(ablations):
     torch.manual_seed(0)
-    cfg = _make_seeg_cfg()
+    cfg = _make_cfg()
     cfg.batched_ablations = ablations
     a = build_batched_model(cfg, ablations)
     b = copy.deepcopy(a)

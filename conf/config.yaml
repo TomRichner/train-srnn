@@ -6,7 +6,7 @@ defaults:
 seed: 1
 epochs: 200
 early_exit_after_init: false  # write init.pt + last.pt then exit before training (for fresh-IC postprocess analysis)
-continuous_train: ${oc.select:task.continuous_train, false}  # SEEG-only: stateful continuous-batching trainer (B parallel readers around the trace ring)
+continuous_train: ${oc.select:task.continuous_train, false}  # stateful ring trainer for autoregressive tasks (B parallel readers around the trace)
 continuous_profile: false     # opt-in per-phase timing breakdown for the continuous trainer (CUDA Events on GPU; perf_counter fallback on MPS/CPU)
 # Per-task knobs that the task YAML can override via oc.select. The
 # fallbacks below apply when running tasks that don't set their own value.
@@ -82,11 +82,8 @@ closed_loop:
   alpha_rnd_density: 0.0    # bernoulli prob per channel
   alpha_rnd_sigma: 0.0      # gaussian std
   # Half-cosine warmup ramp length in samples; 0 disables ramp (envelope=1).
-  # 2500 = 2 * (window_len - bptt_len) at seeg defaults (3750 - 2500 = 1250
-  # forward-only warm-up samples = 5 s; t_warm = 10 s). The α envelope
-  # reaches full strength one forward-only-warmup-length into the BPTT
-  # region, smoothing the closed-loop handoff. Override per-task if your
-  # window_len/bptt_len differ.
+  # A sensible value is 2 * (window_len - bptt_len), so the envelope reaches
+  # full strength one warm-up length into the BPTT region.
   # Used only by the windowed-mode sampler; continuous mode ignores this.
   t_warm: 2500
   # Continuous-mode only: per-channel rotation period for alpha_rnd (epochs).

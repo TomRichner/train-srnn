@@ -30,9 +30,9 @@ from omegaconf import OmegaConf
 from train_srnn.models.factory import build_batched_model, build_model
 
 
-def _make_seeg_cfg(num_units: int = 16, n_features: int = 4,
+def _make_cfg(num_units: int = 16, n_features: int = 4,
                    no_sfa: bool = False) -> OmegaConf:
-    """SEEG-shaped fp32 config; matches test_closed_loop_grad_checkpoint."""
+    """Autoregressive fp32 config; matches test_closed_loop_grad_checkpoint."""
     model_cfg = {
         "type": "srnn",
         "name": "srnn-test",
@@ -125,7 +125,7 @@ def _run_cell_pair(cell_a, cell_b, inputs, state):
 def test_single_cell_forward_backward_equivalence():
     """SRNNCell: hoisted W_eff vs internal — byte-identical fp32."""
     torch.manual_seed(0)
-    cfg = _make_seeg_cfg()
+    cfg = _make_cfg()
     model_a = build_model(cfg).eval()  # eval to disable any dropout/etc
     model_b = copy.deepcopy(model_a)
     cell_a, cell_b = model_a.cell, model_b.cell
@@ -150,7 +150,7 @@ def test_single_cell_forward_backward_equivalence():
 def test_batched_cell_forward_backward_equivalence():
     """BatchedSRNNCell: hoisted W_eff vs internal — byte-identical fp32."""
     torch.manual_seed(0)
-    cfg = _make_seeg_cfg()
+    cfg = _make_cfg()
     abls = ["srnn-e-only-per-neuron", "srnn-e-only-skip-per-neuron"]
     cfg.batched_ablations = abls
     model_a = build_batched_model(cfg, abls).eval()
@@ -183,7 +183,7 @@ def test_single_cell_multistep_equivalence():
     byte-identical; grads match within fp32 ULP (different float-add order
     when accumulating dL/dW_raw across timesteps — see _assert_grads_close)."""
     torch.manual_seed(0)
-    cfg = _make_seeg_cfg()
+    cfg = _make_cfg()
     model_a = build_model(cfg).eval()
     model_b = copy.deepcopy(model_a)
     cell_a, cell_b = model_a.cell, model_b.cell
@@ -225,7 +225,7 @@ def test_single_cell_multistep_equivalence():
 
 def test_batched_cell_multistep_equivalence():
     torch.manual_seed(0)
-    cfg = _make_seeg_cfg()
+    cfg = _make_cfg()
     abls = ["srnn-e-only-per-neuron", "srnn-e-only-skip-per-neuron"]
     cfg.batched_ablations = abls
     model_a = build_batched_model(cfg, abls).eval()

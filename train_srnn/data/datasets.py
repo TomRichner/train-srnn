@@ -1,4 +1,4 @@
-"""Unified dataset loaders for all 9 tasks.
+"""Dataset loaders.
 
 Each loader returns a dict:
     {"train": (x, y), "valid": (x, y), "test": (x, y), "meta": {...}}
@@ -576,152 +576,7 @@ def load_person(data_dir="data/person"):
 
 
 # ---------------------------------------------------------------------------
-# 9. Cheetah (Half-Cheetah motion capture autoregressive)
-# ---------------------------------------------------------------------------
-
-def load_cheetah(data_dir="data/cheetah"):
-    """Load half-cheetah motion capture dataset.
-
-    Autoregressive: input = frame[t], target = frame[t+1].
-    """
-    seq_len = 32
-    inc = 10
-
-    all_files = sorted([
-        os.path.join(data_dir, d)
-        for d in os.listdir(data_dir) if d.endswith(".npy")
-    ])
-
-    train_files = all_files[15:25]
-    test_files = all_files[5:15]
-    valid_files = all_files[:5]
-
-    def _load_files(files):
-        xs, ys = [], []
-        for f in files:
-            arr = np.load(f).astype(np.float32)
-            for s in range(0, arr.shape[0] - seq_len - 1, inc):
-                xs.append(arr[s:s + seq_len])
-                ys.append(arr[s + 1:s + seq_len + 1])
-        return np.stack(xs, axis=0), np.stack(ys, axis=0)
-
-    train_x, train_y = _load_files(train_files)
-    test_x, test_y = _load_files(test_files)
-    valid_x, valid_y = _load_files(valid_files)
-
-    return {
-        "train": (train_x, train_y),
-        "valid": (valid_x, valid_y),
-        "test": (test_x, test_y),
-        "meta": {
-            "input_size": 17,
-            "output_size": 17,
-            "task_type": "regression",
-            "seq_len": seq_len,
-            "per_timestep_labels": True,
-        },
-    }
-
-
-# ---------------------------------------------------------------------------
-# 10. SEEG (autoregressive on v7.3 .mat HDF5 traces)
-# ---------------------------------------------------------------------------
-
-def load_seeg(data_dir="train_srnn/data/seeg",
-              subject_id="939", block=4, sleep="awake", cond="baseline",
-              decimate=2, seq_len=1375, stride=125,
-              train_trace_max_len=None, filter_tag=None):
-    """Load one SEEG recording as an autoregressive task.
-
-    Filename convention matches `run_srnn_export.m`:
-        seeg_{subject_id}_b{block}_{awake|asleep}_{baseline|stim}.mat
-
-    Each .mat is v7.3 HDF5 containing `data_filt` (n_chan, n_samples stored
-    in HDF5 order → transposed to (T, C)) and scalar `SR`.
-
-    Pipeline:
-      1. Read + transpose + cast float32.
-      2. Decimate by summing consecutive samples (boxcar average).
-      3. Time-ordered 75/10/15 split of the continuous trace.
-      4. Per-channel z-score using TRAIN stats only.
-      5. Autoregressive targets: x = trace[:-1], y = trace[1:].
-      6. Windowed via sliding_window_view with given stride (views, no copy).
-         `run_epoch` fancy-indexes with a batch → only per-batch memory cost.
-    """
-    import h5py
-
-    suffix = f"_{filter_tag}" if filter_tag else ""
-    fname = f"seeg_{subject_id}_b{block}_{sleep}_{cond}{suffix}.mat"
-    path = os.path.join(data_dir, fname)
-    with h5py.File(path, "r") as f:
-        data = np.array(f["data_filt"]).T.astype(np.float32)  # (T, C)
-        sr = float(np.array(f["SR"]).squeeze())
-
-    if decimate > 1:
-        T = (data.shape[0] // decimate) * decimate
-        data = data[:T].reshape(-1, decimate, data.shape[1]).sum(axis=1) / decimate
-        sr /= decimate
-
-    n_samples, n_chan = data.shape
-    print(f"[seeg] {fname}: n_chan={n_chan}, n_samples={n_samples}, "
-          f"sr={sr} Hz, duration={n_samples/sr:.1f}s")
-
-    t1 = int(0.75 * n_samples)
-    t2 = int(0.85 * n_samples)
-    train_trace = data[:t1]
-    valid_trace = data[t1:t2]
-    test_trace = data[t2:]
-
-    # Optionally truncate the train trace to a length coprime to the chunk
-    # size used in continuous training (179,989 = prime, gives 11-sample
-    # phase drift per logical epoch when chunk_len=250). Affects only train.
-    if train_trace_max_len is not None and train_trace.shape[0] > train_trace_max_len:
-        train_trace = train_trace[:train_trace_max_len]
-
-    mu = train_trace.mean(axis=0, keepdims=True)
-    sd = train_trace.std(axis=0, keepdims=True)
-    sd[sd < 1e-8] = 1.0
-    train_trace = (train_trace - mu) / sd
-    valid_trace = (valid_trace - mu) / sd
-    test_trace = (test_trace - mu) / sd
-
-    def _window(trace):
-        # Autoregressive: x[t] predicts y[t] = trace[t+1].
-        if trace.shape[0] < seq_len + 1:
-            raise ValueError(
-                f"Trace split has {trace.shape[0]} samples but seq_len={seq_len}+1 required")
-        x_src = trace[:-1]       # (T-1, C)
-        y_src = trace[1:]        # (T-1, C)
-        # sliding_window_view with window=(seq_len, n_chan) returns shape
-        # (T-seq_len, 1, seq_len, n_chan). Collapse the 1-axis then stride.
-        xw = sliding_window_view(x_src, (seq_len, n_chan))[:, 0, :, :][::stride]
-        yw = sliding_window_view(y_src, (seq_len, n_chan))[:, 0, :, :][::stride]
-        return xw, yw  # strided views — memory stays O(trace size)
-
-    tr_x, tr_y = _window(train_trace)
-    va_x, va_y = _window(valid_trace)
-    te_x, te_y = _window(test_trace)
-
-    return {
-        "train": (tr_x, tr_y),
-        "valid": (va_x, va_y),
-        "test": (te_x, te_y),
-        # Raw post-zscore train trace for continuous-mode training.
-        # Shape (T_train, n_chan), already truncated if train_trace_max_len.
-        "train_trace": train_trace,
-        "meta": {
-            "input_size": n_chan,
-            "output_size": n_chan,
-            "task_type": "regression",
-            "seq_len": seq_len,
-            "per_timestep_labels": True,
-            "sr_hz": sr,
-        },
-    }
-
-
-# ---------------------------------------------------------------------------
-# 11. Cheetah 100 Hz (autoregressive; continuous ring-trainer compatible)
+# 9. Cheetah 100 Hz (autoregressive; continuous ring-trainer compatible)
 # ---------------------------------------------------------------------------
 
 def load_cheetah100(data_dir="train_srnn/data/cheetah100",
@@ -731,8 +586,8 @@ def load_cheetah100(data_dir="train_srnn/data/cheetah100",
                     train_trace_max_len=None, normalize=True):
     """Load the regenerated 100 Hz HalfCheetah traces as an autoregressive task.
 
-    Replaces the aliased, noise-injected `cheetah` data (see `load_cheetah`).
-    Generated by ~/Desktop/local_code/gen-half-cheetah-dataset: three continuous
+    Replaces the aliased, noise-injected 20 Hz cheetah data of Hasani et al.
+    Generated by the gen-half-cheetah-dataset repo: three continuous
     traces (train 20 min, valid 3 min, test 3 min), 100 Hz, no injected noise.
     At 20 Hz the joint angular velocities had lag-1 autocorrelation ~-0.53 while
     carrying 99.95% of the variance; at 100 Hz that is +0.91.
@@ -789,7 +644,7 @@ def load_cheetah100(data_dir="train_srnn/data/cheetah100",
         test_trace = test_trace[n_skip:]
 
     # Truncate before normalizing so the stats describe what is actually
-    # trained on (mirrors load_seeg).
+    # trained on.
     if train_trace_max_len is not None and train_trace.shape[0] > train_trace_max_len:
         train_trace = train_trace[:train_trace_max_len]
 
@@ -858,12 +713,10 @@ _LOADERS = {
     "power": load_power,
     "ozone": load_ozone,
     "person": load_person,
-    "cheetah": load_cheetah,
     "cheetah100": load_cheetah100,
     # Same loader; conf/task/cheetah100_act.yaml sets include_actions=true.
     # load_dataset() dispatches on task NAME, so the alias must be registered.
     "cheetah100_act": load_cheetah100,
-    "seeg": load_seeg,
 }
 
 
@@ -872,10 +725,10 @@ def load_dataset(task_name, data_dir=None, **kwargs):
 
     Args:
         task_name: One of 'smnist', 'har', 'gesture', 'occupancy',
-            'traffic', 'power', 'ozone', 'person', 'cheetah', 'seeg'.
+            'traffic', 'power', 'ozone', 'person', 'cheetah100', 'cheetah100_act'.
         data_dir: Optional base data directory. If None, uses the default
             path for each loader (e.g. 'data/har').
-        **kwargs: Extra per-loader kwargs (e.g. seeg's subject_id/block/...).
+        **kwargs: Extra per-loader kwargs (e.g. cheetah100's include_actions).
             Kwargs that the chosen loader does not accept are silently
             dropped so task YAMLs can carry common fields (``seq_len`` etc.)
             without every loader having to accept them.

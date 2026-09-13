@@ -376,10 +376,8 @@ def run_continuous_training(
     # stateful LSTM convention): each reader covers ~T/B samples per epoch;
     # the B readers collectively cover one full pass through T per epoch.
     # After B epochs ("super-epoch"), each individual reader has visited the
-    # whole trace once. With T coprime to B*chunk_len (e.g. T=179,989 prime,
-    # B*chunk_len=6,000), drift is (B*chunk_len*steps_per_epoch - T) samples
-    # per epoch — for seeg defaults: 30 steps × 6,000 = 180,000; T=179,989;
-    # drift = +11 samples per epoch.
+    # whole trace once. With T coprime to B*chunk_len the detach boundaries
+    # drift by (B*chunk_len*steps_per_epoch - T) samples per epoch.
     steps_per_epoch = (T + B * chunk_len - 1) // (B * chunk_len)
     total_epochs = int(cfg.epochs)
     # Default checkpoint cadence to round(B/4) so we get ~4 checkpoints per

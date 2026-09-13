@@ -7,9 +7,10 @@ __pycache__/
 .DS_Store
 *.code-workspace
 
-# Training outputs
+# Training outputs and analysis caches
 outputs/
 results/
+tmp/
 
 # Scratch/working files (not checked in)
 *.pt

@@ -18,8 +18,7 @@ sample_rate_hz: 100.0
 # What matters is gcd(drift, bptt_chunk_len) == 1 — that makes the state.detach()
 # boundaries sweep every offset over successive epochs. At zero drift the readers
 # would revisit identical boundaries forever and gradients would never cross
-# those sample pairs. (seeg's drift is 11 at T=179989; smaller is not better,
-# it just sweeps more slowly.)
+# those sample pairs.
 train_trace_max_len: 118973
 normalize: true            # per-channel z-score, train-split stats
 

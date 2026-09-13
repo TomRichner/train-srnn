@@ -11,7 +11,7 @@ same as stack's backward.
 This test pins that contract on a tiny generic RNN cell (GRUCell), so a
 failure clearly indicates the slice-assign primitive itself is broken,
 independent of any SRNN-specific behavior. The integration smoke tests
-(``smoke_test.sh``, the two seeg local runs in the plan's V3/V4) cover
+(the training smoke runs) cover
 the full SRNN path.
 
 Run: PYTHONPATH=. python scripts/test_cell_loop.py

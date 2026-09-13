@@ -1,4 +1,4 @@
-"""Data loading and augmentation for all 9 benchmark tasks."""
+"""Data loading and augmentation."""
 
 from .datasets import (
     load_dataset,
@@ -10,7 +10,6 @@ from .datasets import (
     load_power,
     load_ozone,
     load_person,
-    load_cheetah,
     cut_in_sequences,
 )
 
@@ -37,7 +36,6 @@ __all__ = [
     "load_power",
     "load_ozone",
     "load_person",
-    "load_cheetah",
     "cut_in_sequences",
     # Transforms
     "time_stretch",

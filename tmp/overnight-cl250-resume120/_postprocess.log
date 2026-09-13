@@ -1,182 +1,0 @@
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/_init_ckpt.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                Resuming download for /Users/richner.thomas/Desktop/MayoVertex/train-srnn/tmp/overnight-cl250-resume120/_init_ckpt.pt
--- [0 files][  6.4 MiB/ 10.8 MiB]                                                \|| [0 files][ 10.5 MiB/ 10.8 MiB]                                                | [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/epoch_000.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  1.8 MiB/ 10.8 MiB]                                                \\ [0 files][  5.2 MiB/ 10.8 MiB]                                                |// [0 files][ 10.0 MiB/ 10.8 MiB]                                                -- [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/epoch_010.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  1.6 MiB/ 10.8 MiB]                                                \|| [0 files][  5.2 MiB/ 10.8 MiB]                                                /-- [0 files][  7.0 MiB/ 10.8 MiB]                                                \\ [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/epoch_020.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  1.6 MiB/ 10.8 MiB]                                                \\ [0 files][  3.9 MiB/ 10.8 MiB]                                                |// [0 files][  7.2 MiB/ 10.8 MiB]                                                -\\ [0 files][ 10.6 MiB/ 10.8 MiB]                                                \ [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/epoch_030.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  1.6 MiB/ 10.8 MiB]                                                \|| [0 files][  3.4 MiB/ 10.8 MiB]                                                /-- [0 files][  8.2 MiB/ 10.8 MiB]                                                \\ [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/epoch_040.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  1.8 MiB/ 10.8 MiB]                                                \\ [0 files][  2.6 MiB/ 10.8 MiB]                                                |// [0 files][  8.0 MiB/ 10.8 MiB]                                                -\\ [0 files][ 10.3 MiB/ 10.8 MiB]                                                \ [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/epoch_050.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  1.3 MiB/ 10.8 MiB]                                                \\ [0 files][  2.3 MiB/ 10.8 MiB]                                                |// [0 files][  5.2 MiB/ 10.8 MiB]                                                -\\ [0 files][  9.5 MiB/ 10.8 MiB]                                                \ [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/epoch_060.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  1.6 MiB/ 10.8 MiB]                                                \|| [0 files][  3.4 MiB/ 10.8 MiB]                                                // [0 files][  5.9 MiB/ 10.8 MiB]                                                -\\ [0 files][ 10.6 MiB/ 10.8 MiB]                                                \ [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/epoch_070.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  2.1 MiB/ 10.8 MiB]                                                \\ [0 files][  3.9 MiB/ 10.8 MiB]                                                |// [0 files][  9.5 MiB/ 10.8 MiB]                                                -- [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/epoch_080.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  1.6 MiB/ 10.8 MiB]                                                \|| [0 files][  5.9 MiB/ 10.8 MiB]                                                // [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/epoch_090.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  1.8 MiB/ 10.8 MiB]                                                \|| [0 files][  5.7 MiB/ 10.8 MiB]                                                // [0 files][  8.2 MiB/ 10.8 MiB]                                                -\\ [0 files][  9.8 MiB/ 10.8 MiB]                                                || [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/epoch_100.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  2.3 MiB/ 10.8 MiB]                                                \\ [0 files][  3.9 MiB/ 10.8 MiB]                                                |// [0 files][  5.7 MiB/ 10.8 MiB]                                                -- [0 files][  8.8 MiB/ 10.8 MiB]                                                \|| [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/epoch_110.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  2.1 MiB/ 10.8 MiB]                                                \\ [0 files][  3.6 MiB/ 10.8 MiB]                                                |// [0 files][  6.2 MiB/ 10.8 MiB]                                                -- [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/init.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  1.0 MiB/ 10.8 MiB]                                                \\ [0 files][  3.6 MiB/ 10.8 MiB]                                                |// [0 files][  7.2 MiB/ 10.8 MiB]                                                -- [0 files][  9.0 MiB/ 10.8 MiB]                                                \|| [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/last.pt...
-/ [0 files][    0.0 B/ 10.8 MiB]                                                -- [0 files][  1.6 MiB/ 10.8 MiB]                                                \\ [0 files][  3.9 MiB/ 10.8 MiB]                                                |// [0 files][  6.7 MiB/ 10.8 MiB]                                                -\\ [0 files][  9.5 MiB/ 10.8 MiB]                                                |// [1 files][ 10.8 MiB/ 10.8 MiB]                                                
-Operation completed over 1 objects/10.8 MiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/progress.json...
-/ [0 files][    0.0 B/   72.0 B]                                                / [1 files][   72.0 B/   72.0 B]                                                
-Operation completed over 1 objects/72.0 B.                                       
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/run_metadata.json...
-/ [0 files][    0.0 B/  1.1 KiB]                                                / [1 files][  1.1 KiB/  1.1 KiB]                                                
-Operation completed over 1 objects/1.1 KiB.                                      
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/test_history.csv...
-/ [0 files][    0.0 B/  6.7 KiB]                                                / [1 files][  6.7 KiB/  6.7 KiB]                                                
-Operation completed over 1 objects/6.7 KiB.                                      
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/training_history.csv...
-/ [0 files][    0.0 B/ 70.6 KiB]                                                / [1 files][ 70.6 KiB/ 70.6 KiB]                                                
-Operation completed over 1 objects/70.6 KiB.                                     
-Copying gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/training_log.txt...
-/ [0 files][    0.0 B/126.6 KiB]                                                / [1 files][126.6 KiB/126.6 KiB]                                                
-Operation completed over 1 objects/126.6 KiB.                                    
-=== Phase 1: download ===
-[download] enumerating gs://liquidneuralnets-experiments/results-pytorch/overnight-cl250-resume120/srnn/seeg/seed1/*
-[download] _init_ckpt.pt
-[download] epoch_000.pt
-[download] epoch_010.pt
-[download] epoch_020.pt
-[download] epoch_030.pt
-[download] epoch_040.pt
-[download] epoch_050.pt
-[download] epoch_060.pt
-[download] epoch_070.pt
-[download] epoch_080.pt
-[download] epoch_090.pt
-[download] epoch_100.pt
-[download] epoch_110.pt
-[download] init.pt
-[download] last.pt
-[download] progress.json
-[download] run_metadata.json
-[download] test_history.csv
-[download] training_history.csv
-[download] training_log.txt
-[download] done: 20 new, 0 cached, total 20 files
-
-=== Phase 2: run-level plots ===
-  wrote curves_skip.png
-  wrote semilogy_curves_skip.png
-  wrote log_log_curves_skip.png
-  wrote curves_no-skip.png
-  wrote semilogy_curves_no-skip.png
-  wrote log_log_curves_no-skip.png
-  wrote semilogy_direct_curves_skip.png
-  wrote semilogy_direct_curves_no-skip.png
-  wrote lr_schedule.png  (peak=5.000e-04, final=5.000e-04)
-  14 snapshots: ['init', 'ep000', 'ep010', 'ep020', 'ep030', 'ep040', 'ep050', 'ep060', 'ep070', 'ep080', 'ep090', 'ep100', 'ep110', 'last']
-  wrote weight_evolution.png
-  Top-16 most-changed params (final / initial L2 norm):
-    cell.log_c_E_gain                                             0.09305 -> 0.6622  (+611.60%)
-    cell.log_tau_a_E_gain                                         0.4208 -> 1.358  (+222.74%)
-    cell.log_tau_b_rec_E_gain                                     0.5286 -> 1.177  (+122.58%)
-    cell.log_tau_d_gain                                           0.8443 -> 1.743  (+106.42%)
-    cell.log_tau_b_rel_E_gain                                     0.5026 -> 0.982  (+95.38%)
-    cell.c_0_E_vec                                                3.595 -> 6.823  (+89.80%)
-    cell.c_0_E_scalar                                             0.1914 -> 0.3256  (+70.09%)
-    readout_bias                                                  2.493 -> 3.75  (+50.42%)
-    readout_weight                                                21.76 -> 30.82  (+41.69%)
-    cell.a_0_scalar                                               0.2112 -> 0.2725  (+29.04%)
-    cell.W_in_gain                                                2.566 -> 2.044  (-20.34%)
-    cell.log_tau_global                                           0.6303 -> 0.7144  (+13.35%)
-    cell.W_raw_gain                                               2.564 -> 2.33  (-9.12%)
-    ic.ic                                                         33.89 -> 36.76  (+8.48%)
-    cell.log_tau_b_rec_E_vec                                      14.54 -> 13.91  (-4.33%)
-    cell.log_tau_d_vec                                            98.51 -> 101.4  (+2.88%)
-
-=== Phase 3: per-variant outputs ===
-[per-variant] 6 variant(s)
-  [0] srnn-e-only-per-neuron
-    wrote srnn-e-only-per-neuron/tau_evolution.png
-    wrote srnn-e-only-per-neuron/W_EI_evolution.png
-    wrote srnn-e-only-per-neuron/param_table.txt
-  [1] srnn-e-only-skip-per-neuron
-    wrote srnn-e-only-skip-per-neuron/tau_evolution.png
-    wrote srnn-e-only-skip-per-neuron/W_EI_evolution.png
-    wrote srnn-e-only-skip-per-neuron/param_table.txt
-  [2] srnn-sfa-e-only-per-neuron
-    wrote srnn-sfa-e-only-per-neuron/tau_evolution.png
-    wrote srnn-sfa-e-only-per-neuron/W_EI_evolution.png
-    wrote srnn-sfa-e-only-per-neuron/param_table.txt
-  [3] srnn-sfa-e-only-skip-per-neuron
-    wrote srnn-sfa-e-only-skip-per-neuron/tau_evolution.png
-    wrote srnn-sfa-e-only-skip-per-neuron/W_EI_evolution.png
-    wrote srnn-sfa-e-only-skip-per-neuron/param_table.txt
-  [4] srnn-std-e-only-per-neuron
-    wrote srnn-std-e-only-per-neuron/tau_evolution.png
-    wrote srnn-std-e-only-per-neuron/W_EI_evolution.png
-    wrote srnn-std-e-only-per-neuron/param_table.txt
-  [5] srnn-std-e-only-skip-per-neuron
-    wrote srnn-std-e-only-skip-per-neuron/tau_evolution.png
-    wrote srnn-std-e-only-skip-per-neuron/W_EI_evolution.png
-    wrote srnn-std-e-only-skip-per-neuron/param_table.txt
-
-=== Phase 3b: forward-replay time-series ===
-[replay] loading /Users/richner.thomas/Desktop/MayoVertex/train-srnn/tmp/overnight-cl250-resume120/last.pt
-[replay] mode=no_input t_range=(-15.0, 30.0) h=0.004 plot_step=10 (plot_fs ≈ 25.00 Hz)
-[replay] inputs: T_warm=3750, T_main=7500, total=11250
-[replay] benettin: lya_M=5 (lya_dt=0.0200s) d0=0.001
-[replay] LLE per variant: srnn-e-only-per-neuron=-0.0175, srnn-e-only-skip-per-neuron=-0.5127, srnn-sfa-e-only-per-neuron=-0.0059, srnn-sfa-e-only-skip-per-neuron=-0.0051, srnn-std-e-only-per-neuron=+2.2939, srnn-std-e-only-skip-per-neuron=-0.0000
-[replay]   wrote overnight-cl250-resume120/srnn-e-only-per-neuron/timeseries_no_input.png
-[replay]   wrote overnight-cl250-resume120/srnn-e-only-skip-per-neuron/timeseries_no_input.png
-[replay]   wrote overnight-cl250-resume120/srnn-sfa-e-only-per-neuron/timeseries_no_input.png
-[replay]   wrote overnight-cl250-resume120/srnn-sfa-e-only-skip-per-neuron/timeseries_no_input.png
-[replay]   wrote overnight-cl250-resume120/srnn-std-e-only-per-neuron/timeseries_no_input.png
-[replay]   wrote overnight-cl250-resume120/srnn-std-e-only-skip-per-neuron/timeseries_no_input.png
-[replay] loading /Users/richner.thomas/Desktop/MayoVertex/train-srnn/tmp/overnight-cl250-resume120/last.pt
-[replay] mode=step t_range=(-15.0, 30.0) h=0.004 plot_step=10 (plot_fs ≈ 25.00 Hz)
-[replay] inputs: T_warm=3750, T_main=7500, total=11250
-[replay] benettin: lya_M=5 (lya_dt=0.0200s) d0=0.001
-[replay] LLE per variant: srnn-e-only-per-neuron=+0.0289, srnn-e-only-skip-per-neuron=-0.5137, srnn-sfa-e-only-per-neuron=-0.0060, srnn-sfa-e-only-skip-per-neuron=-0.0051, srnn-std-e-only-per-neuron=+0.6574, srnn-std-e-only-skip-per-neuron=+0.0000
-[replay]   wrote overnight-cl250-resume120/srnn-e-only-per-neuron/timeseries_step.png
-[replay]   wrote overnight-cl250-resume120/srnn-e-only-skip-per-neuron/timeseries_step.png
-[replay]   wrote overnight-cl250-resume120/srnn-sfa-e-only-per-neuron/timeseries_step.png
-[replay]   wrote overnight-cl250-resume120/srnn-sfa-e-only-skip-per-neuron/timeseries_step.png
-[replay]   wrote overnight-cl250-resume120/srnn-std-e-only-per-neuron/timeseries_step.png
-[replay]   wrote overnight-cl250-resume120/srnn-std-e-only-skip-per-neuron/timeseries_step.png
-[replay] loading /Users/richner.thomas/Desktop/MayoVertex/train-srnn/tmp/overnight-cl250-resume120/last.pt
-[replay] mode=seeg t_range=(-15.0, 30.0) h=0.004 plot_step=10 (plot_fs ≈ 25.00 Hz)
-[replay] inputs: T_warm=3750, T_main=7500, total=11250
-[replay] benettin: lya_M=5 (lya_dt=0.0200s) d0=0.001
-[replay] LLE per variant: srnn-e-only-per-neuron=-0.6750, srnn-e-only-skip-per-neuron=-0.5150, srnn-sfa-e-only-per-neuron=-0.0056, srnn-sfa-e-only-skip-per-neuron=-0.0051, srnn-std-e-only-per-neuron=-1.1513, srnn-std-e-only-skip-per-neuron=-0.0000
-[replay]   wrote overnight-cl250-resume120/srnn-e-only-per-neuron/timeseries_seeg.png
-[replay]   wrote overnight-cl250-resume120/srnn-e-only-skip-per-neuron/timeseries_seeg.png
-[replay]   wrote overnight-cl250-resume120/srnn-sfa-e-only-per-neuron/timeseries_seeg.png
-[replay]   wrote overnight-cl250-resume120/srnn-sfa-e-only-skip-per-neuron/timeseries_seeg.png
-[replay]   wrote overnight-cl250-resume120/srnn-std-e-only-per-neuron/timeseries_seeg.png
-[replay]   wrote overnight-cl250-resume120/srnn-std-e-only-skip-per-neuron/timeseries_seeg.png
-
-=== Phase 4: consolidated PDF report ===
-  wrote report.md
-  wrote report.pdf
-
-=== Done — outputs in /Users/richner.thomas/Desktop/MayoVertex/train-srnn/tmp/overnight-cl250-resume120 ===

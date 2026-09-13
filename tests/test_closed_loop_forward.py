@@ -20,9 +20,9 @@ from omegaconf import OmegaConf
 from train_srnn.models.factory import build_model, build_batched_model
 
 
-def _make_seeg_cfg(num_units: int = 16, n_features: int = 4,
+def _make_cfg(num_units: int = 16, n_features: int = 4,
                    no_sfa: bool = True) -> OmegaConf:
-    """Minimal SEEG-shaped config for SRNN: input_size == output_size == 4.
+    """Minimal autoregressive config for SRNN: input_size == output_size == 4.
 
     Schema matches what train_srnn.models.factory expects (cfg.task.* etc.).
     `no_sfa=True` (default) disables SFA/STD because single SRNNCell has a
@@ -57,7 +57,7 @@ def _make_seeg_cfg(num_units: int = 16, n_features: int = 4,
 def test_open_loop_unchanged():
     """alpha_schedule=None must take the original code path."""
     torch.manual_seed(0)
-    cfg = _make_seeg_cfg()
+    cfg = _make_cfg()
     model = build_model(cfg)
     model.eval()
 
@@ -73,7 +73,7 @@ def test_open_loop_unchanged():
 
 def test_closed_loop_output_shape_single():
     torch.manual_seed(0)
-    cfg = _make_seeg_cfg()
+    cfg = _make_cfg()
     model = build_model(cfg)
     model.eval()
 
@@ -92,7 +92,7 @@ def test_closed_loop_output_shape_single():
 
 def test_closed_loop_output_shape_batched():
     torch.manual_seed(0)
-    cfg = _make_seeg_cfg()
+    cfg = _make_cfg()
     cfg.batched_ablations = ["srnn", "srnn-no-adapt"]
     model = build_batched_model(cfg, ["srnn", "srnn-no-adapt"])
     model.eval()
@@ -119,7 +119,7 @@ def test_alpha_zero_matches_open_loop_at_t0():
     no_grad warmup that could differ in autograd state).
     """
     torch.manual_seed(0)
-    cfg = _make_seeg_cfg()
+    cfg = _make_cfg()
     model = build_model(cfg)
     model.eval()
 
@@ -143,7 +143,7 @@ def test_alpha_zero_matches_open_loop_at_t0():
 
 def test_validation_errors():
     torch.manual_seed(0)
-    cfg = _make_seeg_cfg()
+    cfg = _make_cfg()
     model = build_model(cfg)
 
     B, T, C = 2, 8, cfg.task.input_size
@@ -166,7 +166,7 @@ def test_validation_errors():
 
 def test_closed_loop_gradients_flow():
     torch.manual_seed(0)
-    cfg = _make_seeg_cfg()
+    cfg = _make_cfg()
     model = build_model(cfg)
     model.train()
 
@@ -197,7 +197,7 @@ def test_bptt_chunk_detach_caps_grad_horizon():
     verify the chunked run completes without error (the main thing).
     """
     torch.manual_seed(0)
-    cfg = _make_seeg_cfg()
+    cfg = _make_cfg()
     model = build_model(cfg)
     model.train()
 
