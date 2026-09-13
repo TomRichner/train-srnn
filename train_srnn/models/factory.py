@@ -10,12 +10,11 @@ import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 
 from train_srnn.models import variants as V
-from train_srnn.models.ctrnn_cell import (
-    CTGRUCell, CTGRUConfig, CTRNNCell, CTRNNConfig, NODECell, NODEConfig,
-)
+from train_srnn.models.ctrnn_cell import CTGRUCell, CTGRUConfig, CTRNNCell, CTRNNConfig, NODECell
+from train_srnn.models.lstm_cell import LSTMCell
 from train_srnn.models.ltc_cell import LTCCell, LTCConfig
 from train_srnn.models.rmt_matrix import RMTMatrix
-from train_srnn.models.sequence_model import LSTMCellWrapper, SequenceModel
+from train_srnn.models.sequence_model import SequenceModel
 from train_srnn.models.srnn_cell import BatchedSRNNCell, SRNNCell, SRNNConfig
 from train_srnn.utils.io_masks import generate_neuron_partition, make_input_mask
 
@@ -68,13 +67,13 @@ def build_cell(cfg: DictConfig, W_in_mask: Optional[torch.Tensor] = None) -> nn.
     input_size: int = cfg.task.input_size
 
     if model_type == "lstm":
-        return LSTMCellWrapper(input_size, cfg.model.num_units)
+        return LSTMCell(input_size, cfg.model.num_units)
     if model_type == "ltc":
         return LTCCell(input_size, _dataclass_from_cfg(cfg.model, LTCConfig), W_in_mask=W_in_mask)
     if model_type == "ctrnn":
         return CTRNNCell(input_size, _dataclass_from_cfg(cfg.model, CTRNNConfig), W_in_mask=W_in_mask)
     if model_type == "node":
-        return NODECell(input_size, _dataclass_from_cfg(cfg.model, NODEConfig), W_in_mask=W_in_mask)
+        return NODECell(input_size, _dataclass_from_cfg(cfg.model, CTRNNConfig), W_in_mask=W_in_mask)
     if model_type == "ctgru":
         return CTGRUCell(input_size, _dataclass_from_cfg(cfg.model, CTGRUConfig), W_in_mask=W_in_mask)
     if model_type == "srnn":

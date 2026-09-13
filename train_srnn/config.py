@@ -213,6 +213,7 @@ class LTCModelConfig(ModelConfig):
     name: str = "ltc"; type: str = "ltc"
     solver: str = "semi_implicit"     # semi_implicit | explicit | rk4
     ode_unfolds: int = 6
+    h: float = 0.1                    # step for the explicit solvers
     erev_init_factor: float = 1.0
     w_init_min: float = 0.01
     w_init_max: float = 1.0
@@ -238,23 +239,21 @@ class LTCExplicitModelConfig(LTCModelConfig):
 @dataclass
 class CTRNNModelConfig(ModelConfig):
     name: str = "ctrnn"; type: str = "ctrnn"
+    solver: str = "euler"             # euler | rk4
     global_feedback: bool = True
     cell_clip: float = 0.0
     unfolds: int = 6
-    delta_t: float = 0.1
+    h: float = 0.1
     fix_tau: bool = True
     tau: float = 1.0
 
 
 @dataclass
-class NODEModelConfig(ModelConfig):
+class NODEModelConfig(CTRNNModelConfig):
+    """Neural ODE: RK4 on the leak-free CTRNN vector field, step from the task."""
     name: str = "node"; type: str = "node"
-    global_feedback: bool = True
-    cell_clip: float = 0.0
-    unfolds: int = 6
+    solver: str = "rk4"
     h: float = II("task.h")
-    fix_tau: bool = True
-    tau: float = 1.0
 
 
 @dataclass

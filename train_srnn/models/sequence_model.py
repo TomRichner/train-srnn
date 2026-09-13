@@ -24,25 +24,6 @@ from train_srnn.utils.io_masks import (
 from train_srnn.utils.trainable_ic import TrainableIC
 
 
-class LSTMCellWrapper(nn.Module):
-    """Wraps nn.LSTMCell to match our cell interface.
-
-    The combined state is ``[h, c]`` concatenated along the last dimension,
-    so ``state_size = num_units * 2``.
-    """
-
-    def __init__(self, input_size: int, num_units: int):
-        super().__init__()
-        self.cell = nn.LSTMCell(input_size, num_units)
-        self.num_units = num_units
-        self.state_size = num_units * 2  # h + c
-
-    def forward(self, input: torch.Tensor, state: torch.Tensor):
-        h, c = state.chunk(2, dim=-1)
-        h_new, c_new = self.cell(input, (h, c))
-        return h_new, torch.cat([h_new, c_new], dim=-1)
-
-
 class SequenceModel(nn.Module):
     """Wraps an RNN cell into a full sequence-to-prediction model.
 
@@ -75,28 +56,16 @@ class SequenceModel(nn.Module):
         self.use_io_masks = use_io_masks
         self.task_type = task_type
 
-        # K-batched detection --------------------------------------------------
-        self._K = getattr(cell, "K", None)
+        self._K = cell.K
 
-        # Skip-connection: per-variant residual y = readout(state) + α_k · x.
-        # Only supported in batched mode for v1. The flag tensor lives on the
-        # cell as `cell.skip_flags` (registered buffer), so it follows
-        # model.to(device) automatically; forward views it on the fly.
-        self._has_skip = bool(
-            self._K is not None and getattr(cell, "any_skip", False)
-        )
-        if self._has_skip:
-            if input_size != output_size:
-                raise ValueError(
-                    f"skip variants require input_size == output_size, got "
-                    f"{input_size} != {output_size}"
-                )
-        elif self._K is None:
-            cfg = getattr(cell, "config", None)
-            if cfg is not None and getattr(cfg, "skip", False):
-                raise NotImplementedError(
-                    "skip is currently only supported in batched_ablations mode"
-                )
+        # Skip connection: per-variant residual y = readout(state) + skip_k * x.
+        # The flags live on the cell as a buffer so they follow model.to(device).
+        flags = cell.skip_mask()
+        self._has_skip = bool(flags is not None and flags.any().item())
+        if self._has_skip and input_size != output_size:
+            raise ValueError(
+                f"skip variants require input_size == output_size, got "
+                f"{input_size} != {output_size}")
 
         # I/O masks -----------------------------------------------------------
         effective_output_size = num_units
@@ -258,7 +227,7 @@ class SequenceModel(nn.Module):
 
             if self._has_skip:
                 # skip_flags: (K,) -> (K, 1, 1); x_in_t may be (K, B, C) or (B, C).
-                skip_flags = self.cell.skip_flags.view(self._K, 1, 1)
+                skip_flags = self.cell.skip_mask().view(self._K, 1, 1)
                 if x_in_t.dim() == 2:  # (B, C) broadcast to all K variants
                     x_in_kb = x_in_t.unsqueeze(0)  # (1, B, C) -> broadcasts on K
                 else:
@@ -390,8 +359,7 @@ class SequenceModel(nn.Module):
         # through every segment. Computed outside no_grad so gradients can
         # flow back through W_eff -> W_raw in the grad-region segments.
         # None for cells without _effective_W (LSTM/LTC/CTRNN).
-        W_eff = (self.cell._effective_W()
-                 if hasattr(self.cell, "_effective_W") else None)
+        W_eff = self.cell.hoist()
 
         # 1) Warmup region (no_grad) — never checkpointed (no graph anyway).
         if grad_start > 0:
@@ -544,8 +512,7 @@ class SequenceModel(nn.Module):
         # through every segment. Computed outside no_grad so gradients can
         # flow back through W_eff -> W_raw in the grad-region segments.
         # None for cells without _effective_W (LSTM/LTC/CTRNN).
-        W_eff = (self.cell._effective_W()
-                 if hasattr(self.cell, "_effective_W") else None)
+        W_eff = self.cell.hoist()
 
         # 1. Warmup region (no_grad) — never needs checkpointing.
         grad_start = bptt_start_idx if bptt_start_idx is not None else 0
@@ -630,7 +597,7 @@ class SequenceModel(nn.Module):
             # added in output-space (post-readout), so the input-feature dim F
             # must equal output dim O — checked at __init__.
             if self._has_skip:
-                skip_flags = self.cell.skip_flags.view(self._K, 1, 1)  # (K, 1, 1)
+                skip_flags = self.cell.skip_mask().view(self._K, 1, 1)  # (K, 1, 1)
                 if isinstance(readout_idx, slice):
                     x_at_readout = x[:, readout_idx, :]               # (B, T, F)
                     logits = logits + skip_flags.unsqueeze(-2) * x_at_readout
@@ -651,5 +618,4 @@ class SequenceModel(nn.Module):
     # ------------------------------------------------------------------
     def constrain_parameters(self):
         """Apply parameter constraints (e.g. LTC weight clipping)."""
-        if hasattr(self.cell, "constrain_parameters"):
-            self.cell.constrain_parameters()
+        self.cell.constrain_parameters()

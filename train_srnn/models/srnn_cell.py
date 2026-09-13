@@ -16,6 +16,8 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+
+from train_srnn.models.base import RNNCell
 import torch.nn.functional as F
 
 
@@ -172,7 +174,7 @@ SRNN_PRESETS: dict[str, SRNNConfig] = {
 # Single SRNNCell
 # ---------------------------------------------------------------------------
 
-class SRNNCell(nn.Module):
+class SRNNCell(RNNCell):
     """Single SRNN variant as an RNNCell-compatible module.
 
     State is a flat (batch, state_size) tensor packed as:
@@ -186,18 +188,12 @@ class SRNNCell(nn.Module):
         rmt_export: dict,
         W_in_mask: Optional[torch.Tensor] = None,
     ):
-        super().__init__()
+        super().__init__(input_size, config.num_units, state_size=config.state_size,
+                         dt=config.h, W_in_mask=W_in_mask, mask_shape=(-1, 1))
         self.config = config
-        self.input_size = input_size
         N = config.num_units
         n_E = config.n_E
         n_I = config.n_I
-
-        # Optional input mask: (N,) binary, applied to W_in rows
-        if W_in_mask is not None:
-            self.register_buffer("W_in_mask", W_in_mask.view(-1, 1))  # (N, 1)
-        else:
-            self.W_in_mask: Optional[torch.Tensor] = None
 
         # ---- Recurrent weight (from RMTMatrix) ----
         self.W_raw = nn.Parameter(rmt_export["W_init"].clone())
@@ -355,14 +351,8 @@ class SRNNCell(nn.Module):
         x = state[:, idx:idx + cfg.num_units]
         return a_E, a_I, b_E, b_I, x
 
-    @property
-    def state_size(self) -> int:
-        return self.config.state_size
-
-    @property
-    def dt_per_step(self) -> float:
-        """Seconds of simulated time per forward call (used by burn-in)."""
-        return self.config.h
+    def hoist(self) -> torch.Tensor:
+        return self._effective_W()
 
     def init_state(self, batch_size: int, device: torch.device = None) -> torch.Tensor:
         """Return an initialized flat state.
@@ -806,7 +796,7 @@ class SRNNCell(nn.Module):
 # BatchedSRNNCell  -- K ablation variants in parallel via bmm
 # ---------------------------------------------------------------------------
 
-class BatchedSRNNCell(nn.Module):
+class BatchedSRNNCell(RNNCell):
     """Run K SRNN ablation variants simultaneously using bmm.
 
     All K variants must share the same num_units and input_size.
@@ -823,16 +813,20 @@ class BatchedSRNNCell(nn.Module):
         rmt_exports: list[dict],
         W_in_mask: Optional[torch.Tensor] = None,
     ):
-        super().__init__()
-        assert len(configs) > 0
-        assert len(rmt_exports) == len(configs), "Must provide one rmt_export per config"
+        if not configs:
+            raise ValueError("BatchedSRNNCell needs at least one config")
+        if len(rmt_exports) != len(configs):
+            raise ValueError("Provide one rmt_export per config")
         N = configs[0].num_units
-        for c in configs:
-            assert c.num_units == N, "All configs must share num_units"
-
+        if any(c.num_units != N for c in configs):
+            raise ValueError("All configs must share num_units")
+        n_E, n_I = N // 2, N - N // 2
+        max_state_dim = (n_E * max(c.n_a_E for c in configs) + n_I * max(c.n_a_I for c in configs)
+                         + n_E * max(c.n_b_E for c in configs) + n_I * max(c.n_b_I for c in configs) + N)
+        super().__init__(input_size, N, state_size=max_state_dim, dt=configs[0].h,
+                         W_in_mask=W_in_mask, mask_shape=(1, -1, 1))
         self.K = len(configs)
         self.N = N
-        self.input_size = input_size
         self.configs = configs
 
         n_E = N // 2
@@ -865,13 +859,6 @@ class BatchedSRNNCell(nn.Module):
 
         # Input weights: (K, N, input_size)
         self.W_in = nn.Parameter(torch.randn(self.K, N, input_size) * 0.1)
-
-        # W_in_mask: shared across all K ablations (same neuron partition)
-        if W_in_mask is not None:
-            # (N, 1) for broadcast with W_in (K, N, input_size)
-            self.register_buffer("W_in_mask", W_in_mask.view(1, -1, 1))  # (1, N, 1)
-        else:
-            self.W_in_mask: Optional[torch.Tensor] = None
 
         # Per-variant gains on W_raw / W_in — pooled optimization knobs (ESN-style
         # spectral-radius / input-gain made differentiable). Init 1.0 -> identity.
@@ -1000,9 +987,7 @@ class BatchedSRNNCell(nn.Module):
 
         # Skip-connection flag: SequenceModel adds (skip_flag * x_at_readout)
         # to the post-readout logits for autoregressive variants.
-        skip_flags = torch.tensor([float(c.skip) for c in configs], dtype=torch.float32)
-        self.register_buffer("skip_flags", skip_flags)
-        self.any_skip = bool(skip_flags.any().item())
+        self.register_buffer("skip_flags", torch.tensor([float(c.skip) for c in configs]))
 
         # Register gradient hook to zero W_raw gradients for echo variants
         if any(c.echo for c in configs):
@@ -1295,14 +1280,11 @@ class BatchedSRNNCell(nn.Module):
         parts.append(x)
         return torch.cat(parts, dim=-1)
 
-    @property
-    def state_size(self) -> int:
-        return self.max_state_dim
+    def hoist(self) -> torch.Tensor:
+        return self._effective_W()
 
-    @property
-    def dt_per_step(self) -> float:
-        """Seconds of simulated time per forward call (used by burn-in)."""
-        return self.h
+    def skip_mask(self) -> torch.Tensor:
+        return self.skip_flags
 
     def init_state(self, batch_size: int, device: torch.device = None) -> torch.Tensor:
         """Return initialized state (K, batch, max_state_dim).

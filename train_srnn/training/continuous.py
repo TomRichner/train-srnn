@@ -225,7 +225,7 @@ def _forward_chunk_pure_tf(
     # is constant across this chunk (only changes at optimizer.step), so
     # build once and pass in. Other cell types (LSTM/LTC/CTRNN) don't have
     # _effective_W; fall through to the original signature.
-    W_eff = cell._effective_W() if hasattr(cell, "_effective_W") else None
+    W_eff = cell.hoist()
     hidden_seq: torch.Tensor | None = None
     for t in range(T):
         # Tells the cudagraph trees allocator the previous step's outputs
@@ -273,7 +273,7 @@ def _forward_chunk_closed_loop(
     """
     T = chunk_x.shape[1]
     # Hoist W_eff once per chunk (see _forward_chunk_pure_tf for rationale).
-    W_eff = cell._effective_W() if hasattr(cell, "_effective_W") else None
+    W_eff = cell.hoist()
     hidden_seq: torch.Tensor | None = None
     x_in_seq: torch.Tensor | None = None
     for t in range(T):

@@ -39,9 +39,8 @@ class TrainableIC(nn.Module):
 def compute_burn_in(cell, input_size, burn_in_seconds=30.0, device="cpu"):
     """Run *cell* with zero input to compute a stable initial condition.
 
-    The number of burn-in timesteps is estimated from the cell's
-    ``dt_per_step`` attribute (seconds of simulated time per call).
-    If the attribute is absent a default of 0.04 s is assumed.
+    The number of steps follows the cell's ``dt`` (seconds per call);
+    discrete cells without a ``dt`` are run at 0.04 s per step.
 
     Args:
         cell: An RNN cell module whose forward signature is
@@ -54,21 +53,14 @@ def compute_burn_in(cell, input_size, burn_in_seconds=30.0, device="cpu"):
         A (state_dim,) tensor for single cells, or (K, state_dim) for
         batched cells, suitable for initialising a TrainableIC.
     """
-    dt = getattr(cell, "dt_per_step", 0.04)
+    dt = cell.dt if cell.dt is not None else 0.04
     n_steps = max(1, int(burn_in_seconds / dt))
 
     cell = cell.to(device)
     cell.eval()
 
-    batched = hasattr(cell, "K")
-
     with torch.no_grad():
-        # Initialise state -- try cell's own method first, fall back to zeros.
-        if hasattr(cell, "init_state"):
-            state = cell.init_state(1, device=device)
-        else:
-            state = torch.zeros(1, cell.state_size, device=device)
-
+        state = cell.init_state(1, device=device)
         zero_input = torch.zeros(1, input_size, device=device)
         for _ in range(n_steps):
             mark_cudagraph_step()
@@ -78,13 +70,5 @@ def compute_burn_in(cell, input_size, burn_in_seconds=30.0, device="cpu"):
             # input, so it cannot be recycled by mark_cudagraph_step.
             state = state.clone()
 
-    # Squeeze out the batch dimension and return on CPU.
-    if isinstance(state, tuple):
-        state = state[0]
-
-    if batched:
-        # state is (K, 1, state_dim) — squeeze batch dim
-        return state.squeeze(1).cpu()
-    else:
-        # state is (1, state_dim) — squeeze batch dim
-        return state.squeeze(0).cpu()
+    # Drop the batch axis: (K, 1, S) -> (K, S) or (1, S) -> (S,).
+    return (state.squeeze(1) if cell.K is not None else state.squeeze(0)).cpu()

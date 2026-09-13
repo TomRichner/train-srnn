@@ -1,50 +1,35 @@
-"""Continuous-time RNN cells — PyTorch port.
+"""Continuous-time RNN baselines: CTRNN, neural ODE, and CT-GRU.
 
-Three cell types:
-
-* **CTRNNCell** — Euler-integrated CTRNN with optional global feedback.
-* **NODECell** — Neural ODE using 4th-order Runge-Kutta.
-* **CTGRUCell** — Multi-timescale continuous-time GRU (M parallel timescales).
-
-All cells are ``torch.compile``-friendly: no data-dependent control flow,
-no in-place mutation of tensors on the compute graph, and all constants
-live in registered buffers.
+Ported to PyTorch from the TensorFlow 1.x implementation in
+https://github.com/raminmh/liquid_time_constant_networks
+(experiments_with_ltcs/ctrnn_model.py), Apache License 2.0. Copyright (c)
+the original authors. Modifications copyright (c) 2026 Thomas Richner:
+dataclass configs, the neural ODE as a CTRNN subclass sharing its
+parameters, shared ODE helpers, and the RNNCell interface.
 """
-
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import Optional, Tuple
+from dataclasses import dataclass, replace
+from typing import Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from train_srnn.models.base import RNNCell
+from train_srnn.models.ode import euler_step, rk4_step
 
-# ======================================================================
-# Configs
-# ======================================================================
 
 @dataclass
 class CTRNNConfig:
     num_units: int = 32
-    global_feedback: bool = True
-    cell_clip: float = 0.0
-    unfolds: int = 6
-    delta_t: float = 0.1
-    fix_tau: bool = True
-    tau: float = 1.0
-
-
-@dataclass
-class NODEConfig:
-    num_units: int = 32
-    global_feedback: bool = True
-    cell_clip: float = 0.0
-    unfolds: int = 6
-    h: float = 0.1
+    solver: str = "euler"          # euler | rk4
+    global_feedback: bool = True   # feed the state back through the input projection
+    cell_clip: float = 0.0         # clamp |state|; 0 disables
+    unfolds: int = 6               # integrator steps per call
+    h: float = 0.1                 # integrator step
     fix_tau: bool = True
     tau: float = 1.0
 
@@ -52,330 +37,122 @@ class NODEConfig:
 @dataclass
 class CTGRUConfig:
     num_units: int = 32
-    M: int = 8          # number of parallel timescales
+    M: int = 8                     # parallel timescales per unit
     tau_base: float = 1.0
-    cell_clip: float = -1.0  # clip hidden state values (negative = disabled)
+    cell_clip: float = -1.0        # negative disables
 
 
-# ======================================================================
-# CTRNNCell
-# ======================================================================
+class CTRNNCell(RNNCell):
+    """``tau dv/dt = -v + tanh(W [x, v] + b)``, integrated with Euler or RK4."""
 
-class CTRNNCell(nn.Module):
-    """Continuous-Time RNN cell (Euler integration).
+    SOLVERS = ("euler", "rk4")
 
-    Parameters
-    ----------
-    input_size : int
-        Feature dimension of each input vector.
-    config : CTRNNConfig, optional
-        Hyper-parameters.
-    W_in_mask : Tensor | None
-        Optional ``(num_units,)`` binary mask applied after the dense
-        projection (broadcast as ``(1, num_units)``).
-    """
-
-    def __init__(
-        self,
-        input_size: int,
-        config: CTRNNConfig | None = None,
-        W_in_mask: Optional[Tensor] = None,
-    ) -> None:
-        super().__init__()
+    def __init__(self, input_size: int, config: CTRNNConfig | None = None,
+                 W_in_mask: Optional[Tensor] = None) -> None:
         cfg = config or CTRNNConfig()
-        self.num_units = cfg.num_units
-        self.global_feedback = cfg.global_feedback
-        self.cell_clip = cfg.cell_clip
-        self.unfolds = cfg.unfolds
-        self.delta_t = cfg.delta_t
-
+        if cfg.solver not in self.SOLVERS:
+            raise ValueError(f"Unknown CTRNN solver {cfg.solver!r}; expected one of {self.SOLVERS}")
+        super().__init__(input_size, cfg.num_units, state_size=cfg.num_units,
+                         W_in_mask=W_in_mask, mask_shape=(1, -1))
+        self.config = cfg
         N = cfg.num_units
-        fan_in = (input_size + N) if cfg.global_feedback else input_size
-
+        fan_in = input_size + N if cfg.global_feedback else input_size
         self.W = nn.Parameter(torch.empty(fan_in, N))
         self.bias = nn.Parameter(torch.zeros(N))
         nn.init.xavier_uniform_(self.W)
-
-        # Tau — optionally trainable (stored in unconstrained space, applied
-        # through softplus so it stays positive).
-        self._fix_tau = cfg.fix_tau
-        if cfg.fix_tau:
-            self.register_buffer("tau", torch.tensor(cfg.tau))
-        else:
-            # Raw parameter; use softplus(tau_raw) at runtime.
-            self.tau_raw = nn.Parameter(torch.tensor(math.log(math.exp(cfg.tau) - 1.0)))
-
-        # Optional mask
-        if W_in_mask is not None:
-            self.register_buffer("W_in_mask", W_in_mask.view(1, -1))
-        else:
-            self.W_in_mask: Optional[Tensor] = None
-
-    @property
-    def state_size(self) -> int:
-        return self.num_units
-
-    def _get_tau(self) -> Tensor:
-        if self._fix_tau:
-            return self.tau
-        return F.softplus(self.tau_raw)
-
-    def forward(self, inputs: Tensor, state: Tensor) -> Tuple[Tensor, Tensor]:
-        """
-        Args:
-            inputs: (batch, input_size)
-            state:  (batch, num_units)
-
-        Returns:
-            output:    (batch, num_units)
-            new_state: (batch, num_units)
-        """
-        tau = self._get_tau()
-
-        if not self.global_feedback:
-            # Pre-compute input projection once (state-independent).
-            input_f_prime = torch.tanh(inputs @ self.W + self.bias)
-            if self.W_in_mask is not None:
-                input_f_prime = input_f_prime * self.W_in_mask
-
-        for _ in range(self.unfolds):
-            if self.global_feedback:
-                fused = torch.cat([inputs, state], dim=-1)
-                input_f_prime = torch.tanh(fused @ self.W + self.bias)
-                if self.W_in_mask is not None:
-                    input_f_prime = input_f_prime * self.W_in_mask
-
-            f_prime = -state / tau + input_f_prime
-            state = state + self.delta_t * f_prime
-
-            if self.cell_clip > 0:
-                state = state.clamp(-self.cell_clip, self.cell_clip)
-
-        return state, state
-
-    def init_state(self, batch_size: int, device: torch.device | None = None) -> Tensor:
-        return torch.zeros(batch_size, self.num_units, device=device)
-
-
-# ======================================================================
-# NODECell
-# ======================================================================
-
-class NODECell(nn.Module):
-    """Neural ODE cell (RK4 integration).
-
-    Always uses global feedback (input + state concatenated).
-
-    Parameters
-    ----------
-    input_size : int
-        Feature dimension of each input vector.
-    config : NODEConfig, optional
-        Hyper-parameters.
-    W_in_mask : Tensor | None
-        Optional ``(num_units,)`` binary mask.
-    """
-
-    def __init__(
-        self,
-        input_size: int,
-        config: NODEConfig | None = None,
-        W_in_mask: Optional[Tensor] = None,
-    ) -> None:
-        super().__init__()
-        cfg = config or NODEConfig()
-        self.num_units = cfg.num_units
-        self.cell_clip = cfg.cell_clip
-        self.unfolds = cfg.unfolds
-        self.h = cfg.h
-
-        N = cfg.num_units
-        fan_in = input_size + N
-
-        self.W = nn.Parameter(torch.empty(fan_in, N))
-        self.bias = nn.Parameter(torch.zeros(N))
-        nn.init.xavier_uniform_(self.W)
-
-        self._fix_tau = cfg.fix_tau
         if cfg.fix_tau:
             self.register_buffer("tau", torch.tensor(cfg.tau))
         else:
             self.tau_raw = nn.Parameter(torch.tensor(math.log(math.exp(cfg.tau) - 1.0)))
 
-        if W_in_mask is not None:
-            self.register_buffer("W_in_mask", W_in_mask.view(1, -1))
-        else:
-            self.W_in_mask: Optional[Tensor] = None
+    def _tau(self) -> Tensor:
+        return self.tau if self.config.fix_tau else F.softplus(self.tau_raw)
 
-    @property
-    def state_size(self) -> int:
-        return self.num_units
-
-    def _get_tau(self) -> Tensor:
-        if self._fix_tau:
-            return self.tau
-        return F.softplus(self.tau_raw)
-
-    def _f_prime(self, inputs: Tensor, state: Tensor) -> Tensor:
-        fused = torch.cat([inputs, state], dim=-1)
+    def _drive(self, inputs: Tensor, state: Tensor) -> Tensor:
+        fused = torch.cat([inputs, state], dim=-1) if self.config.global_feedback else inputs
         out = torch.tanh(fused @ self.W + self.bias)
-        if self.W_in_mask is not None:
-            out = out * self.W_in_mask
-        return out
+        return out * self.W_in_mask if self.W_in_mask is not None else out
 
-    def forward(self, inputs: Tensor, state: Tensor) -> Tuple[Tensor, Tensor]:
-        """
-        Args:
-            inputs: (batch, input_size)
-            state:  (batch, num_units)
+    def _dv_dt(self, inputs: Tensor, state: Tensor, drive: Optional[Tensor]) -> Tensor:
+        drive = self._drive(inputs, state) if drive is None else drive
+        return -state / self._tau() + drive
 
-        Returns:
-            output:    (batch, num_units)
-            new_state: (batch, num_units)
-        """
-        h = self.h
-        for _ in range(self.unfolds):
-            k1 = h * self._f_prime(inputs, state)
-            k2 = h * self._f_prime(inputs, state + 0.5 * k1)
-            k3 = h * self._f_prime(inputs, state + 0.5 * k2)
-            k4 = h * self._f_prime(inputs, state + k3)
-            state = state + (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
-
-            if self.cell_clip > 0:
-                state = state.clamp(-self.cell_clip, self.cell_clip)
-
+    def forward(self, inputs: Tensor, state: Tensor) -> tuple[Tensor, Tensor]:
+        cfg = self.config
+        # Without feedback the drive does not depend on the state: compute it once.
+        drive = None if cfg.global_feedback else self._drive(inputs, state)
+        step = euler_step if cfg.solver == "euler" else rk4_step
+        f = lambda v: self._dv_dt(inputs, v, drive)  # noqa: E731
+        for _ in range(cfg.unfolds):
+            state = step(f, state, cfg.h)
+            if cfg.cell_clip > 0:
+                state = state.clamp(-cfg.cell_clip, cfg.cell_clip)
         return state, state
 
     def init_state(self, batch_size: int, device: torch.device | None = None) -> Tensor:
         return torch.zeros(batch_size, self.num_units, device=device)
 
 
-# ======================================================================
-# CTGRUCell
-# ======================================================================
+class NODECell(CTRNNCell):
+    """Neural ODE as in the upstream code: RK4 on ``dv/dt = tanh(W [x, v] + b)`` with no leak."""
 
-class CTGRUCell(nn.Module):
-    """Multi-timescale Continuous-Time GRU cell.
+    def __init__(self, input_size: int, config: CTRNNConfig | None = None,
+                 W_in_mask: Optional[Tensor] = None) -> None:
+        cfg = replace(config or CTRNNConfig(), solver="rk4", global_feedback=True)
+        super().__init__(input_size, cfg, W_in_mask=W_in_mask)
 
-    Maintains *M* parallel timescales per neuron.  The hidden state has
-    shape ``(batch, num_units * M)``; the output is the collapsed sum
-    over timescales ``(batch, num_units)``.
+    def _dv_dt(self, inputs: Tensor, state: Tensor, drive: Optional[Tensor]) -> Tensor:
+        return self._drive(inputs, state)
 
-    Uses **learned Dense layers** for tau_r and tau_s with data-dependent
-    softmax weighting over timescales, matching the TF 1.x implementation.
 
-    Reference: https://arxiv.org/abs/1710.04110
+class CTGRUCell(RNNCell):
+    """Continuous-time GRU with ``M`` parallel timescales per unit (Mozer et al. 2017).
 
-    Parameters
-    ----------
-    input_size : int
-        Feature dimension of each input vector.
-    config : CTGRUConfig, optional
-        Hyper-parameters.
-    W_in_mask : Tensor | None
-        Optional ``(num_units,)`` binary mask applied to the candidate.
+    State is ``(B, N * M)``; the output is the sum over timescales. The decay
+    factor ``exp(-1 / ln tau)`` follows the upstream implementation verbatim.
     """
 
-    def __init__(
-        self,
-        input_size: int,
-        config: CTGRUConfig | None = None,
-        W_in_mask: Optional[Tensor] = None,
-    ) -> None:
-        super().__init__()
+    def __init__(self, input_size: int, config: CTGRUConfig | None = None,
+                 W_in_mask: Optional[Tensor] = None) -> None:
         cfg = config or CTGRUConfig()
-        self.num_units = cfg.num_units
-        self.M = cfg.M
-        self.cell_clip = getattr(cfg, "cell_clip", -1)
-
-        N = cfg.num_units
-        M = cfg.M
+        super().__init__(input_size, cfg.num_units, state_size=cfg.num_units * cfg.M,
+                         W_in_mask=W_in_mask, mask_shape=(1, -1))
+        self.config = cfg
+        N, M = cfg.num_units, cfg.M
         fan_in = input_size + N
-
-        # Learned Dense for tau_r (reset gate timescale selection)
         self.tau_r_dense = nn.Linear(fan_in, N * M)
-
-        # Learned Dense for tau_s (state update timescale selection)
         self.tau_s_dense = nn.Linear(fan_in, N * M)
-
-        # Candidate signal detector: Dense(fan_in -> N) with tanh
         self.signal_dense = nn.Linear(fan_in, N)
-
-        # Pre-compute log-timescale table as a buffer (not trainable).
-        # ln_tau[i] = log(tau_base * (10^0.5)^i)
-        ln_tau = torch.zeros(M)
-        tau = cfg.tau_base
-        for i in range(M):
+        ln_tau, tau = torch.zeros(M), cfg.tau_base
+        for i in range(M):                       # tau_base * sqrt(10)^i
             ln_tau[i] = math.log(tau)
             tau *= 10.0 ** 0.5
-        self.register_buffer("ln_tau_table", ln_tau)  # (M,)
-
-        # Exponential decay factor per timescale (fixed)
-        self.register_buffer("exp_decay", torch.exp(-1.0 / ln_tau))  # (M,)
-
-        # Optional mask
-        if W_in_mask is not None:
-            self.register_buffer("W_in_mask", W_in_mask.view(1, -1))
-        else:
-            self.W_in_mask: Optional[Tensor] = None
+        self.register_buffer("ln_tau_table", ln_tau)
+        self.register_buffer("exp_decay", torch.exp(-1.0 / ln_tau))
 
     @property
-    def state_size(self) -> int:
-        return self.num_units * self.M
+    def M(self) -> int:
+        return self.config.M
 
-    @property
-    def output_size(self) -> int:
-        return self.num_units
+    def forward(self, inputs: Tensor, state: Tensor) -> tuple[Tensor, Tensor]:
+        B, N, M = inputs.size(0), self.num_units, self.M
+        h_hat = state.view(B, N, M)
+        fused = torch.cat([inputs, h_hat.sum(dim=2)], dim=-1)
 
-    def forward(self, inputs: Tensor, state: Tensor) -> Tuple[Tensor, Tensor]:
-        """
-        Args:
-            inputs: (batch, input_size)
-            state:  (batch, num_units * M)
-
-        Returns:
-            output:    (batch, num_units)
-            new_state: (batch, num_units * M)
-        """
-        B = inputs.size(0)
-        N = self.num_units
-        M = self.M
-
-        # State is a matrix (B, N, M), not a vector
-        h_hat = state.view(B, N, M)            # (B, N, M)
-        h = h_hat.sum(dim=2)                   # (B, N) — collapsed state
-
-        fused_input = torch.cat([inputs, h], dim=-1)  # (B, fan_in)
-
-        # tau_r: data-dependent reset gate timescale selection
-        ln_tau_r = self.tau_r_dense(fused_input).view(B, N, M)   # (B, N, M)
-        sf_input_r = -(ln_tau_r - self.ln_tau_table).square()    # (B, N, M)
-        rki = F.softmax(sf_input_r, dim=2)                       # (B, N, M)
-
-        # Reset-gated state collapse
-        q_input = (rki * h_hat).sum(dim=2)     # (B, N)
-        reset_value = torch.cat([inputs, q_input], dim=-1)  # (B, fan_in)
-
-        # Candidate signal
-        qk = torch.tanh(self.signal_dense(reset_value))  # (B, N)
+        ln_tau_r = self.tau_r_dense(fused).view(B, N, M)
+        rki = F.softmax(-(ln_tau_r - self.ln_tau_table).square(), dim=2)
+        reset_value = torch.cat([inputs, (rki * h_hat).sum(dim=2)], dim=-1)
+        qk = torch.tanh(self.signal_dense(reset_value))
         if self.W_in_mask is not None:
             qk = qk * self.W_in_mask
-        qk = qk.unsqueeze(2)                  # (B, N, 1) for broadcast
+        qk = qk.unsqueeze(2)
 
-        # tau_s: data-dependent state update timescale selection
-        ln_tau_s = self.tau_s_dense(fused_input).view(B, N, M)   # (B, N, M)
-        sf_input_s = -(ln_tau_s - self.ln_tau_table).square()    # (B, N, M)
-        ski = F.softmax(sf_input_s, dim=2)                       # (B, N, M)
-
-        # State update with exponential decay per timescale
-        h_hat_next = ((1.0 - ski) * h_hat + ski * qk) * self.exp_decay  # (B, N, M)
-
-        if self.cell_clip > 0:
-            h_hat_next = h_hat_next.clamp(-self.cell_clip, self.cell_clip)
-
-        h_next = h_hat_next.sum(dim=2)                    # (B, N)
-        new_state = h_hat_next.view(B, N * M)              # (B, N*M)
-        return h_next, new_state
+        ln_tau_s = self.tau_s_dense(fused).view(B, N, M)
+        ski = F.softmax(-(ln_tau_s - self.ln_tau_table).square(), dim=2)
+        h_hat_next = ((1.0 - ski) * h_hat + ski * qk) * self.exp_decay
+        if self.config.cell_clip > 0:
+            h_hat_next = h_hat_next.clamp(-self.config.cell_clip, self.config.cell_clip)
+        return h_hat_next.sum(dim=2), h_hat_next.view(B, N * M)
 
     def init_state(self, batch_size: int, device: torch.device | None = None) -> Tensor:
-        return torch.zeros(batch_size, self.num_units * self.M, device=device)
+        return torch.zeros(batch_size, self.state_size, device=device)
