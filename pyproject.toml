@@ -1,0 +1,31 @@
+[project]
+name = "train-srnn"
+version = "0.1.0"
+description = "Spiking-inspired recurrent networks with multi-timescale adaptation, trained on continuous-time dynamics"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = "Thomas Richner" }]
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.2",
+    "torchvision",
+    "hydra-core>=1.3",
+    "omegaconf>=2.3",
+    "numpy",
+    "pandas",
+    "scipy",
+    "tqdm",
+    "matplotlib",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["slow: long-running smoke matrices (deselect with -m 'not slow')"]
+addopts = "-m 'not slow'"
+
+[tool.setuptools]
+packages = ["train_srnn"]

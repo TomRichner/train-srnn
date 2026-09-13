@@ -3,7 +3,9 @@ __pycache__/
 *.pyc
 *.pyo
 .venv/
+.pytest_cache/
 .DS_Store
+*.code-workspace
 
 # Training outputs
 outputs/
@@ -11,6 +13,7 @@ results/
 
 # Scratch/working files (not checked in)
 *.pt
+!tests/golden/*.pt
 *.png
 *.npz
 
