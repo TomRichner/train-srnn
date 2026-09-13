@@ -106,7 +106,7 @@ def amp_autocast(cfg: DictConfig):
     Capability + device validation happens once at startup in main();
     this helper is fast-path only.
     """
-    amp = cfg.get("amp", "fp32")
+    amp = cfg.amp
     if amp == "fp32":
         return contextlib.nullcontext()
     if amp == "bf16":
@@ -153,7 +153,7 @@ def run_epoch(
         total_loss = 0.0
         total_correct = 0.0
     total_samples = 0
-    batch_size: int = cfg.batch_size
+    batch_size: int = cfg.task.batch_size
 
     cl_active = bool(training and closed_loop_cfg is not None
                      and closed_loop_cfg.enabled)
@@ -175,13 +175,13 @@ def run_epoch(
                 batch_x,
                 batch_y,
                 rng,
-                cfg.stretch_lo,
-                cfg.stretch_hi,
-                cfg.window_len,
-                cfg.bptt_len,
+                cfg.task.stretch_lo,
+                cfg.task.stretch_hi,
+                cfg.task.window_len,
+                cfg.task.bptt_len,
                 cfg.task.per_timestep_labels,
-                no_augment=cfg.get("no_augment", False),
-                loss_over_bptt=cfg.get("loss_over_bptt", False),
+                no_augment=cfg.task.no_augment,
+                loss_over_bptt=cfg.task.loss_over_bptt,
             )
             # Extract label at readout timestep(s) for per-timestep tasks.
             # readout_idx is int (shape -> (B, F)) or slice (shape -> (B, T, F)).
@@ -191,11 +191,11 @@ def run_epoch(
             batch_x, batch_y, readout_idx = wrap_eval_batch(
                 batch_x,
                 batch_y,
-                cfg.window_len,
+                cfg.task.window_len,
                 cfg.task.per_timestep_labels,
-                no_augment=cfg.get("no_augment", False),
-                loss_over_bptt=cfg.get("loss_over_bptt", False),
-                bptt_len=cfg.bptt_len,
+                no_augment=cfg.task.no_augment,
+                loss_over_bptt=cfg.task.loss_over_bptt,
+                bptt_len=cfg.task.bptt_len,
             )
             # wrap_eval_batch already extracts labels_at_readout
             bptt_start = None
@@ -230,9 +230,9 @@ def run_epoch(
                 batch_x_t,
                 readout_idx=readout_idx,
                 bptt_start_idx=bptt_start,
-                bptt_chunk_len=cfg.get("bptt_chunk_len", None),
-                grad_checkpoint=cfg.get("grad_checkpoint", False),
-                grad_checkpoint_segment_len=cfg.get("grad_checkpoint_segment_len", None),
+                bptt_chunk_len=cfg.task.bptt_chunk_len,
+                grad_checkpoint=cfg.grad_checkpoint,
+                grad_checkpoint_segment_len=cfg.grad_checkpoint_segment_len,
                 alpha_schedule=alpha_schedule,
             )
 
@@ -255,7 +255,7 @@ def run_epoch(
         if training:
             optimizer.zero_grad()
             loss.backward()
-            grad_clip = cfg.get("grad_clip", 0.0)
+            grad_clip = cfg.grad_clip
             # clip_grad_norm_ takes one norm over the whole model, which in
             # batched-ablation mode would let one variant throttle every
             # other variant's step — clip per variant instead (KnownIssues
@@ -331,11 +331,7 @@ def _build_closed_loop_cfg(cfg: DictConfig) -> ClosedLoopConfig:
 
     Missing or absent block -> default disabled config.
     """
-    cl_block = cfg.get("closed_loop", None)
-    if cl_block is None:
-        return ClosedLoopConfig()
-    raw = OmegaConf.to_container(cl_block, resolve=True)
-    return ClosedLoopConfig(**raw)
+    return ClosedLoopConfig(**OmegaConf.to_container(cfg.closed_loop, resolve=True))
 
 
 def resolve_device(device_str: str) -> torch.device:
@@ -407,7 +403,7 @@ def main(cfg: DictConfig) -> None:
     log.info("Using device: %s", device)
 
     # AMP capability check (fail fast at startup, not mid-training).
-    amp = cfg.get("amp", "fp32")
+    amp = cfg.amp
     if amp != "fp32":
         if amp != "bf16":
             raise ValueError(f"Unknown amp mode: {amp!r}. Expected 'fp32' or 'bf16'.")
@@ -427,13 +423,11 @@ def main(cfg: DictConfig) -> None:
         log.info("AMP enabled: bf16 (autocast dtype=torch.bfloat16)")
 
     # 3. Load data ------------------------------------------------------------
-    # Forward any extra task-level loader kwargs (used by cheetah100 for
-    # subject_id/block/sleep/cond/decimate/seq_len/stride).
-    _loader_reserved = {"name", "data_dir", "input_size", "output_size",
-                        "task_type", "per_timestep_labels", "batch_size"}
+    # Loader-specific task fields (e.g. cheetah100's include_actions) are
+    # forwarded; load_dataset drops the ones the loader does not accept.
     loader_kwargs = {
         k: v for k, v in OmegaConf.to_container(cfg.task, resolve=True).items()
-        if k not in _loader_reserved
+        if k not in ("name", "data_dir")
     }
     dataset = load_dataset(cfg.task.name, cfg.task.data_dir, **loader_kwargs)
     train_x, train_y = dataset["train"]
@@ -451,15 +445,12 @@ def main(cfg: DictConfig) -> None:
             f"task.input_size={meta_in} task.output_size={meta_in}.")
 
     # 4. Build model ----------------------------------------------------------
-    if cfg.batched_ablations:
-        model = build_batched_model(
-            cfg, cfg.batched_ablations,
-            ablation_seeds=cfg.get("batched_ablation_seeds", None),
-        )
+    if cfg.model.type == "srnn":
+        model = build_batched_model(cfg)
     else:
         model = build_model(cfg)
     model = model.to(device)
-    _apply_freeze_params(model, list(cfg.get("freeze_params", []) or []))
+    _apply_freeze_params(model, list(cfg.freeze_params))
     log.info("Model parameters: %d", sum(p.numel() for p in model.parameters()))
     log.info("Trainable parameters: %d",
              sum(p.numel() for p in model.parameters() if p.requires_grad))
@@ -474,8 +465,8 @@ def main(cfg: DictConfig) -> None:
     # doesn't pollute the compile cache with eval-only shape/grad-mode
     # configurations). Model-level compile (cfg.compile_cell=false) still
     # happens here.
-    if cfg.compile and device.type == "cuda":
-        if bool(cfg.get("compile_log_recompiles", False)):
+    if cfg.compile.enabled and device.type == "cuda":
+        if cfg.compile.log_recompiles:
             import torch._logging as _torch_logging
             _torch_logging.set_logs(recompiles=True)
             log.info("Dynamo recompile logging enabled")
@@ -483,26 +474,24 @@ def main(cfg: DictConfig) -> None:
         # actually runs — it is what compiles the cell. On any other task the
         # deferral would silently mean "no compile at all", so fall back to
         # model-level compile instead.
-        want_cell = bool(cfg.get("compile_cell", False))
-        use_cell_compile = want_cell and bool(cfg.get("continuous_train", False))
+        want_cell = bool(cfg.compile.cell_only)
+        use_cell_compile = want_cell and cfg.task.trainer == "continuous"
         if not use_cell_compile:
             if want_cell:
-                log.info("compile_cell=true but continuous_train=false; "
+                log.info("compile.cell_only=true but the trainer is windowed; "
                          "falling back to model-level compile")
             compile_kwargs = {}
-            cm = cfg.get("compile_mode", None)
-            if cm:
-                compile_kwargs["mode"] = str(cm)
-            cd = cfg.get("compile_dynamic", None)
-            if cd is not None:
-                compile_kwargs["dynamic"] = bool(cd)
+            if cfg.compile.mode:
+                compile_kwargs["mode"] = str(cfg.compile.mode)
+            if cfg.compile.dynamic is not None:
+                compile_kwargs["dynamic"] = bool(cfg.compile.dynamic)
             log.info("torch.compile (model-level) kwargs: %s",
                      compile_kwargs or "(defaults)")
             model = torch.compile(model, **compile_kwargs)
         else:
             log.info("torch.compile (cell-level) deferred to continuous trainer")
 
-    if cfg.get("grad_clip", 0.0) and K is not None:
+    if cfg.grad_clip and K is not None:
         log.info("grad_clip=%s applied per-variant across the K=%d batched "
                  "variants (KnownIssues §14)", cfg.grad_clip, K)
 
@@ -514,33 +503,33 @@ def main(cfg: DictConfig) -> None:
     # chunk; the windowed trainer steps once per mini-batch. Sizing the warmup against the
     # wrong cadence — as we previously did with the windowed formula — made
     # warmup absurdly short for continuous runs (~0.4 epochs at B=48).
-    if cfg.get("continuous_train", False) and "train_trace" in dataset:
+    if cfg.task.trainer == "continuous" and "train_trace" in dataset:
         T_train = int(dataset["train_trace"].shape[0])
-        chunk_len = int(cfg.bptt_chunk_len) if cfg.bptt_chunk_len else 250
-        steps_per_epoch = (T_train + cfg.batch_size * chunk_len - 1) \
-                          // (cfg.batch_size * chunk_len)
+        chunk_len = int(cfg.task.bptt_chunk_len or 250)
+        B = int(cfg.task.batch_size)
+        steps_per_epoch = (T_train + B * chunk_len - 1) // (B * chunk_len)
         # Default to round(B/2) epochs of warmup — long enough that Adam's
         # moment estimates have time to settle before the model sees full
         # max_lr, capped at 20% of the run for very short jobs.
-        default_warmup_epochs = max(1, round(cfg.batch_size / 2))
+        default_warmup_epochs = max(1, round(B / 2))
     else:
-        steps_per_epoch = len(train_x) // cfg.batch_size + 1
+        steps_per_epoch = len(train_x) // cfg.task.batch_size + 1
         # Windowed trainer historical default: warmup over 2 epochs.
         default_warmup_epochs = 2
 
     total_steps = cfg.epochs * steps_per_epoch
-    warmup_epochs = cfg.get("warmup_epochs", None) or default_warmup_epochs
+    warmup_epochs = cfg.warmup_epochs or default_warmup_epochs
     warmup_frac = min(warmup_epochs * steps_per_epoch / max(1, total_steps), 0.2)
     scheduler = WarmupHoldCosineSchedule(
         optimizer, total_steps, max_lr=cfg.lr, warmup_frac=warmup_frac,
-        cosine_decay=cfg.get("cosine_decay", False),
+        cosine_decay=cfg.cosine_decay,
     )
     log.info(
         "LR schedule: warmup_epochs=%d (warmup_frac=%.4f, %d scheduler steps), "
         "total_steps=%d (steps_per_epoch=%d), max_lr=%.3e, cosine_decay=%s",
         warmup_epochs, warmup_frac,
         int(warmup_frac * total_steps), total_steps, steps_per_epoch,
-        cfg.lr, cfg.get("cosine_decay", False),
+        cfg.lr, cfg.cosine_decay,
     )
 
     # 7. Loss function --------------------------------------------------------
@@ -554,7 +543,7 @@ def main(cfg: DictConfig) -> None:
     # restored so the continuation epochs see fresh batch order. Burn-in
     # below will overwrite model.ic.ic if cfg.burn_in > 0; set burn_in=0
     # to keep the restored IC verbatim.
-    init_ckpt_cfg = cfg.get("init_ckpt", None)
+    init_ckpt_cfg = cfg.init_ckpt
     if init_ckpt_cfg:
         import os as _os
         import subprocess as _subprocess
@@ -595,13 +584,13 @@ def main(cfg: DictConfig) -> None:
 
     if cfg.burn_in > 0 and hasattr(model, "ic"):
         _refresh_ic_from_burn_in()
-        if cfg.get("freeze_ic_after_burnin", True):
+        if cfg.freeze_ic_after_burnin:
             model.ic.ic.requires_grad_(False)
             log.info("TrainableIC frozen after burn-in (freeze_ic_after_burnin=True)")
 
     # 9. Training loop --------------------------------------------------------
     rng = np.random.RandomState(cfg.seed)
-    burn_in_every = cfg.get("burn_in_every", 0)
+    burn_in_every = cfg.burn_in_every
 
     # Closed-loop variable teacher forcing: build a typed config from the
     # Hydra block and a dedicated torch.Generator (independent of `rng` so
@@ -634,7 +623,7 @@ def main(cfg: DictConfig) -> None:
         epoch=0, tag="init", K=K, ablation_names=ablation_names,
     )
 
-    if cfg.get("early_exit_after_init", False):
+    if cfg.early_exit_after_init:
         # Mirror init.pt -> last.pt so postprocess.py "last" lookups
         # (param_table, --replay-checkpoints last) keep working.
         save_checkpoint(model, optimizer, scheduler, epoch=0, cfg=cfg, tag="last")
@@ -647,10 +636,10 @@ def main(cfg: DictConfig) -> None:
     # the trace ring. See continuous.py. Any task whose loader returns a
     # "train_trace" can use it — nothing in continuous.py is task-specific,
     # channel count and rate are read off the trace.
-    if cfg.get("continuous_train", False):
+    if cfg.task.trainer == "continuous":
         if "train_trace" not in dataset:
             log.warning(
-                "continuous_train=true but the %s loader returned no "
+                "task.trainer=continuous but the %s loader returned no "
                 "'train_trace' key; falls back to the windowed loop.",
                 cfg.task.name)
         else:
@@ -683,6 +672,8 @@ def main(cfg: DictConfig) -> None:
             )
             return
 
+    log_interval = cfg.log_interval or 1
+    checkpoint_interval = cfg.checkpoint_interval or 10
     for epoch in range(cfg.epochs):
         # Periodic re-burn-in: track the moving unforced fixed point as
         # network parameters drift during training. Skip epoch 0 since we
@@ -731,7 +722,7 @@ def main(cfg: DictConfig) -> None:
             )
 
         # Logging
-        if epoch % cfg.log_interval == 0:
+        if epoch % log_interval == 0:
             if K is not None:
                 log.info("Epoch %d:", epoch)
                 for k in range(K):
@@ -751,7 +742,7 @@ def main(cfg: DictConfig) -> None:
                 )
 
         # Periodic checkpoint + test eval
-        if epoch % cfg.checkpoint_interval == 0:
+        if epoch % checkpoint_interval == 0:
             tag = f"epoch_{epoch:03d}"
             save_checkpoint(model, optimizer, scheduler, epoch, cfg, tag)
             eval_and_log_test(

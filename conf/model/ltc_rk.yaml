@@ -1,5 +1,0 @@
-defaults:
-  - ltc
-
-name: ltc_rk
-solver: rk4

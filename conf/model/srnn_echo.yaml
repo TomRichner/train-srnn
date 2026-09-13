@@ -1,5 +1,0 @@
-defaults:
-  - srnn
-
-name: srnn_echo
-echo: true

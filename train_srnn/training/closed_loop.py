@@ -24,34 +24,11 @@ alpha[0, :] is forced to 0 by construction -- there is no y_prev at t=0.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
 import torch
 
 
-@dataclass
-class ClosedLoopConfig:
-    enabled: bool = False
-    # Fraction of batches with full teacher forcing (alpha=0 everywhere).
-    teacher_forcing_batch_frac: float = 0.2
-    # Per-batch baseline alpha (the "intensity" knob; final value when ramping).
-    alpha_baseline: float = 0.3
-    # Optional across-epoch linear ramp: if set, the *effective* baseline at
-    # epoch e of an N-epoch run is `lerp(start, alpha_baseline, e/(N-1))`.
-    # None preserves the constant-baseline behavior. Computed by the caller
-    # (train.py) which knows the epoch context; the schedule sampler itself
-    # is unaware of epoch — see `effective_alpha_baseline()` below.
-    alpha_baseline_start: float | None = None
-    # Half-range of uniform jitter on baseline; 0 = fixed baseline.
-    alpha_baseline_jitter: float = 0.0
-    # Per-channel sparse perturbation around baseline (zero-mean Gaussian).
-    alpha_rnd_density: float = 0.0
-    alpha_rnd_sigma: float = 0.0
-    # Half-cosine warmup ramp length in samples; 0 = no ramp (envelope=1).
-    # Used only by the windowed-mode sampler; continuous mode ignores this.
-    t_warm: int = 0
-    # Continuous-mode only: per-channel rotation period for alpha_rnd (epochs).
-    alpha_rnd_period_epochs: int = 10
+from train_srnn.config import ClosedLoopConfig  # re-exported for callers
 
 
 def effective_alpha_baseline(cfg: ClosedLoopConfig, epoch: int,

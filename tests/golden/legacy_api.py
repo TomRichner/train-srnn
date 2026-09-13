@@ -11,9 +11,6 @@ import pathlib
 
 import numpy as np
 import torch
-from hydra import compose, initialize_config_dir
-
-import train_srnn  # noqa: F401  (registers the ${srnn_path:...} resolver)
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 GOLDEN_DIR = pathlib.Path(__file__).resolve().parent
@@ -31,20 +28,28 @@ BATCHED_VARIANTS = ["srnn-per-neuron", "srnn-no-adapt", "srnn-e-only-skip",
 TRAINER_VARIANTS = ["srnn-no-dales-skip", "srnn-no-adapt-no-dales-skip"]
 
 
+# Old single-cell golden names -> (model group, extra overrides).
+SINGLE_OVERRIDES = {
+    "srnn": ("srnn", []),
+    "srnn_e_only": ("srnn", ["model.variants=[srnn-e-only]"]),
+}
+
+
 def make_cfg(model: str, *extra: str):
+    from train_srnn.config import compose_config
+    group, model_extra = SINGLE_OVERRIDES.get(model, (model, []))
     overrides = [
-        f"model={model}", "task=cheetah100", "seed=0", f"size={N}",
+        f"model={group}", "task=cheetah100", "seed=0", f"model.num_units={N}",
         f"task.input_size={C}", f"task.output_size={C}",
         f"task.window_len={T}", f"task.bptt_len={T - BPTT_START}",
         f"task.bptt_chunk_len={CHUNK}", f"task.batch_size={B}",
         "task.seq_len=40", "task.stride=40",
-        "device=cpu", "compile=false", "grad_checkpoint=false",
+        "device=cpu", "compile.enabled=false", "grad_checkpoint=false",
         "grad_checkpoint_segment_len=5", "epochs=1", "warmup_epochs=1",
         "burn_in=0", "burn_in_every=0",
-        *extra,
+        *model_extra, *extra,
     ]
-    with initialize_config_dir(config_dir=str(REPO / "conf"), version_base=None):
-        return compose("config", overrides=overrides)
+    return compose_config(overrides)
 
 
 def build_single(name: str):
@@ -113,7 +118,7 @@ def run_windowed_epoch(closed_loop: bool):
     import train  # root train.py
     from train_srnn.utils.lr_schedule import WarmupHoldCosineSchedule
 
-    extra = ["task.continuous_train=false", "task.no_augment=true",
+    extra = ["task.trainer=windowed", "task.no_augment=true",
              "task.loss_over_bptt=true"]
     if closed_loop:
         extra += ["closed_loop.enabled=true", "closed_loop.alpha_baseline=0.3",

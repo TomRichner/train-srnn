@@ -53,14 +53,9 @@ fi
 # Determine machine type
 MACHINE_TYPE="${DEFAULT_MACHINE_TYPE_FAMILY}-${DEFAULT_MACHINE_TIER}"
 
-# Check for experiment-specific overrides (shared with CPU path).
-# Note: the experiments/*.env MACHINE_TIER values target the n4d family
-# (e.g. standard-2, highcpu-4) and don't exist in g2. Source for ARGS only
-# and keep the GPU default machine type.
+# Per-task default train args.
 if [ -f "$SCRIPT_DIR/experiments/${EXPERIMENT}.env" ]; then
-    unset MACHINE_TIER
     source "$SCRIPT_DIR/experiments/${EXPERIMENT}.env"
-    MACHINE_TYPE="${DEFAULT_MACHINE_TYPE_FAMILY}-${DEFAULT_MACHINE_TIER}"
     EXTRA_ARGS="${ARGS:-} $EXTRA_ARGS"
 fi
 

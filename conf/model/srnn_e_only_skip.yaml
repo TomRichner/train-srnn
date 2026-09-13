@@ -1,7 +1,0 @@
-defaults:
-  - srnn
-
-name: srnn_e_only_skip
-n_a_I: 0
-n_b_I: 0
-skip: true

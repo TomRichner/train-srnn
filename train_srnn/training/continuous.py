@@ -370,8 +370,8 @@ def run_continuous_training(
     """Stateful continuous-batching trainer. Returns when cfg.epochs reached."""
     T = train_trace.shape[0]
     C = train_trace.shape[1]
-    B = int(cfg.batch_size)
-    chunk_len = int(cfg.bptt_chunk_len) if cfg.bptt_chunk_len else 250
+    B = int(cfg.task.batch_size)
+    chunk_len = int(cfg.task.bptt_chunk_len or 250)
     # Per-reader-sweep semantics (Mikolov RNNLM / Karpathy char-rnn / Keras
     # stateful LSTM convention): each reader covers ~T/B samples per epoch;
     # the B readers collectively cover one full pass through T per epoch.
@@ -384,10 +384,10 @@ def run_continuous_training(
     # full reader-sweep (B epochs). Floor to 1 for tiny B.
     # Honor explicit user values; only fall back when null/missing.
     default_ckpt = max(1, round(B / 4))
-    checkpoint_interval = int(cfg.get("checkpoint_interval", None) or default_ckpt)
+    checkpoint_interval = int(cfg.checkpoint_interval or default_ckpt)
     # Default log cadence to match checkpoint cadence — eval is expensive and
     # there's no value logging more often than we checkpoint.
-    log_interval = int(cfg.get("log_interval", None) or checkpoint_interval)
+    log_interval = int(cfg.log_interval or checkpoint_interval)
 
     log.info(
         "Continuous training (per-reader-sweep): T=%d, B=%d, chunk_len=%d, "
@@ -404,16 +404,12 @@ def run_continuous_training(
     # calls SequenceModel.forward → self.cell with different shapes (windowed
     # batch) and grad mode (no_grad) — sees the eager cell and doesn't trigger
     # extra recompiles in the cache. Only the trainer's hot loop sees compiled.
-    if (bool(cfg.get("compile", False))
-            and bool(cfg.get("compile_cell", False))
-            and device.type == "cuda"):
+    if cfg.compile.enabled and cfg.compile.cell_only and device.type == "cuda":
         compile_kwargs = {}
-        cm = cfg.get("compile_mode", None)
-        if cm:
-            compile_kwargs["mode"] = str(cm)
-        cd = cfg.get("compile_dynamic", None)
-        if cd is not None:
-            compile_kwargs["dynamic"] = bool(cd)
+        if cfg.compile.mode:
+            compile_kwargs["mode"] = str(cfg.compile.mode)
+        if cfg.compile.dynamic is not None:
+            compile_kwargs["dynamic"] = bool(cfg.compile.dynamic)
         log.info("Compiling cell (continuous trainer scope only); kwargs=%s",
                  compile_kwargs or "(defaults)")
         cell = torch.compile(cell, **compile_kwargs)
@@ -452,7 +448,7 @@ def run_continuous_training(
     # Reader start positions
     positions = _init_positions(B, T, device)
 
-    grad_clip = float(cfg.get("grad_clip", 0.0) or 0.0)
+    grad_clip = float(cfg.grad_clip or 0.0)
     # clip_grad_norm_ takes ONE norm over the whole model, so in batched-
     # ablation mode a single variant's gradient would throttle every other
     # variant's step. Clip each variant's slice independently instead — see
@@ -462,7 +458,7 @@ def run_continuous_training(
                  "variants (KnownIssues §14)", grad_clip, K)
 
     # Optional per-phase profiler (off by default).
-    profile_enabled = bool(cfg.get("continuous_profile", False))
+    profile_enabled = bool(cfg.profile)
     timer = ContinuousTimer(device, enabled=profile_enabled)
     if profile_enabled:
         log.info("Profiling enabled: per-phase timing breakdown will print "
@@ -657,7 +653,7 @@ def run_continuous_training(
                     epoch=epoch, tag=tag, K=K, ablation_names=ablation_names,
                 )
 
-        # Per-phase profiler report (no-op when continuous_profile=false)
+        # Per-phase profiler report (no-op when profile=false)
         timer.report(log, label=f"epoch {epoch}")
 
     # ---- Final ----

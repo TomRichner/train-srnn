@@ -1,7 +1,0 @@
-defaults:
-  - srnn
-
-name: srnn_e_only_echo
-n_a_I: 0
-n_b_I: 0
-echo: true

@@ -1,4 +1,0 @@
-name: ctgru
-type: ctgru
-num_units: ${size}
-M: 8

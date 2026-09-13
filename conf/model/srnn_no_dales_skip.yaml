@@ -1,6 +1,0 @@
-defaults:
-  - srnn
-
-name: srnn_no_dales_skip
-dales: false
-skip: true

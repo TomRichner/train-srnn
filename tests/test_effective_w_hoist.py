@@ -25,37 +25,25 @@ import copy
 import sys
 
 import torch
-from omegaconf import OmegaConf
+from omegaconf import DictConfig
+
+from train_srnn.config import compose_config
 
 from train_srnn.models.factory import build_batched_model, build_model
 
 
 def _make_cfg(num_units: int = 16, n_features: int = 4,
-                   no_sfa: bool = False) -> OmegaConf:
-    """Autoregressive fp32 config; matches test_closed_loop_grad_checkpoint."""
-    model_cfg = {
-        "type": "srnn",
-        "name": "srnn-test",
-        "num_units": num_units,
-        "frac_E": 0.75,
-        "alpha": 1.0 / 3.0,
-        "level_of_chaos": 1.0,
-        "solver": "rk4",
-        "h": 0.005,
-        "ode_unfolds": 1,
-    }
+              no_sfa: bool = True) -> DictConfig:
+    """Small autoregressive SRNN config: input_size == output_size == 4."""
+    overrides = [
+        "model=srnn", "task=cheetah100", "seed=0",
+        f"model.num_units={num_units}",
+        f"task.input_size={n_features}", f"task.output_size={n_features}",
+        "model.solver=rk4", "task.h=0.005", "task.ode_unfolds=1",
+    ]
     if no_sfa:
-        model_cfg.update({"n_a_E": 0, "n_a_I": 0, "n_b_E": 0, "n_b_I": 0})
-    return OmegaConf.create({
-        "seed": 0,
-        "size": num_units,
-        "model": model_cfg,
-        "task": {
-            "task_type": "regression",
-            "input_size": n_features,
-            "output_size": n_features,
-        },
-    })
+        overrides += ["model.n_a_E=0", "model.n_a_I=0", "model.n_b_E=0", "model.n_b_I=0"]
+    return compose_config(overrides)
 
 
 def _zero_grads(mod):
@@ -152,7 +140,6 @@ def test_batched_cell_forward_backward_equivalence():
     torch.manual_seed(0)
     cfg = _make_cfg()
     abls = ["srnn-e-only-per-neuron", "srnn-e-only-skip-per-neuron"]
-    cfg.batched_ablations = abls
     model_a = build_batched_model(cfg, abls).eval()
     model_b = copy.deepcopy(model_a)
     cell_a, cell_b = model_a.cell, model_b.cell
@@ -227,7 +214,6 @@ def test_batched_cell_multistep_equivalence():
     torch.manual_seed(0)
     cfg = _make_cfg()
     abls = ["srnn-e-only-per-neuron", "srnn-e-only-skip-per-neuron"]
-    cfg.batched_ablations = abls
     model_a = build_batched_model(cfg, abls).eval()
     model_b = copy.deepcopy(model_a)
     cell_a, cell_b = model_a.cell, model_b.cell

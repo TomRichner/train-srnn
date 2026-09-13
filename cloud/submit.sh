@@ -42,9 +42,8 @@ case "$CLEANUP" in
 esac
 EXTRA_ARGS="${EXTRA_ARGS//\'/}"
 
-# Source experiment env for ARGS prefix (mirrors launch_run_gpu.sh)
+# Per-task default train args (mirrors launch_run_gpu.sh)
 if [ -f "$SCRIPT_DIR/experiments/${EXPERIMENT}.env" ]; then
-    unset MACHINE_TIER
     source "$SCRIPT_DIR/experiments/${EXPERIMENT}.env"
     EXTRA_ARGS="${ARGS:-} $EXTRA_ARGS"
 fi

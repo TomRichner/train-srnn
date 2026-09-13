@@ -22,7 +22,9 @@ import sys
 from pathlib import Path
 
 import torch
-from omegaconf import OmegaConf
+from omegaconf import DictConfig
+
+from train_srnn.config import compose_config
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -30,28 +32,14 @@ sys.path.insert(0, str(REPO_ROOT))
 from train_srnn.models.factory import build_batched_model, build_model  # noqa: E402
 
 
-def _make_cfg(num_units: int = 16, n_features: int = 4) -> OmegaConf:
-    return OmegaConf.create({
-        "seed": 0,
-        "size": num_units,
-        "model": {
-            "type": "srnn",
-            "name": "srnn-test",
-            "num_units": num_units,
-            "frac_E": 0.5,
-            "alpha": 1.0 / 3.0,
-            "level_of_chaos": 1.0,
-            "solver": "semi_implicit",
-            "h": 0.02,
-            "ode_unfolds": 1,
-            "n_a_E": 0, "n_a_I": 0, "n_b_E": 0, "n_b_I": 0,  # keep cell minimal
-        },
-        "task": {
-            "task_type": "regression",
-            "input_size": n_features,
-            "output_size": n_features,
-        },
-    })
+def _make_cfg(num_units: int = 16, n_features: int = 4) -> DictConfig:
+    return compose_config([
+        "model=srnn", "task=cheetah100", "seed=0",
+        f"model.num_units={num_units}",
+        f"task.input_size={n_features}", f"task.output_size={n_features}",
+        "task.h=0.02", "task.ode_unfolds=1",
+        "model.n_a_E=0", "model.n_a_I=0", "model.n_b_E=0", "model.n_b_I=0",
+    ])
 
 
 def test_identity_batched():
@@ -59,7 +47,6 @@ def test_identity_batched():
     torch.manual_seed(0)
     cfg = _make_cfg()
     ablations = ["srnn", "srnn-skip"]
-    cfg.batched_ablations = ablations
     model = build_batched_model(cfg, ablations)
 
     assert model.W_out_gain.shape == (2,)
@@ -103,7 +90,6 @@ def test_doubling_batched():
     torch.manual_seed(0)
     cfg = _make_cfg()
     ablations = ["srnn", "srnn-no-adapt"]   # both non-skip
-    cfg.batched_ablations = ablations
     model = build_batched_model(cfg, ablations)
 
     # Zero the bias so the gain*y comparison isolates the weight scaling
@@ -132,7 +118,6 @@ def test_grad_flow_batched():
     torch.manual_seed(0)
     cfg = _make_cfg()
     ablations = ["srnn", "srnn-skip"]
-    cfg.batched_ablations = ablations
     model = build_batched_model(cfg, ablations)
 
     with torch.no_grad():
