@@ -62,3 +62,9 @@ class RNNCell(nn.Module, ABC):
     @torch.no_grad()
     def constrain_parameters(self) -> None:
         """Project parameters back into their valid ranges after an optimizer step."""
+
+    def freeze(self, groups: list[str]) -> list[str]:
+        """Pin named parameter groups at their current values; returns the attributes frozen."""
+        if groups:
+            raise ValueError(f"{type(self).__name__} has no freezable parameter groups")
+        return []

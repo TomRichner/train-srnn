@@ -21,25 +21,18 @@ BPTT_START = 10
 CHUNK = 5
 SEG = 5
 
-SINGLE_MODELS = ["lstm", "ltc", "ltc_rk", "ltc_ex", "ctrnn", "node", "ctgru",
-                 "srnn", "srnn_e_only"]
+SINGLE_MODELS = ["lstm", "ltc", "ltc_rk", "ltc_ex", "ctrnn", "node", "ctgru"]
+BATCHED_PER_NEURON = [True, False, False, False]
+BATCHED_ECHO = [False, False, False, True]
 BATCHED_VARIANTS = ["srnn-per-neuron", "srnn-no-adapt", "srnn-e-only-skip",
                     "srnn-echo"]
 TRAINER_VARIANTS = ["srnn-no-dales-skip", "srnn-no-adapt-no-dales-skip"]
 
 
-# Old single-cell golden names -> (model group, extra overrides).
-SINGLE_OVERRIDES = {
-    "srnn": ("srnn", []),
-    "srnn_e_only": ("srnn", ["model.variants=[srnn-e-only]"]),
-}
-
-
 def make_cfg(model: str, *extra: str):
     from train_srnn.config import compose_config
-    group, model_extra = SINGLE_OVERRIDES.get(model, (model, []))
     overrides = [
-        f"model={group}", "task=cheetah100", "seed=0", f"model.num_units={N}",
+        f"model={model}", "task=cheetah100", "seed=0", f"model.num_units={N}",
         f"task.input_size={C}", f"task.output_size={C}",
         f"task.window_len={T}", f"task.bptt_len={T - BPTT_START}",
         f"task.bptt_chunk_len={CHUNK}", f"task.batch_size={B}",
@@ -47,7 +40,7 @@ def make_cfg(model: str, *extra: str):
         "device=cpu", "compile.enabled=false", "grad_checkpoint=false",
         "grad_checkpoint_segment_len=5", "epochs=1", "warmup_epochs=1",
         "burn_in=0", "burn_in_every=0",
-        *model_extra, *extra,
+        *extra,
     ]
     return compose_config(overrides)
 
@@ -59,9 +52,9 @@ def build_single(name: str):
 
 
 def build_batched(variants: list[str]):
-    from train_srnn.models.factory import build_batched_model
+    from train_srnn.models.factory import build_model
     torch.manual_seed(0)
-    return build_batched_model(make_cfg("srnn"), variants)
+    return build_model(make_cfg("srnn"), variants)
 
 
 def inputs():
@@ -179,7 +172,7 @@ def run_continuous_epoch(closed_loop: bool, out_dir: pathlib.Path):
     gen = torch.Generator().manual_seed(7)
     run_continuous_training(
         model, trace, vx, vy, vx, vy, opt, sched, torch.nn.MSELoss(), cfg,
-        cl_cfg, gen, rng, torch.device("cpu"), 2, list(model.ablation_names),
+        cl_cfg, gen, rng, torch.device("cpu"), 2, list(model.variant_names),
         train.eval_and_log_test, train.run_epoch, train.amp_autocast,
     )
     return {

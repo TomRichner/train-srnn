@@ -12,7 +12,7 @@ class TrainableIC(nn.Module):
     For single-variant cells, stores a learnable (state_dim,) parameter
     that gets tiled to (batch, state_dim) at forward time.
 
-    For K-batched cells (BatchedSRNNCell), stores (K, state_dim) and
+    For K-batched cells (SRNNCell), stores (K, state_dim) and
     returns (K, batch, state_dim).
     """
 

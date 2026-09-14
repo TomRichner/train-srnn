@@ -1,75 +1,47 @@
-"""PyTorch SRNN cell with batched ablation support via bmm.
+"""SRNN: a continuous-time rate network with Dale's law, spike-frequency
+adaptation (SFA), and short-term synaptic depression (STD).
 
-Port from TensorFlow 1.x. Key innovation: multiple SRNN ablation variants
-can be tiled into GPU-parallel compute using torch.bmm(), enabling efficient
-ablation studies without sequential evaluation.
+One ``SRNNCell`` runs K variants of the model side by side. Every parameter
+carries a leading K axis and the ablations (no adaptation, E-only, no
+Dale's law, frozen recurrent weights, per-neuron parameters, ...) are
+multiplicative masks, so the forward pass has no Python branching on the
+variant and compiles to one batched graph. The flat state of variant k is
 
-All forward-pass code is torch.compile-friendly (no Python-level branching
-on tensor values).
+    [ a_E (n_E x n_a_E) | a_I (n_I x n_a_I) | b_E (n_E) | b_I (n_I) | x (N) ]
+
+zero-padded to the widest variant in the batch. Positive parameters are
+stored in inverse-softplus space (``isp_*``); per-neuron vectors are paired
+with a per-variant scalar or log-gain so that variants without per-neuron
+adaptation train only the shared value. See docs/model.md for the equations.
 """
-
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from torch import Tensor
 
 from train_srnn.models.base import RNNCell
-import torch.nn.functional as F
+from train_srnn.models.ode import euler_step, rk4_step
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def inv_softplus(x: float) -> float:
-    """Inverse of softplus (scalar): log(exp(x) - 1)."""
     return math.log(math.expm1(x))
 
 
-def _softplus_inv(x: torch.Tensor) -> torch.Tensor:
-    """Inverse of F.softplus (tensor): returns log(exp(x) - 1).
-
-    Numerically stable: for large x, softplus_inv(x) ≈ x.
-    Requires x > 0.
-    """
-    return torch.log(torch.expm1(x))
-
-
-def piecewise_sigmoid(x: torch.Tensor, S_a: float = 0.9, S_c: float = 0.0) -> torch.Tensor:
-    """Bounded [0, 1] activation with linear center and quadratic edges.
-
-    S_a controls the fraction of the output range that is linear (default 0.9
-    means 90% linear, 10% quadratic rounding at edges).  Matches the TF 1.x
-    ``piecewise_sigmoid`` from ``srnn_model.py``.
-
-    Parameters
-    ----------
-    x : Tensor
-        Input values.
-    S_a : float
-        Width of the linear region as a fraction of [0, 1] output range.
-    S_c : float
-        Center of the linear region.
-    """
+def piecewise_sigmoid(x: Tensor, S_a: float = 0.9, S_c: float = 0.0) -> Tensor:
+    """Activation in [0, 1]: linear over a fraction ``S_a`` of the range, quadratic edges."""
     a = S_a / 2.0
     c = S_c
     k = 0.5 / (1.0 - 2.0 * a) if abs(1.0 - 2.0 * a) > 1e-8 else 0.0
-
-    x1 = c + a - 1.0   # left saturation boundary
-    x2 = c - a          # left quadratic → linear transition
-    x3 = c + a          # linear → right quadratic transition
-    x4 = c + 1.0 - a   # right saturation boundary
-
-    # Piecewise: 0 | quadratic rise | linear | quadratic cap | 1
-    # All branches computed and blended via masks for torch.compile.
+    x1, x2, x3, x4 = c + a - 1.0, c - a, c + a, c + 1.0 - a
     quad_rise = k * (x - x1) * (x - x1)
     linear = (x - c) + 0.5
     quad_cap = 1.0 - k * (x - x4) * (x - x4)
-
     out = torch.where(x < x1, torch.zeros_like(x), quad_rise)
     out = torch.where(x >= x2, linear, out)
     out = torch.where(x > x3, quad_cap, out)
@@ -77,32 +49,27 @@ def piecewise_sigmoid(x: torch.Tensor, S_a: float = 0.9, S_c: float = 0.0) -> to
     return out
 
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
 @dataclass
 class SRNNConfig:
-    """Configuration for a single SRNN variant."""
+    """One variant. ``n_a_*`` counts SFA timescales (0 = off); ``n_b_*`` is STD on/off."""
 
     num_units: int = 32
     dales: bool = True
-    n_a_E: int = 3       # SFA timescales for E (0=off, 1=single, >=2=multi)
-    n_a_I: int = 3       # SFA timescales for I
-    n_b_E: int = 1       # STD for E (0=off, 1=on)
-    n_b_I: int = 1       # STD for I
-    per_neuron: bool = False
-    echo: bool = False    # Reservoir mode (freeze W)
-    skip: bool = False    # Add residual y = readout(state) + x at output (autoregressive only)
-    solver: str = "semi_implicit"
+    n_a_E: int = 3
+    n_a_I: int = 3
+    n_b_E: int = 1
+    n_b_I: int = 1
+    per_neuron: bool = False       # train per-neuron adaptation parameters
+    echo: bool = False             # frozen recurrent weights (reservoir)
+    skip: bool = False             # y = readout(state) + x; applied by SequenceModel
+    solver: str = "semi_implicit"  # semi_implicit | explicit | rk4
     h: float = 0.02
     ode_unfolds: int = 1
-    readout: str = "synaptic"
-    tau_global_init: float = 1.0  # Initial value for global timescale multiplier
-    tau_a_lo_init: float = 0.25   # Fastest SFA timescale (s) at init
-    tau_a_hi_init: float = 4.0    # Slowest SFA timescale (s) at init; multi-timescale
-                                  # SFA log-interpolates n_a values across [lo, hi]
-    std_zero_floor: bool = True   # Rescale b -> (b - b_min)/(1 - b_min) so synaptic gain reaches 0 at saturation
+    readout: str = "synaptic"      # synaptic | rate | dendritic
+    tau_global_init: float = 1.0
+    tau_a_lo_init: float = 0.25    # fastest SFA timescale (s)
+    tau_a_hi_init: float = 4.0     # slowest SFA timescale (s)
+    std_zero_floor: bool = True    # rescale b so the synaptic gain reaches 0 at saturation
 
     @property
     def n_E(self) -> int:
@@ -114,1633 +81,432 @@ class SRNNConfig:
 
     @property
     def state_size(self) -> int:
-        """Total flat state dimension."""
-        return (
-            self.n_E * self.n_a_E
-            + self.n_I * self.n_a_I
-            + self.n_E * self.n_b_E
-            + self.n_I * self.n_b_I
-            + self.num_units
-        )
+        return (self.n_E * self.n_a_E + self.n_I * self.n_a_I
+                + self.n_E * self.n_b_E + self.n_I * self.n_b_I + self.num_units)
 
 
-# ---------------------------------------------------------------------------
-# Preset ablation variants
-# ---------------------------------------------------------------------------
-
-SRNN_PRESETS: dict[str, SRNNConfig] = {
-    "srnn": SRNNConfig(),
-    "srnn-per-neuron": SRNNConfig(per_neuron=True),
-    "srnn-echo": SRNNConfig(echo=True),
-    "srnn-no-adapt": SRNNConfig(n_a_E=0, n_a_I=0, n_b_E=0, n_b_I=0),
-    "srnn-no-adapt-no-dales": SRNNConfig(dales=False, n_a_E=0, n_a_I=0, n_b_E=0, n_b_I=0),
-    "srnn-sfa-only": SRNNConfig(n_a_E=1, n_a_I=1, n_b_E=0, n_b_I=0),
-    "srnn-std-only": SRNNConfig(n_a_E=0, n_a_I=0, n_b_E=1, n_b_I=1),
-    "srnn-E-only": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0),
-    "srnn-sfa-e-only": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=0, n_b_I=0),
-    "srnn-std-e-only": SRNNConfig(n_a_E=0, n_a_I=0, n_b_E=1, n_b_I=0),
-    "srnn-e-only-echo": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, echo=True),
-    "srnn-e-only-per-neuron": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, per_neuron=True),
-    "srnn-e-only-skip": SRNNConfig(n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, skip=True),
-    "srnn-e-only-skip-per-neuron": SRNNConfig(
-        n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, per_neuron=True, skip=True),
-    "srnn-e-only-skip-echo": SRNNConfig(
-        n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0, echo=True, skip=True),
-    "srnn-skip": SRNNConfig(skip=True),
-    "srnn-no-dales-skip": SRNNConfig(dales=False, skip=True),
-    "srnn-no-adapt-no-dales-skip": SRNNConfig(
-        dales=False, n_a_E=0, n_a_I=0, n_b_E=0, n_b_I=0, skip=True),
-    "srnn-sfa-e-only-skip": SRNNConfig(
-        n_a_E=3, n_a_I=0, n_b_E=0, n_b_I=0, skip=True),
-    "srnn-std-e-only-skip": SRNNConfig(
-        n_a_E=0, n_a_I=0, n_b_E=1, n_b_I=0, skip=True),
-    "srnn-sfa-e-only-per-neuron": SRNNConfig(
-        n_a_E=3, n_a_I=0, n_b_E=0, n_b_I=0, per_neuron=True),
-    "srnn-std-e-only-per-neuron": SRNNConfig(
-        n_a_E=0, n_a_I=0, n_b_E=1, n_b_I=0, per_neuron=True),
-    "srnn-sfa-e-only-skip-per-neuron": SRNNConfig(
-        n_a_E=3, n_a_I=0, n_b_E=0, n_b_I=0, per_neuron=True, skip=True),
-    "srnn-std-e-only-skip-per-neuron": SRNNConfig(
-        n_a_E=0, n_a_I=0, n_b_E=1, n_b_I=0, per_neuron=True, skip=True),
-    "srnn-multi-sfa": SRNNConfig(n_a_E=2, n_a_I=2),
-    "srnn-multi-sfa-E": SRNNConfig(n_a_E=2, n_a_I=0, n_b_E=1, n_b_I=0),
-    "srnn-no-dales": SRNNConfig(dales=False),
-    "srnn-explicit": SRNNConfig(solver="explicit"),
-    "srnn-rk4": SRNNConfig(solver="rk4"),
+# Logical parameter groups for freezing; every attribute must exist on the cell.
+FREEZE_GROUPS: dict[str, tuple[str, ...]] = {
+    "a_0": ("a_0_vec", "a_0_scalar"),
+    "W_raw": ("W_raw",), "W_in": ("W_in",),
+    "W_raw_gain": ("W_raw_gain",), "W_in_gain": ("W_in_gain",),
+    "tau_global": ("isp_tau_global",),
+    "tau_d": ("isp_tau_d_vec", "log_tau_d_gain"),
+    "tau_a_E": ("isp_tau_a_E_vec", "log_tau_a_E_gain"),
+    "c_E": ("isp_c_E_vec", "log_c_E_gain"),
+    "c_0_E": ("c_0_E_vec", "c_0_E_scalar"),
+    "tau_a_I": ("isp_tau_a_I_vec", "log_tau_a_I_gain"),
+    "c_I": ("isp_c_I_vec", "log_c_I_gain"),
+    "c_0_I": ("c_0_I_vec", "c_0_I_scalar"),
+    "tau_b_rec_E": ("isp_tau_b_rec_E_vec", "log_tau_b_rec_E_gain"),
+    "tau_b_rel_E": ("isp_tau_b_rel_E_vec", "log_tau_b_rel_E_gain"),
+    "tau_b_rec_I": ("isp_tau_b_rec_I_vec", "log_tau_b_rec_I_gain"),
+    "tau_b_rel_I": ("isp_tau_b_rel_I_vec", "log_tau_b_rel_I_gain"),
 }
 
 
-# ---------------------------------------------------------------------------
-# Single SRNNCell
-# ---------------------------------------------------------------------------
-
 class SRNNCell(RNNCell):
-    """Single SRNN variant as an RNNCell-compatible module.
-
-    State is a flat (batch, state_size) tensor packed as:
-        [a_E_flat, a_I_flat, b_E, b_I, x]
-    """
-
-    def __init__(
-        self,
-        config: SRNNConfig,
-        input_size: int,
-        rmt_export: dict,
-        W_in_mask: Optional[torch.Tensor] = None,
-    ):
-        super().__init__(input_size, config.num_units, state_size=config.state_size,
-                         dt=config.h, W_in_mask=W_in_mask, mask_shape=(-1, 1))
-        self.config = config
-        N = config.num_units
-        n_E = config.n_E
-        n_I = config.n_I
-
-        # ---- Recurrent weight (from RMTMatrix) ----
-        self.W_raw = nn.Parameter(rmt_export["W_init"].clone())
-        self.register_buffer("sparsity_mask", rmt_export["sparsity_mask"].clone())
-        self.register_buffer("dales_sign", rmt_export["dales_sign"].clone())
-
-        if config.echo:
-            self.W_raw.requires_grad_(False)
-
-        # ---- Input weight ----
-        self.W_in = nn.Parameter(torch.randn(N, input_size) * 0.1)
-
-        # ---- Global gains on W_raw and W_in (pooled optimization directions,
-        # ESN-style spectral-radius / input-gain knobs made differentiable). ----
-        self.W_raw_gain = nn.Parameter(torch.tensor(1.0))
-        self.W_in_gain = nn.Parameter(torch.tensor(1.0))
-
-        # ---- Threshold ----
-        self.a_0 = nn.Parameter(torch.full((N,), 0.35))
-
-        # ---- Global timescale multiplier ----
-        self.isp_tau_global = nn.Parameter(
-            torch.full((), inv_softplus(config.tau_global_init))
-        )
-
-        # ---- Dendritic time constant ----
-        tau_d_shape = (N,) if config.per_neuron else (1,)
-        self.isp_tau_d = nn.Parameter(torch.full(tau_d_shape, inv_softplus(0.1)))
-
-        # ---- SFA parameters for E ----
-        if config.n_a_E > 0:
-            base_E = (n_E,) if config.per_neuron else (1,)
-            if config.n_a_E == 1:
-                self.isp_tau_a_E = nn.Parameter(
-                    torch.full((*base_E, 1), inv_softplus(1.0)))
-                self.isp_tau_a_E_lo = None
-                self.isp_tau_a_E_hi = None
-            else:
-                # Store lo/hi endpoints; interpolate n_a_E values at runtime
-                self.isp_tau_a_E = None
-                self.isp_tau_a_E_lo = nn.Parameter(
-                    torch.full((*base_E, 1), inv_softplus(config.tau_a_lo_init)))
-                self.isp_tau_a_E_hi = nn.Parameter(
-                    torch.full((*base_E, 1), inv_softplus(config.tau_a_hi_init)))
-            c_E_shape = (n_E, config.n_a_E) if config.per_neuron else (1, config.n_a_E)
-            self.isp_c_E = nn.Parameter(torch.full(c_E_shape, inv_softplus(0.05)))
-            self.c_0_E = nn.Parameter(torch.zeros(c_E_shape))
-        else:
-            self.isp_tau_a_E = None
-            self.isp_tau_a_E_lo = None
-            self.isp_tau_a_E_hi = None
-            self.isp_c_E = None
-            self.c_0_E = None
-
-        # ---- SFA parameters for I ----
-        if config.n_a_I > 0:
-            base_I = (n_I,) if config.per_neuron else (1,)
-            if config.n_a_I == 1:
-                self.isp_tau_a_I = nn.Parameter(
-                    torch.full((*base_I, 1), inv_softplus(1.0)))
-                self.isp_tau_a_I_lo = None
-                self.isp_tau_a_I_hi = None
-            else:
-                self.isp_tau_a_I = None
-                self.isp_tau_a_I_lo = nn.Parameter(
-                    torch.full((*base_I, 1), inv_softplus(config.tau_a_lo_init)))
-                self.isp_tau_a_I_hi = nn.Parameter(
-                    torch.full((*base_I, 1), inv_softplus(config.tau_a_hi_init)))
-            c_I_shape = (n_I, config.n_a_I) if config.per_neuron else (1, config.n_a_I)
-            self.isp_c_I = nn.Parameter(torch.full(c_I_shape, inv_softplus(0.05)))
-            self.c_0_I = nn.Parameter(torch.zeros(c_I_shape))
-        else:
-            self.isp_tau_a_I = None
-            self.isp_tau_a_I_lo = None
-            self.isp_tau_a_I_hi = None
-            self.isp_c_I = None
-            self.c_0_I = None
-
-        # ---- STD parameters for E ----
-        if config.n_b_E > 0:
-            b_shape = (n_E,) if config.per_neuron else (1,)
-            self.isp_tau_b_rec_E = nn.Parameter(torch.full(b_shape, inv_softplus(1.0)))
-            self.isp_tau_b_rel_E = nn.Parameter(torch.full(b_shape, inv_softplus(0.25)))
-        else:
-            self.isp_tau_b_rec_E = None
-            self.isp_tau_b_rel_E = None
-
-        # ---- STD parameters for I ----
-        if config.n_b_I > 0:
-            b_shape = (n_I,) if config.per_neuron else (1,)
-            self.isp_tau_b_rec_I = nn.Parameter(torch.full(b_shape, inv_softplus(1.0)))
-            self.isp_tau_b_rel_I = nn.Parameter(torch.full(b_shape, inv_softplus(0.25)))
-        else:
-            self.isp_tau_b_rec_I = None
-            self.isp_tau_b_rel_I = None
-
-    # ---- Weight construction ----
-
-    def _effective_W(self) -> torch.Tensor:
-        """Build effective W — branch-free, compatible with batched bmm.
-
-        W_eff = dales_flag * dales_sign * softplus(W_raw) * mask
-              + (1 - dales_flag) * W_raw * mask
-
-        dales_sign is (N,) and broadcasts column-wise over (N, N).
-        """
-        d = float(self.config.dales)
-        W_eff = (d * self.dales_sign * F.softplus(self.W_raw)
-               + (1.0 - d) * self.W_raw) * self.sparsity_mask
-        return self.W_raw_gain * W_eff
-
-    # ---- State packing / unpacking ----
-
-    def pack_state(
-        self,
-        a_E: Optional[torch.Tensor],
-        a_I: Optional[torch.Tensor],
-        b_E: Optional[torch.Tensor],
-        b_I: Optional[torch.Tensor],
-        x: torch.Tensor,
-    ) -> torch.Tensor:
-        """Pack state components into a flat (batch, state_size) tensor."""
-        parts: list[torch.Tensor] = []
-        if a_E is not None:
-            parts.append(a_E.flatten(start_dim=1))
-        if a_I is not None:
-            parts.append(a_I.flatten(start_dim=1))
-        if b_E is not None:
-            parts.append(b_E)
-        if b_I is not None:
-            parts.append(b_I)
-        parts.append(x)
-        return torch.cat(parts, dim=-1)
-
-    def unpack_state(self, state: torch.Tensor):
-        """Unpack flat state into (a_E, a_I, b_E, b_I, x)."""
-        cfg = self.config
-        idx = 0
-        a_E = a_I = b_E = b_I = None
-
-        if cfg.n_a_E > 0:
-            sz = cfg.n_E * cfg.n_a_E
-            a_E = state[:, idx:idx + sz].reshape(-1, cfg.n_E, cfg.n_a_E)
-            idx += sz
-        if cfg.n_a_I > 0:
-            sz = cfg.n_I * cfg.n_a_I
-            a_I = state[:, idx:idx + sz].reshape(-1, cfg.n_I, cfg.n_a_I)
-            idx += sz
-        if cfg.n_b_E > 0:
-            b_E = state[:, idx:idx + cfg.n_E]
-            idx += cfg.n_E
-        if cfg.n_b_I > 0:
-            b_I = state[:, idx:idx + cfg.n_I]
-            idx += cfg.n_I
-        x = state[:, idx:idx + cfg.num_units]
-        return a_E, a_I, b_E, b_I, x
-
-    def hoist(self) -> torch.Tensor:
-        return self._effective_W()
-
-    def init_state(self, batch_size: int, device: torch.device = None) -> torch.Tensor:
-        """Return an initialized flat state.
-
-        Matches MATLAB SRNNModel2.initialize_state:
-          a_E, a_I = 0  (no adaptation at start)
-          b_E, b_I = 1  (fully available synapses, no depression)
-          x        = 0.1 * randn  (small random perturbation)
-        """
-        if device is None:
-            device = self.W_raw.device
-        cfg = self.config
-        parts: list[torch.Tensor] = []
-        # a_E: zeros
-        if cfg.n_a_E > 0:
-            parts.append(torch.zeros(batch_size, cfg.n_E * cfg.n_a_E, device=device))
-        # a_I: zeros
-        if cfg.n_a_I > 0:
-            parts.append(torch.zeros(batch_size, cfg.n_I * cfg.n_a_I, device=device))
-        # b_E: ones (fully available)
-        if cfg.n_b_E > 0:
-            parts.append(torch.ones(batch_size, cfg.n_E, device=device))
-        # b_I: ones (fully available)
-        if cfg.n_b_I > 0:
-            parts.append(torch.ones(batch_size, cfg.n_I, device=device))
-        # x: small random perturbation
-        parts.append(0.1 * torch.randn(batch_size, cfg.num_units, device=device))
-        return torch.cat(parts, dim=-1)
-
-    # ---- Tau helpers (centralized, all scaled by tau_global) ----
-
-    def _tau_global(self) -> torch.Tensor:
-        return F.softplus(self.isp_tau_global)
-
-    def _tau_d(self) -> torch.Tensor:
-        return self._tau_global() * F.softplus(self.isp_tau_d)
-
-    def _get_tau_a_E(self) -> torch.Tensor:
-        """Get SFA time constants for E neurons, interpolating if multi-timescale."""
-        g = self._tau_global()
-        if self.isp_tau_a_E is not None:
-            return g * F.softplus(self.isp_tau_a_E)
-        lo = F.softplus(self.isp_tau_a_E_lo)
-        hi = F.softplus(self.isp_tau_a_E_hi)
-        n = self.config.n_a_E
-        t = torch.linspace(0.0, 1.0, n, device=lo.device)
-        log_lo = torch.log(lo)
-        log_hi = torch.log(hi)
-        return g * torch.exp(log_lo + (log_hi - log_lo) * t)
-
-    def _get_tau_a_I(self) -> torch.Tensor:
-        """Get SFA time constants for I neurons, interpolating if multi-timescale."""
-        g = self._tau_global()
-        if self.isp_tau_a_I is not None:
-            return g * F.softplus(self.isp_tau_a_I)
-        lo = F.softplus(self.isp_tau_a_I_lo)
-        hi = F.softplus(self.isp_tau_a_I_hi)
-        n = self.config.n_a_I
-        t = torch.linspace(0.0, 1.0, n, device=lo.device)
-        log_lo = torch.log(lo)
-        log_hi = torch.log(hi)
-        return g * torch.exp(log_lo + (log_hi - log_lo) * t)
-
-    def _tau_b_rec_E(self) -> torch.Tensor:
-        return self._tau_global() * F.softplus(self.isp_tau_b_rec_E)
-
-    def _tau_b_rel_E(self) -> torch.Tensor:
-        return self._tau_global() * F.softplus(self.isp_tau_b_rel_E)
-
-    def _tau_b_rec_I(self) -> torch.Tensor:
-        return self._tau_global() * F.softplus(self.isp_tau_b_rec_I)
-
-    def _tau_b_rel_I(self) -> torch.Tensor:
-        return self._tau_global() * F.softplus(self.isp_tau_b_rel_I)
-
-    def _c_E(self) -> torch.Tensor:
-        """SFA coupling for E (post-softplus). Mirrors BatchedSRNNCell._c_E."""
-        return F.softplus(self.isp_c_E)
-
-    def _c_I(self) -> torch.Tensor:
-        """SFA coupling for I (post-softplus). Mirrors BatchedSRNNCell._c_I."""
-        return F.softplus(self.isp_c_I)
-
-    def _maybe_rescale_b(self, b_E, b_I):
-        """Apply (b - b_min)/(1 - b_min) rescaling when std_zero_floor=True.
-
-        b_min = tau_rel / (tau_rec + tau_rel) — the asymptote of b at r=1.
-        Maps the dynamic range [b_min, 1] to [0, 1] in the synaptic readout
-        without altering the b ODE itself.
-
-        Returns (b_E_used, b_I_used). When the flag is off or a side has no
-        STD parameters, the corresponding input is returned unchanged.
-        """
-        if not self.config.std_zero_floor:
-            return b_E, b_I
-        b_E_used = b_E
-        b_I_used = b_I
-        if b_E is not None:
-            tau_rec_E = self._tau_b_rec_E()
-            tau_rel_E = self._tau_b_rel_E()
-            b_min_E = tau_rel_E / (tau_rec_E + tau_rel_E)
-            b_E_used = (b_E - b_min_E) / (1.0 - b_min_E)
-        if b_I is not None:
-            tau_rec_I = self._tau_b_rec_I()
-            tau_rel_I = self._tau_b_rel_I()
-            b_min_I = tau_rel_I / (tau_rec_I + tau_rel_I)
-            b_I_used = (b_I - b_min_I) / (1.0 - b_min_I)
-        return b_E_used, b_I_used
-
-    # ---- ODE right-hand side ----
-
-    def _compute_rhs(
-        self,
-        x: torch.Tensor,
-        a_E: Optional[torch.Tensor],
-        a_I: Optional[torch.Tensor],
-        b_E: Optional[torch.Tensor],
-        b_I: Optional[torch.Tensor],
-        u: torch.Tensor,
-        W_eff: torch.Tensor,
-    ):
-        """Compute derivatives (dx, da_E, da_I, db_E, db_I) for one sub-step.
-
-        Returns the values needed by each solver (slightly different usage
-        depending on the solver, but the core math is the same).
-        """
-        cfg = self.config
-        N = cfg.num_units
-        n_E = cfg.n_E
-
-        # 1. Effective potential after SFA subtraction
-        x_eff = x
-        if a_E is not None:
-            c_E = self._c_E()  # (n_E, n_a_E) or (1, n_a_E)
-            x_eff_E = x[:, :n_E] - (c_E * a_E).sum(-1)
-            x_eff = torch.cat([x_eff_E, x_eff[:, n_E:]], dim=-1)
-        if a_I is not None:
-            c_I = self._c_I()
-            x_eff_I = x_eff[:, n_E:] - (c_I * a_I).sum(-1)
-            x_eff = torch.cat([x_eff[:, :n_E], x_eff_I], dim=-1)
-
-        # 2. Firing rate
-        r = piecewise_sigmoid(x_eff - self.a_0)  # (batch, N)
-
-        # 3. Synaptic output with depression
-        b_E_used, b_I_used = self._maybe_rescale_b(b_E, b_I)
-        b_full = torch.ones_like(r)
-        if b_E_used is not None:
-            b_full = torch.cat([b_E_used, b_full[:, n_E:]], dim=-1)
-        if b_I_used is not None:
-            b_full = torch.cat([b_full[:, :n_E], b_I_used], dim=-1)
-        br = b_full * r  # (batch, N)
-
-        # 4. Recurrent drive
-        Wbr = br @ W_eff.T  # (batch, N)
-
-        # 5. Dendritic potential derivative
-        tau_d = self._tau_d()
-        dx = (-x + u + Wbr) / tau_d
-
-        # 6. SFA derivatives
-        da_E = da_I = None
-        if a_E is not None:
-            tau_a_E = self._get_tau_a_E()
-            r_E = r[:, :n_E].unsqueeze(-1)  # (batch, n_E, 1)
-            da_E = (-a_E + self.c_0_E + r_E) / tau_a_E
-
-        if a_I is not None:
-            tau_a_I = self._get_tau_a_I()
-            r_I = r[:, n_E:].unsqueeze(-1)
-            da_I = (-a_I + self.c_0_I + r_I) / tau_a_I
-
-        # 7. STD derivatives
-        db_E = db_I = None
-        if b_E is not None:
-            tau_b_rec_E = self._tau_b_rec_E()
-            tau_b_rel_E = self._tau_b_rel_E()
-            r_E_flat = r[:, :n_E]
-            db_E = (1.0 - b_E) / tau_b_rec_E - r_E_flat * b_E / tau_b_rel_E
-
-        if b_I is not None:
-            tau_b_rec_I = self._tau_b_rec_I()
-            tau_b_rel_I = self._tau_b_rel_I()
-            r_I_flat = r[:, n_E:]
-            db_I = (1.0 - b_I) / tau_b_rec_I - r_I_flat * b_I / tau_b_rel_I
-
-        return dx, da_E, da_I, db_E, db_I, r, b_full
-
-    # ---- Solvers ----
-
-    def _step_semi_implicit(
-        self, dt: float, x, a_E, a_I, b_E, b_I, u, W_eff,
-    ):
-        """Semi-implicit (linearly-implicit Euler) step."""
-        cfg = self.config
-        n_E = cfg.n_E
-
-        # Effective potential
-        x_eff = x
-        if a_E is not None:
-            c_E = self._c_E()
-            x_eff_E = x[:, :n_E] - (c_E * a_E).sum(-1)
-            x_eff = torch.cat([x_eff_E, x_eff[:, n_E:]], dim=-1)
-        if a_I is not None:
-            c_I = self._c_I()
-            x_eff_I = x_eff[:, n_E:] - (c_I * a_I).sum(-1)
-            x_eff = torch.cat([x_eff[:, :n_E], x_eff_I], dim=-1)
-
-        r = piecewise_sigmoid(x_eff - self.a_0)
-
-        b_E_used, b_I_used = self._maybe_rescale_b(b_E, b_I)
-        b_full = torch.ones_like(r)
-        if b_E_used is not None:
-            b_full = torch.cat([b_E_used, b_full[:, n_E:]], dim=-1)
-        if b_I_used is not None:
-            b_full = torch.cat([b_full[:, :n_E], b_I_used], dim=-1)
-        br = b_full * r
-        Wbr = br @ W_eff.T
-
-        # Semi-implicit x update
-        tau_d = self._tau_d()
-        alpha_x = dt / tau_d
-        x_new = (x + alpha_x * (u + Wbr)) / (1.0 + alpha_x)
-
-        # Semi-implicit SFA update
-        a_E_new = a_I_new = None
-        if a_E is not None:
-            tau_a_E = self._get_tau_a_E()
-            alpha_a_E = dt / tau_a_E
-            r_E = r[:, :n_E].unsqueeze(-1)
-            a_E_new = (a_E + alpha_a_E * (self.c_0_E + r_E)) / (1.0 + alpha_a_E)
-
-        if a_I is not None:
-            tau_a_I = self._get_tau_a_I()
-            alpha_a_I = dt / tau_a_I
-            r_I = r[:, n_E:].unsqueeze(-1)
-            a_I_new = (a_I + alpha_a_I * (self.c_0_I + r_I)) / (1.0 + alpha_a_I)
-
-        # Semi-implicit STD update
-        b_E_new = b_I_new = None
-        if b_E is not None:
-            tau_b_rec_E = self._tau_b_rec_E()
-            tau_b_rel_E = self._tau_b_rel_E()
-            r_E_flat = r[:, :n_E]
-            b_E_new = (b_E + dt / tau_b_rec_E) / (
-                1.0 + dt * (1.0 / tau_b_rec_E + r_E_flat / tau_b_rel_E)
-            )
-            b_E_new = b_E_new.clamp(0.0, 1.0)
-
-        if b_I is not None:
-            tau_b_rec_I = self._tau_b_rec_I()
-            tau_b_rel_I = self._tau_b_rel_I()
-            r_I_flat = r[:, n_E:]
-            b_I_new = (b_I + dt / tau_b_rec_I) / (
-                1.0 + dt * (1.0 / tau_b_rec_I + r_I_flat / tau_b_rel_I)
-            )
-            b_I_new = b_I_new.clamp(0.0, 1.0)
-
-        return x_new, a_E_new, a_I_new, b_E_new, b_I_new, r, b_full
-
-    def _step_explicit(self, dt, x, a_E, a_I, b_E, b_I, u, W_eff):
-        """Forward Euler step."""
-        dx, da_E, da_I, db_E, db_I, r, b_full = self._compute_rhs(
-            x, a_E, a_I, b_E, b_I, u, W_eff
-        )
-        x_new = x + dt * dx
-        a_E_new = (a_E + dt * da_E) if a_E is not None else None
-        a_I_new = (a_I + dt * da_I) if a_I is not None else None
-        b_E_new = (b_E + dt * db_E).clamp(0.0, 1.0) if b_E is not None else None
-        b_I_new = (b_I + dt * db_I).clamp(0.0, 1.0) if b_I is not None else None
-        return x_new, a_E_new, a_I_new, b_E_new, b_I_new, r, b_full
-
-    def _step_rk4(self, dt, x, a_E, a_I, b_E, b_I, u, W_eff):
-        """Classical 4th-order Runge-Kutta step."""
-
-        def _add(a, b, scale):
-            if a is None:
-                return None
-            return a + scale * b
-
-        # k1
-        k1 = self._compute_rhs(x, a_E, a_I, b_E, b_I, u, W_eff)
-        # k2
-        k2 = self._compute_rhs(
-            _add(x, k1[0], 0.5 * dt),
-            _add(a_E, k1[1], 0.5 * dt),
-            _add(a_I, k1[2], 0.5 * dt),
-            _add(b_E, k1[3], 0.5 * dt),
-            _add(b_I, k1[4], 0.5 * dt),
-            u, W_eff,
-        )
-        # k3
-        k3 = self._compute_rhs(
-            _add(x, k2[0], 0.5 * dt),
-            _add(a_E, k2[1], 0.5 * dt),
-            _add(a_I, k2[2], 0.5 * dt),
-            _add(b_E, k2[3], 0.5 * dt),
-            _add(b_I, k2[4], 0.5 * dt),
-            u, W_eff,
-        )
-        # k4
-        k4 = self._compute_rhs(
-            _add(x, k3[0], dt),
-            _add(a_E, k3[1], dt),
-            _add(a_I, k3[2], dt),
-            _add(b_E, k3[3], dt),
-            _add(b_I, k3[4], dt),
-            u, W_eff,
-        )
-
-        def _rk4_combine(y, k1v, k2v, k3v, k4v):
-            if y is None:
-                return None
-            return y + (dt / 6.0) * (k1v + 2.0 * k2v + 2.0 * k3v + k4v)
-
-        x_new = _rk4_combine(x, k1[0], k2[0], k3[0], k4[0])
-        a_E_new = _rk4_combine(a_E, k1[1], k2[1], k3[1], k4[1])
-        a_I_new = _rk4_combine(a_I, k1[2], k2[2], k3[2], k4[2])
-        b_E_new = _rk4_combine(b_E, k1[3], k2[3], k3[3], k4[3])
-        if b_E_new is not None:
-            b_E_new = b_E_new.clamp(0.0, 1.0)
-        b_I_new = _rk4_combine(b_I, k1[4], k2[4], k3[4], k4[4])
-        if b_I_new is not None:
-            b_I_new = b_I_new.clamp(0.0, 1.0)
-        return x_new, a_E_new, a_I_new, b_E_new, b_I_new, k1[5], k1[6]
-
-    def _step_exponential(self, dt, x, a_E, a_I, b_E, b_I, u, W_eff):
-        """Exponential Euler step: exact decay factor for the linear part."""
-        cfg = self.config
-        n_E = cfg.n_E
-
-        # Compute firing rate and recurrent drive (same as explicit)
-        dx, da_E, da_I, db_E, db_I, r, b_full = self._compute_rhs(
-            x, a_E, a_I, b_E, b_I, u, W_eff
-        )
-
-        # Exponential update for x: x_new = x*exp(-dt/tau) + (1-exp(-dt/tau)) * driving
-        tau_d = self._tau_d()
-        decay_x = torch.exp(-dt / tau_d)
-        b_rebuilt = torch.ones_like(r)
-        if b_E is not None:
-            b_rebuilt = torch.cat([b_E, b_rebuilt[:, n_E:]], dim=-1)
-        if b_I is not None:
-            b_rebuilt = torch.cat([b_rebuilt[:, :n_E], b_I], dim=-1)
-        br = b_rebuilt * r
-        Wbr = br @ W_eff.T
-        x_new = x * decay_x + (1.0 - decay_x) * (u + Wbr)
-
-        # Exponential update for SFA
-        a_E_new = a_I_new = None
-        if a_E is not None:
-            tau_a_E = self._get_tau_a_E()
-            decay_a_E = torch.exp(-dt / tau_a_E)
-            r_E = r[:, :n_E].unsqueeze(-1)
-            a_E_new = a_E * decay_a_E + (1.0 - decay_a_E) * (self.c_0_E + r_E)
-
-        if a_I is not None:
-            tau_a_I = self._get_tau_a_I()
-            decay_a_I = torch.exp(-dt / tau_a_I)
-            r_I = r[:, n_E:].unsqueeze(-1)
-            a_I_new = a_I * decay_a_I + (1.0 - decay_a_I) * (self.c_0_I + r_I)
-
-        # STD: use explicit Euler for the nonlinear STD equation
-        b_E_new = (b_E + dt * db_E).clamp(0.0, 1.0) if b_E is not None else None
-        b_I_new = (b_I + dt * db_I).clamp(0.0, 1.0) if b_I is not None else None
-
-        return x_new, a_E_new, a_I_new, b_E_new, b_I_new, r, b_full
-
-    # ---- Forward ----
-
-    def forward(
-        self,
-        inputs: torch.Tensor,
-        state: torch.Tensor,
-        W_eff: Optional[torch.Tensor] = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Parameters
-        ----------
-        inputs : (batch, input_size)
-        state  : (batch, state_size)
-        W_eff  : optional pre-computed effective recurrent weight (N, N).
-            When the caller knows W_raw is constant across many cell calls
-            (e.g. per-timestep loop within one BPTT chunk), it can hoist
-            self._effective_W() up one level and pass the result in to avoid
-            rebuilding the matrix on every call. None → recompute internally.
-
-        Returns
-        -------
-        output : (batch, num_units)  -- readout
-        new_state : (batch, state_size)
-        """
-        cfg = self.config
-        a_E, a_I, b_E, b_I, x = self.unpack_state(state)
-        if W_eff is None:
-            W_eff = self._effective_W()
-        # Apply W_in_mask to input weight rows (zero input to non-input neurons),
-        # then scale by W_in_gain (pooled optimization knob).
-        W_in_eff = self.W_in
-        if self.W_in_mask is not None:
-            W_in_eff = self.W_in * self.W_in_mask  # (N, input_size) * (N, 1)
-        W_in_eff = self.W_in_gain * W_in_eff
-        u = inputs @ W_in_eff.T  # (batch, N)
-        dt = cfg.h / cfg.ode_unfolds
-
-        # Select solver -- Python branching on *config strings* is fine
-        # (static at trace time for torch.compile).
-        if cfg.solver == "semi_implicit":
-            step_fn = self._step_semi_implicit
-        elif cfg.solver == "explicit":
-            step_fn = self._step_explicit
-        elif cfg.solver == "rk4":
-            step_fn = self._step_rk4
-        elif cfg.solver == "exponential":
-            step_fn = self._step_exponential
-        else:
-            raise ValueError(f"Unknown solver: {cfg.solver}")
-
-        r_last = None
-        b_last = None
-        for _ in range(cfg.ode_unfolds):
-            x, a_E, a_I, b_E, b_I, r_last, b_last = step_fn(
-                dt, x, a_E, a_I, b_E, b_I, u, W_eff
-            )
-
-        # Readout
-        if cfg.readout == "synaptic":
-            output = b_last * r_last
-        elif cfg.readout == "rate":
-            output = r_last
-        elif cfg.readout == "dendritic":
-            output = x
-        else:
-            raise ValueError(f"Unknown readout: {cfg.readout}")
-
-        new_state = self.pack_state(a_E, a_I, b_E, b_I, x)
-        return output, new_state
-
-
-# ---------------------------------------------------------------------------
-# BatchedSRNNCell  -- K ablation variants in parallel via bmm
-# ---------------------------------------------------------------------------
-
-class BatchedSRNNCell(RNNCell):
-    """Run K SRNN ablation variants simultaneously using bmm.
-
-    All K variants must share the same num_units and input_size.
-    States are padded to a common max_state_dim so they can be stacked.
-
-    The forward pass is fully torch.compile-friendly: ablation differences
-    are encoded as multiplicative masks (buffers) rather than Python branches.
-    """
-
-    def __init__(
-        self,
-        configs: list[SRNNConfig],
-        input_size: int,
-        rmt_exports: list[dict],
-        W_in_mask: Optional[torch.Tensor] = None,
-    ):
+    SOLVERS = ("semi_implicit", "explicit", "rk4")
+    READOUTS = {"synaptic": 0, "rate": 1, "dendritic": 2}
+
+    def __init__(self, configs: list[SRNNConfig], input_size: int,
+                 rmt_exports: list[dict], W_in_mask: Optional[Tensor] = None):
         if not configs:
-            raise ValueError("BatchedSRNNCell needs at least one config")
+            raise ValueError("SRNNCell needs at least one config")
         if len(rmt_exports) != len(configs):
             raise ValueError("Provide one rmt_export per config")
-        N = configs[0].num_units
-        if any(c.num_units != N for c in configs):
-            raise ValueError("All configs must share num_units")
+        first = configs[0]
+        for c in configs:
+            if (c.num_units, c.solver, c.h, c.ode_unfolds) != (
+                    first.num_units, first.solver, first.h, first.ode_unfolds):
+                raise ValueError("All variants must share num_units, solver, h, and ode_unfolds")
+        if first.solver not in self.SOLVERS:
+            raise ValueError(f"Unknown solver {first.solver!r}; expected one of {self.SOLVERS}")
+        for c in configs:
+            if c.readout not in self.READOUTS:
+                raise ValueError(f"Unknown readout {c.readout!r}; expected one of {list(self.READOUTS)}")
+
+        N = first.num_units
         n_E, n_I = N // 2, N - N // 2
-        max_state_dim = (n_E * max(c.n_a_E for c in configs) + n_I * max(c.n_a_I for c in configs)
-                         + n_E * max(c.n_b_E for c in configs) + n_I * max(c.n_b_I for c in configs) + N)
-        super().__init__(input_size, N, state_size=max_state_dim, dt=configs[0].h,
+        self._max = {k: max(getattr(c, k) for c in configs) for k in ("n_a_E", "n_a_I", "n_b_E", "n_b_I")}
+        state_size = (n_E * self._max["n_a_E"] + n_I * self._max["n_a_I"]
+                      + n_E * self._max["n_b_E"] + n_I * self._max["n_b_I"] + N)
+        super().__init__(input_size, N, state_size=state_size, dt=first.h,
                          W_in_mask=W_in_mask, mask_shape=(1, -1, 1))
-        self.K = len(configs)
-        self.N = N
+        self.K, self.N, self.n_E, self.n_I = len(configs), N, n_E, n_I
         self.configs = configs
+        self.solver, self.h, self.ode_unfolds = first.solver, first.h, first.ode_unfolds
+        self.variant_names: list[str] = [f"variant_{k}" for k in range(self.K)]
 
-        n_E = N // 2
-        n_I = N - n_E
-        self.n_E = n_E
-        self.n_I = n_I
+        self._init_recurrent(rmt_exports)
+        self.a_0_vec = nn.Parameter(torch.full((self.K, N), 0.35))
+        self.a_0_scalar = nn.Parameter(torch.zeros(self.K))
+        self.isp_tau_global = nn.Parameter(torch.tensor([inv_softplus(c.tau_global_init) for c in configs]))
+        self.isp_tau_d_vec = nn.Parameter(torch.full((self.K, N), inv_softplus(0.1)))
+        self.log_tau_d_gain = nn.Parameter(torch.zeros(self.K))
+        for side, n in (("E", n_E), ("I", n_I)):
+            self._init_sfa(side, n)
+        for side, n in (("E", n_E), ("I", n_I)):
+            self._init_std(side, n)
+        self._init_masks()
 
-        # Max SFA/STD dimensions across all configs
-        self.max_n_a_E = max(c.n_a_E for c in configs)
-        self.max_n_a_I = max(c.n_a_I for c in configs)
-        self.max_n_b_E = max(c.n_b_E for c in configs)
-        self.max_n_b_I = max(c.n_b_I for c in configs)
+    # -- construction ---------------------------------------------------------
 
-        self.max_state_dim = (
-            n_E * self.max_n_a_E
-            + n_I * self.max_n_a_I
-            + n_E * self.max_n_b_E
-            + n_I * self.max_n_b_I
-            + N
-        )
+    @property
+    def max_n_a_E(self) -> int:
+        return self._max["n_a_E"]
 
-        # ---- Per-variant parameters stacked as (K, ...) from RMTMatrix ----
-        W_stack = [exp["W_init"].clone() for exp in rmt_exports]
-        sparsity_stack = [exp["sparsity_mask"].clone() for exp in rmt_exports]
-        dales_sign_stack = [exp["dales_sign"].clone() for exp in rmt_exports]
+    @property
+    def max_n_a_I(self) -> int:
+        return self._max["n_a_I"]
 
-        self.W_raw = nn.Parameter(torch.stack(W_stack))           # (K, N, N)
-        self.register_buffer("sparsity_masks", torch.stack(sparsity_stack))    # (K, N, N)
-        self.register_buffer("dales_signs", torch.stack(dales_sign_stack))     # (K, N)
+    @property
+    def max_n_b_E(self) -> int:
+        return self._max["n_b_E"]
 
-        # Input weights: (K, N, input_size)
-        self.W_in = nn.Parameter(torch.randn(self.K, N, input_size) * 0.1)
+    @property
+    def max_n_b_I(self) -> int:
+        return self._max["n_b_I"]
 
-        # Per-variant gains on W_raw / W_in — pooled optimization knobs (ESN-style
-        # spectral-radius / input-gain made differentiable). Init 1.0 -> identity.
-        # Always trainable, including for echo variants (Option B: structure is
-        # frozen but overall gain is learnable).
+    def _init_recurrent(self, rmt_exports: list[dict]) -> None:
+        self.W_raw = nn.Parameter(torch.stack([e["W_init"].clone() for e in rmt_exports]))
+        self.register_buffer("sparsity_masks", torch.stack([e["sparsity_mask"].clone() for e in rmt_exports]))
+        self.register_buffer("dales_signs", torch.stack([e["dales_sign"].clone() for e in rmt_exports]))
+        self.W_in = nn.Parameter(torch.randn(self.K, self.N, self.input_size) * 0.1)
+        # Per-variant scalar gains on the whole recurrent / input matrix. Init 1
+        # is the identity; they stay trainable for echo variants, whose W_raw
+        # structure is frozen but whose overall gain may still adapt.
         self.W_raw_gain = nn.Parameter(torch.ones(self.K))
         self.W_in_gain = nn.Parameter(torch.ones(self.K))
 
-        # Threshold: (K, N) per-neuron vec + (K,) shared additive scalar.
-        # Non-per-neuron variants freeze a_0_vec (see gradient-mask block below),
-        # so only the shared scalar moves — enforcing true linking across neurons.
-        # Per-neuron variants train both (scalar captures shared direction, vec
-        # captures per-neuron deviations).
-        self.a_0_vec = nn.Parameter(torch.full((self.K, N), 0.35))
-        self.a_0_scalar = nn.Parameter(torch.zeros(self.K))
+    def _init_sfa(self, side: str, n: int) -> None:
+        """SFA parameters for one population: per-neuron vectors plus per-variant gains."""
+        A = self._max[f"n_a_{side}"]
+        if A == 0:
+            for name in ("isp_tau_a_{}_vec", "log_tau_a_{}_gain", "isp_c_{}_vec",
+                         "log_c_{}_gain", "c_0_{}_vec", "c_0_{}_scalar"):
+                setattr(self, name.format(side), None)
+            return
+        isp_tau = torch.zeros(self.K, n, A)
+        for k, c in enumerate(self.configs):
+            n_a = getattr(c, f"n_a_{side}")
+            if n_a == 1:
+                isp_tau[k, :, 0] = inv_softplus(1.0)
+            elif n_a >= 2:   # timescales spread between tau_a_lo and tau_a_hi
+                lo, hi = inv_softplus(c.tau_a_lo_init), inv_softplus(c.tau_a_hi_init)
+                for a in range(n_a):
+                    isp_tau[k, :, a] = lo + (hi - lo) * a / (n_a - 1)
+        setattr(self, f"isp_tau_a_{side}_vec", nn.Parameter(isp_tau))
+        setattr(self, f"log_tau_a_{side}_gain", nn.Parameter(torch.zeros(self.K)))
+        setattr(self, f"isp_c_{side}_vec", nn.Parameter(torch.full((self.K, n, A), inv_softplus(0.05))))
+        setattr(self, f"log_c_{side}_gain", nn.Parameter(torch.zeros(self.K)))
+        setattr(self, f"c_0_{side}_vec", nn.Parameter(torch.zeros(self.K, n, A)))
+        setattr(self, f"c_0_{side}_scalar", nn.Parameter(torch.zeros(self.K)))
 
-        # Global timescale multiplier: (K,) — one per variant
-        self.isp_tau_global = nn.Parameter(torch.tensor(
-            [inv_softplus(c.tau_global_init) for c in configs]
-        ))
+    def _init_std(self, side: str, n: int) -> None:
+        if self._max[f"n_b_{side}"] == 0:
+            for name in ("isp_tau_b_rec_{}_vec", "log_tau_b_rec_{}_gain",
+                         "isp_tau_b_rel_{}_vec", "log_tau_b_rel_{}_gain"):
+                setattr(self, name.format(side), None)
+            return
+        setattr(self, f"isp_tau_b_rec_{side}_vec", nn.Parameter(torch.full((self.K, n), inv_softplus(1.0))))
+        setattr(self, f"log_tau_b_rec_{side}_gain", nn.Parameter(torch.zeros(self.K)))
+        setattr(self, f"isp_tau_b_rel_{side}_vec", nn.Parameter(torch.full((self.K, n), inv_softplus(0.25))))
+        setattr(self, f"log_tau_b_rel_{side}_gain", nn.Parameter(torch.zeros(self.K)))
 
-        # Dendritic time constant: (K, N) per-neuron vec + (K,) log-gain.
-        # effective_tau_d = exp(log_tau_d_gain) * softplus(isp_tau_d_vec).
-        # Log-gain init 0 -> multiplicative identity.
-        self.isp_tau_d_vec = nn.Parameter(torch.full((self.K, N), inv_softplus(0.1)))
-        self.log_tau_d_gain = nn.Parameter(torch.zeros(self.K))
+    def _init_masks(self) -> None:
+        cfgs, K = self.configs, self.K
+        flag = lambda attr: torch.tensor([float(getattr(c, attr)) for c in cfgs])  # noqa: E731
+        self.register_buffer("dales_mask", flag("dales").reshape(K, 1, 1))
+        self.register_buffer("echo_flags", flag("echo").reshape(K, 1, 1))
+        self.register_buffer("skip_flags", flag("skip"))
+        self.register_buffer("per_neuron_mask", flag("per_neuron"))
+        for side in ("E", "I"):
+            A = self._max[f"n_a_{side}"]
+            mask = torch.zeros(K, 1, max(A, 1))
+            for k, c in enumerate(cfgs):
+                mask[k, :, :getattr(c, f"n_a_{side}")] = 1.0
+            self.register_buffer(f"sfa_{side}_mask", mask)
+            self.register_buffer(f"std_{side}_mask",
+                                 torch.tensor([float(getattr(c, f"n_b_{side}") > 0) for c in cfgs]).reshape(K, 1))
+        # Fully determined by the configs, so not part of the state_dict.
+        self.register_buffer("std_zero_floor_mask", flag("std_zero_floor").reshape(K, 1, 1), persistent=False)
+        self.register_buffer("readout_ids", torch.tensor([self.READOUTS[c.readout] for c in cfgs]))
 
-        # ---- SFA E params: (K, n_E, max_n_a_E) per-neuron vecs + (K,) gains/scalars ----
-        if self.max_n_a_E > 0:
-            isp_tau_init = torch.zeros(self.K, n_E, self.max_n_a_E)
-            isp_c_init = torch.full((self.K, n_E, self.max_n_a_E), inv_softplus(0.05))
-            c_0_init = torch.zeros(self.K, n_E, self.max_n_a_E)
-            for ki, c in enumerate(configs):
-                if c.n_a_E == 1:
-                    isp_tau_init[ki, :, 0] = inv_softplus(1.0)
-                elif c.n_a_E >= 2:
-                    # Interpolate n_a_E values between lo and hi (matches TF _make_tau_range)
-                    lo_val = inv_softplus(c.tau_a_lo_init)
-                    hi_val = inv_softplus(c.tau_a_hi_init)
-                    for ai in range(c.n_a_E):
-                        t = ai / (c.n_a_E - 1) if c.n_a_E > 1 else 0.5
-                        isp_tau_init[ki, :, ai] = lo_val + (hi_val - lo_val) * t
-                # else (n_a_E == 0): leave at 0 (masked out)
-            self.isp_tau_a_E_vec = nn.Parameter(isp_tau_init)
-            self.log_tau_a_E_gain = nn.Parameter(torch.zeros(self.K))
-            self.isp_c_E_vec = nn.Parameter(isp_c_init)
-            self.log_c_E_gain = nn.Parameter(torch.zeros(self.K))
-            self.c_0_E_vec = nn.Parameter(c_0_init)
-            self.c_0_E_scalar = nn.Parameter(torch.zeros(self.K))
-        else:
-            self.isp_tau_a_E_vec = None
-            self.log_tau_a_E_gain = None
-            self.isp_c_E_vec = None
-            self.log_c_E_gain = None
-            self.c_0_E_vec = None
-            self.c_0_E_scalar = None
+    # -- linked parameters ----------------------------------------------------
 
-        # ---- SFA I params: (K, n_I, max_n_a_I) per-neuron vecs + (K,) gains/scalars ----
-        if self.max_n_a_I > 0:
-            isp_tau_init = torch.zeros(self.K, n_I, self.max_n_a_I)
-            isp_c_init = torch.full((self.K, n_I, self.max_n_a_I), inv_softplus(0.05))
-            c_0_init = torch.zeros(self.K, n_I, self.max_n_a_I)
-            for ki, c in enumerate(configs):
-                if c.n_a_I == 1:
-                    isp_tau_init[ki, :, 0] = inv_softplus(1.0)
-                elif c.n_a_I >= 2:
-                    lo_val = inv_softplus(c.tau_a_lo_init)
-                    hi_val = inv_softplus(c.tau_a_hi_init)
-                    for ai in range(c.n_a_I):
-                        t = ai / (c.n_a_I - 1) if c.n_a_I > 1 else 0.5
-                        isp_tau_init[ki, :, ai] = lo_val + (hi_val - lo_val) * t
-            self.isp_tau_a_I_vec = nn.Parameter(isp_tau_init)
-            self.log_tau_a_I_gain = nn.Parameter(torch.zeros(self.K))
-            self.isp_c_I_vec = nn.Parameter(isp_c_init)
-            self.log_c_I_gain = nn.Parameter(torch.zeros(self.K))
-            self.c_0_I_vec = nn.Parameter(c_0_init)
-            self.c_0_I_scalar = nn.Parameter(torch.zeros(self.K))
-        else:
-            self.isp_tau_a_I_vec = None
-            self.log_tau_a_I_gain = None
-            self.isp_c_I_vec = None
-            self.log_c_I_gain = None
-            self.c_0_I_vec = None
-            self.c_0_I_scalar = None
+    def _linked(self, vec: Tensor) -> Tensor:
+        """Detach ``vec`` for variants without per-neuron parameters.
 
-        # ---- STD E params: (K, n_E) vecs + (K,) log-gains ----
-        if self.max_n_b_E > 0:
-            self.isp_tau_b_rec_E_vec = nn.Parameter(
-                torch.full((self.K, n_E), inv_softplus(1.0))
-            )
-            self.log_tau_b_rec_E_gain = nn.Parameter(torch.zeros(self.K))
-            self.isp_tau_b_rel_E_vec = nn.Parameter(
-                torch.full((self.K, n_E), inv_softplus(0.25))
-            )
-            self.log_tau_b_rel_E_gain = nn.Parameter(torch.zeros(self.K))
-        else:
-            self.isp_tau_b_rec_E_vec = None
-            self.log_tau_b_rec_E_gain = None
-            self.isp_tau_b_rel_E_vec = None
-            self.log_tau_b_rel_E_gain = None
-
-        # ---- STD I params: (K, n_I) vecs + (K,) log-gains ----
-        if self.max_n_b_I > 0:
-            self.isp_tau_b_rec_I_vec = nn.Parameter(
-                torch.full((self.K, n_I), inv_softplus(1.0))
-            )
-            self.log_tau_b_rec_I_gain = nn.Parameter(torch.zeros(self.K))
-            self.isp_tau_b_rel_I_vec = nn.Parameter(
-                torch.full((self.K, n_I), inv_softplus(0.25))
-            )
-            self.log_tau_b_rel_I_gain = nn.Parameter(torch.zeros(self.K))
-        else:
-            self.isp_tau_b_rec_I_vec = None
-            self.log_tau_b_rec_I_gain = None
-            self.isp_tau_b_rel_I_vec = None
-            self.log_tau_b_rel_I_gain = None
-
-        # ---- Ablation masks (buffers) ----
-        # Dale's mask: (K, 1, 1) -- 1.0 if Dale's active
-        dales_mask = torch.tensor([float(c.dales) for c in configs]).reshape(self.K, 1, 1)
-        self.register_buffer("dales_mask", dales_mask)
-
-        # Echo mask for freezing W gradients selectively via backward hook.
-        echo_flags = torch.tensor([float(c.echo) for c in configs]).reshape(self.K, 1, 1)
-        self.register_buffer("echo_flags", echo_flags)
-
-        # Skip-connection flag: SequenceModel adds (skip_flag * x_at_readout)
-        # to the post-readout logits for autoregressive variants.
-        self.register_buffer("skip_flags", torch.tensor([float(c.skip) for c in configs]))
-
-        # Register gradient hook to zero W_raw gradients for echo variants
-        if any(c.echo for c in configs):
-            echo_grad_mask = 1.0 - echo_flags  # (K, 1, 1): 0 for echo, 1 for non-echo
-            self.register_buffer("_echo_grad_mask", echo_grad_mask)
-            self.W_raw.register_hook(lambda grad: grad * self._echo_grad_mask)
-
-        # ---- per_neuron linking masks (KnownIssues §1 fix) ----
-        # Zero the gradient on *_vec for variants with per_neuron=False, so their
-        # per-neuron components stay frozen at their (identical) init. The
-        # associated *_gain / *_scalar params are always trainable for every
-        # variant, giving a shared per-variant direction. For per_neuron=True
-        # variants both components train -> richer parameterization, scalar
-        # captures shared direction, vec captures per-neuron deviations.
-        per_neuron_flags = torch.tensor(
-            [float(c.per_neuron) for c in configs]
-        )  # (K,)
-
-        # Registers a (K, ...) mask buffer named `name` and installs a hook on
-        # `param` that multiplies incoming gradients by it. Only called for
-        # non-None params so echo's W_raw hook pattern is mirrored cleanly.
-        def _install_vec_mask(param: nn.Parameter, name: str, trailing_ones: int):
-            mask_shape = (self.K,) + (1,) * trailing_ones
-            mask = per_neuron_flags.view(*mask_shape).contiguous()
-            self.register_buffer(name, mask)
-            # Look up the buffer attribute at hook time, not at registration —
-            # otherwise the closure pins the original CPU tensor and breaks
-            # after model.to(cuda).
-            param.register_hook(lambda grad, n=name: grad * getattr(self, n))
-
-        # a_0 (2-D: K, N) -> mask (K, 1)
-        _install_vec_mask(self.a_0_vec, "_a_0_vec_mask", trailing_ones=1)
-        # isp_tau_d (2-D: K, N) -> mask (K, 1)
-        _install_vec_mask(self.isp_tau_d_vec, "_isp_tau_d_vec_mask", trailing_ones=1)
-        # SFA E (3-D: K, n_E, max_n_a_E) -> mask (K, 1, 1)
-        if self.isp_tau_a_E_vec is not None:
-            _install_vec_mask(self.isp_tau_a_E_vec, "_isp_tau_a_E_vec_mask", trailing_ones=2)
-            _install_vec_mask(self.isp_c_E_vec, "_isp_c_E_vec_mask", trailing_ones=2)
-            _install_vec_mask(self.c_0_E_vec, "_c_0_E_vec_mask", trailing_ones=2)
-        # SFA I (3-D)
-        if self.isp_tau_a_I_vec is not None:
-            _install_vec_mask(self.isp_tau_a_I_vec, "_isp_tau_a_I_vec_mask", trailing_ones=2)
-            _install_vec_mask(self.isp_c_I_vec, "_isp_c_I_vec_mask", trailing_ones=2)
-            _install_vec_mask(self.c_0_I_vec, "_c_0_I_vec_mask", trailing_ones=2)
-        # STD E (2-D: K, n_E) -> mask (K, 1)
-        if self.isp_tau_b_rec_E_vec is not None:
-            _install_vec_mask(self.isp_tau_b_rec_E_vec, "_isp_tau_b_rec_E_vec_mask", trailing_ones=1)
-            _install_vec_mask(self.isp_tau_b_rel_E_vec, "_isp_tau_b_rel_E_vec_mask", trailing_ones=1)
-        # STD I (2-D)
-        if self.isp_tau_b_rec_I_vec is not None:
-            _install_vec_mask(self.isp_tau_b_rec_I_vec, "_isp_tau_b_rec_I_vec_mask", trailing_ones=1)
-            _install_vec_mask(self.isp_tau_b_rel_I_vec, "_isp_tau_b_rel_I_vec_mask", trailing_ones=1)
-
-        # SFA masks: (K, 1, 1) -- broadcast-friendly
-        if self.max_n_a_E > 0:
-            sfa_E_mask = torch.zeros(self.K, 1, self.max_n_a_E)
-            for ki, c in enumerate(configs):
-                for ai in range(c.n_a_E):
-                    sfa_E_mask[ki, :, ai] = 1.0
-            self.register_buffer("sfa_E_mask", sfa_E_mask)
-        else:
-            self.register_buffer("sfa_E_mask", torch.zeros(self.K, 1, 1))
-
-        if self.max_n_a_I > 0:
-            sfa_I_mask = torch.zeros(self.K, 1, self.max_n_a_I)
-            for ki, c in enumerate(configs):
-                for ai in range(c.n_a_I):
-                    sfa_I_mask[ki, :, ai] = 1.0
-            self.register_buffer("sfa_I_mask", sfa_I_mask)
-        else:
-            self.register_buffer("sfa_I_mask", torch.zeros(self.K, 1, 1))
-
-        # STD masks: (K, 1)
-        std_E_mask = torch.tensor([float(c.n_b_E > 0) for c in configs]).reshape(self.K, 1)
-        std_I_mask = torch.tensor([float(c.n_b_I > 0) for c in configs]).reshape(self.K, 1)
-        self.register_buffer("std_E_mask", std_E_mask)
-        self.register_buffer("std_I_mask", std_I_mask)
-
-        # Per-variant std_zero_floor flag: (K, 1, 1) for broadcast against
-        # (K, B, n_E) / (K, B, n_I). 1.0 -> apply (b-b_min)/(1-b_min) rescaling.
-        # persistent=False so the buffer isn't part of state_dict — it's fully
-        # determined by configs (which are reconstructed from cfg.config when
-        # loading a checkpoint), and excluding it lets pre-change checkpoints
-        # load cleanly into the updated class.
-        zero_floor_flags = torch.tensor(
-            [float(c.std_zero_floor) for c in configs], dtype=torch.float32
-        ).reshape(self.K, 1, 1)
-        self.register_buffer("std_zero_floor_mask", zero_floor_flags, persistent=False)
-
-        # Readout mode encoded as integer: 0=synaptic, 1=rate, 2=dendritic
-        readout_map = {"synaptic": 0, "rate": 1, "dendritic": 2}
-        readout_ids = torch.tensor(
-            [readout_map[c.readout] for c in configs], dtype=torch.long
-        )
-        self.register_buffer("readout_ids", readout_ids)
-
-        # Solver: all configs must share solver for batched execution
-        solvers = set(c.solver for c in configs)
-        assert len(solvers) == 1, (
-            f"BatchedSRNNCell requires all configs to use the same solver, got {solvers}"
-        )
-        self.solver = configs[0].solver
-
-        # ODE params: all configs must share h and ode_unfolds
-        hs = set(c.h for c in configs)
-        unfolds = set(c.ode_unfolds for c in configs)
-        assert len(hs) == 1 and len(unfolds) == 1, (
-            "BatchedSRNNCell requires all configs to share h and ode_unfolds"
-        )
-        self.h = configs[0].h
-        self.ode_unfolds = configs[0].ode_unfolds
-
-    # ---- Weight construction ----
-
-    def _effective_W(self) -> torch.Tensor:
-        """Build effective (K, N, N) weight matrix — branch-free.
-
-        W_eff = W_raw_gain * ( dales_mask * dales_signs * softplus(W_raw)
-                              + (1 - dales_mask) * W_raw) * sparsity
-
-        W_raw_gain: (K,) -> (K, 1, 1) — per-variant scalar gain on the
-        whole recurrent matrix (ESN-style spectral-radius knob).
-        dales_signs: (K, N) → (K, 1, N) for column-wise broadcast.
-        dales_mask:  (K, 1, 1) — 1.0 if Dale's active for variant k.
+        The value is unchanged; only the gradient is cut, so those variants
+        train the paired scalar or gain alone and their per-neuron entries
+        stay identical to their initialisation.
         """
-        signs = self.dales_signs.unsqueeze(1)  # (K, 1, N)
-        W_eff = (self.dales_mask * signs * F.softplus(self.W_raw)
-               + (1.0 - self.dales_mask) * self.W_raw) * self.sparsity_masks
-        return self.W_raw_gain.view(self.K, 1, 1) * W_eff
+        m = self.per_neuron_mask.view(self.K, *([1] * (vec.dim() - 1)))
+        return m * vec + (1.0 - m) * vec.detach()
 
-    # ---- Tau helpers (centralized, scaled by tau_global and per-param log-gain) ----
+    def _effective_W(self) -> Tensor:
+        """``(K, N, N)``: signed softplus magnitudes under Dale's law, sparsity, gain."""
+        W_raw = self.echo_flags * self.W_raw.detach() + (1.0 - self.echo_flags) * self.W_raw
+        signs = self.dales_signs.unsqueeze(1)
+        W = (self.dales_mask * signs * F.softplus(W_raw) + (1.0 - self.dales_mask) * W_raw) * self.sparsity_masks
+        return self.W_raw_gain.view(self.K, 1, 1) * W
 
-    def _tau_global(self) -> torch.Tensor:
-        """(K,)"""
+    def hoist(self) -> Tensor:
+        return self._effective_W()
+
+    def skip_mask(self) -> Tensor:
+        return self.skip_flags
+
+    def _tau_global(self) -> Tensor:
         return F.softplus(self.isp_tau_global)
 
-    def _tau_d(self) -> torch.Tensor:
-        """(K, N) = tau_global · exp(log_tau_d_gain) · softplus(isp_tau_d_vec)"""
+    def _tau_d(self) -> Tensor:
         gain = torch.exp(self.log_tau_d_gain).view(self.K, 1)
-        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.isp_tau_d_vec)
+        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self._linked(self.isp_tau_d_vec))
 
-    def _tau_a_E(self) -> torch.Tensor:
-        """(K, n_E, max_n_a_E)"""
-        gain = torch.exp(self.log_tau_a_E_gain).view(self.K, 1, 1)
-        return self._tau_global().reshape(self.K, 1, 1) * gain * F.softplus(self.isp_tau_a_E_vec)
+    def _tau_a(self, side: str) -> Tensor:
+        gain = torch.exp(getattr(self, f"log_tau_a_{side}_gain")).view(self.K, 1, 1)
+        vec = self._linked(getattr(self, f"isp_tau_a_{side}_vec"))
+        return self._tau_global().reshape(self.K, 1, 1) * gain * F.softplus(vec)
 
-    def _tau_a_I(self) -> torch.Tensor:
-        """(K, n_I, max_n_a_I)"""
-        gain = torch.exp(self.log_tau_a_I_gain).view(self.K, 1, 1)
-        return self._tau_global().reshape(self.K, 1, 1) * gain * F.softplus(self.isp_tau_a_I_vec)
+    def _tau_b(self, side: str, kind: str) -> Tensor:
+        gain = torch.exp(getattr(self, f"log_tau_b_{kind}_{side}_gain")).view(self.K, 1)
+        vec = self._linked(getattr(self, f"isp_tau_b_{kind}_{side}_vec"))
+        return self._tau_global().unsqueeze(-1) * gain * F.softplus(vec)
 
-    def _tau_b_rec_E(self) -> torch.Tensor:
-        """(K, n_E)"""
-        gain = torch.exp(self.log_tau_b_rec_E_gain).view(self.K, 1)
-        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.isp_tau_b_rec_E_vec)
+    def _a_0(self) -> Tensor:
+        return self._linked(self.a_0_vec) + self.a_0_scalar.view(self.K, 1)
 
-    def _tau_b_rel_E(self) -> torch.Tensor:
-        """(K, n_E)"""
-        gain = torch.exp(self.log_tau_b_rel_E_gain).view(self.K, 1)
-        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.isp_tau_b_rel_E_vec)
+    def _c(self, side: str) -> Tensor:
+        gain = torch.exp(getattr(self, f"log_c_{side}_gain")).view(self.K, 1, 1)
+        return gain * F.softplus(self._linked(getattr(self, f"isp_c_{side}_vec")))
 
-    def _tau_b_rec_I(self) -> torch.Tensor:
-        """(K, n_I)"""
-        gain = torch.exp(self.log_tau_b_rec_I_gain).view(self.K, 1)
-        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.isp_tau_b_rec_I_vec)
+    def _c_0(self, side: str) -> Tensor:
+        vec = self._linked(getattr(self, f"c_0_{side}_vec"))
+        return vec + getattr(self, f"c_0_{side}_scalar").view(self.K, 1, 1)
 
-    def _tau_b_rel_I(self) -> torch.Tensor:
-        """(K, n_I)"""
-        gain = torch.exp(self.log_tau_b_rel_I_gain).view(self.K, 1)
-        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self.isp_tau_b_rel_I_vec)
+    def effective_params(self) -> dict[str, Tensor]:
+        """Post-transform values: what actually enters the equations."""
+        out = {"W": self._effective_W(), "tau_global": self._tau_global(),
+               "tau_d": self._tau_d(), "a_0": self._a_0()}
+        for side in ("E", "I"):
+            if self._max[f"n_a_{side}"] > 0:
+                out[f"tau_a_{side}"] = self._tau_a(side)
+                out[f"c_{side}"] = self._c(side)
+                out[f"c_0_{side}"] = self._c_0(side)
+            if self._max[f"n_b_{side}"] > 0:
+                out[f"tau_b_rec_{side}"] = self._tau_b(side, "rec")
+                out[f"tau_b_rel_{side}"] = self._tau_b(side, "rel")
+        return {k: v.detach() for k, v in out.items()}
 
-    def _compute_b_full(self, b_E: torch.Tensor, b_I: torch.Tensor) -> torch.Tensor:
-        """Build (K, B, N) effective synaptic gain from raw b_E, b_I state.
+    # -- state ----------------------------------------------------------------
 
-        Applies the std_zero_floor rescaling per-variant when enabled (blended
-        via std_zero_floor_mask), then applies std_E_mask / std_I_mask so
-        variants with STD inactive see b_full == 1.
-
-        Reused by _batched_step_semi_implicit, _batched_compute_rhs, and
-        get_diagnostics — single source of truth for the b -> b_full math.
-        """
-        flag = self.std_zero_floor_mask  # (K, 1, 1)
-
-        # E side
-        if self.max_n_b_E > 0:
-            tau_rec_E = self._tau_b_rec_E().unsqueeze(1)  # (K, 1, n_E)
-            tau_rel_E = self._tau_b_rel_E().unsqueeze(1)
-            b_min_E = tau_rel_E / (tau_rec_E + tau_rel_E)
-            b_E_rescaled = (b_E - b_min_E) / (1.0 - b_min_E)
-            b_E_used = b_E * (1.0 - flag) + b_E_rescaled * flag
-        else:
-            b_E_used = b_E  # ones from unpack_state when no STD anywhere
-
-        # I side
-        if self.max_n_b_I > 0:
-            tau_rec_I = self._tau_b_rec_I().unsqueeze(1)
-            tau_rel_I = self._tau_b_rel_I().unsqueeze(1)
-            b_min_I = tau_rel_I / (tau_rec_I + tau_rel_I)
-            b_I_rescaled = (b_I - b_min_I) / (1.0 - b_min_I)
-            b_I_used = b_I * (1.0 - flag) + b_I_rescaled * flag
-        else:
-            b_I_used = b_I
-
-        b_full_E = b_E_used * self.std_E_mask.unsqueeze(1) + (1.0 - self.std_E_mask.unsqueeze(1))
-        b_full_I = b_I_used * self.std_I_mask.unsqueeze(1) + (1.0 - self.std_I_mask.unsqueeze(1))
-        return torch.cat([b_full_E, b_full_I], dim=-1)
-
-    # ---- Direct-param effective-value helpers (a_0, c_E, c_I, c_0_E, c_0_I) ----
-
-    def _a_0(self) -> torch.Tensor:
-        """(K, N) = a_0_vec + a_0_scalar (broadcasts (K,) over N)."""
-        return self.a_0_vec + self.a_0_scalar.view(self.K, 1)
-
-    def _c_E(self) -> torch.Tensor:
-        """(K, n_E, max_n_a_E) softplus-valued SFA coupling with per-variant log-gain."""
-        gain = torch.exp(self.log_c_E_gain).view(self.K, 1, 1)
-        return gain * F.softplus(self.isp_c_E_vec)
-
-    def _c_I(self) -> torch.Tensor:
-        """(K, n_I, max_n_a_I) softplus-valued SFA coupling (I-side) with log-gain."""
-        gain = torch.exp(self.log_c_I_gain).view(self.K, 1, 1)
-        return gain * F.softplus(self.isp_c_I_vec)
-
-    def _c_0_E(self) -> torch.Tensor:
-        """(K, n_E, max_n_a_E) SFA offset (E) = c_0_E_vec + c_0_E_scalar."""
-        return self.c_0_E_vec + self.c_0_E_scalar.view(self.K, 1, 1)
-
-    def _c_0_I(self) -> torch.Tensor:
-        """(K, n_I, max_n_a_I) SFA offset (I) = c_0_I_vec + c_0_I_scalar."""
-        return self.c_0_I_vec + self.c_0_I_scalar.view(self.K, 1, 1)
-
-    # ---- State packing / unpacking ----
-
-    def unpack_state(self, state: torch.Tensor):
-        """Unpack (K, batch, max_state_dim) -> components.
-
-        Returns a_E, a_I, b_E, b_I, x -- all may be zero-padded for
-        inactive ablation slots; masks handle zeroing.
-        """
+    def unpack_state(self, state: Tensor):
         K, B = state.shape[0], state.shape[1]
         n_E, n_I, N = self.n_E, self.n_I, self.N
+        A_E, A_I = self._max["n_a_E"], self._max["n_a_I"]
         idx = 0
-
-        # a_E: (K, batch, n_E, max_n_a_E)
-        if self.max_n_a_E > 0:
-            sz = n_E * self.max_n_a_E
-            a_E = state[:, :, idx:idx + sz].reshape(K, B, n_E, self.max_n_a_E)
-            idx += sz
+        if A_E > 0:
+            a_E = state[:, :, idx:idx + n_E * A_E].reshape(K, B, n_E, A_E)
+            idx += n_E * A_E
         else:
             a_E = torch.zeros(K, B, n_E, 1, device=state.device)
-
-        # a_I: (K, batch, n_I, max_n_a_I)
-        if self.max_n_a_I > 0:
-            sz = n_I * self.max_n_a_I
-            a_I = state[:, :, idx:idx + sz].reshape(K, B, n_I, self.max_n_a_I)
-            idx += sz
+        if A_I > 0:
+            a_I = state[:, :, idx:idx + n_I * A_I].reshape(K, B, n_I, A_I)
+            idx += n_I * A_I
         else:
             a_I = torch.zeros(K, B, n_I, 1, device=state.device)
-
-        # b_E: (K, batch, n_E)
-        if self.max_n_b_E > 0:
+        if self._max["n_b_E"] > 0:
             b_E = state[:, :, idx:idx + n_E]
             idx += n_E
         else:
             b_E = torch.ones(K, B, n_E, device=state.device)
-
-        # b_I: (K, batch, n_I)
-        if self.max_n_b_I > 0:
+        if self._max["n_b_I"] > 0:
             b_I = state[:, :, idx:idx + n_I]
             idx += n_I
         else:
             b_I = torch.ones(K, B, n_I, device=state.device)
-
-        # x: (K, batch, N)
         x = state[:, :, idx:idx + N]
-
         return a_E, a_I, b_E, b_I, x
 
-    def pack_state(self, a_E, a_I, b_E, b_I, x) -> torch.Tensor:
-        """Pack components back into (K, batch, max_state_dim)."""
-        parts: list[torch.Tensor] = []
-        if self.max_n_a_E > 0:
-            parts.append(a_E.flatten(start_dim=2))  # (K, B, n_E*max_n_a_E)
-        if self.max_n_a_I > 0:
+    def pack_state(self, a_E, a_I, b_E, b_I, x) -> Tensor:
+        parts = []
+        if self._max["n_a_E"] > 0:
+            parts.append(a_E.flatten(start_dim=2))
+        if self._max["n_a_I"] > 0:
             parts.append(a_I.flatten(start_dim=2))
-        if self.max_n_b_E > 0:
+        if self._max["n_b_E"] > 0:
             parts.append(b_E)
-        if self.max_n_b_I > 0:
+        if self._max["n_b_I"] > 0:
             parts.append(b_I)
         parts.append(x)
         return torch.cat(parts, dim=-1)
 
-    def hoist(self) -> torch.Tensor:
-        return self._effective_W()
-
-    def skip_mask(self) -> torch.Tensor:
-        return self.skip_flags
-
-    def init_state(self, batch_size: int, device: torch.device = None) -> torch.Tensor:
-        """Return initialized state (K, batch, max_state_dim).
-
-        Matches MATLAB SRNNModel2.initialize_state:
-          a = 0, b = 1 (fully available), x = 0.1 * randn.
-        """
-        if device is None:
-            device = self.W_raw.device
-        state = torch.zeros(self.K, batch_size, self.max_state_dim, device=device)
-        # Unpack to set b=1 and x=randn, then repack
+    def init_state(self, batch_size: int, device: torch.device | None = None) -> Tensor:
+        """Adaptation at rest (a = 0), synapses fully available (b = 1), x = 0.1 * randn."""
+        device = self.W_raw.device if device is None else device
+        state = torch.zeros(self.K, batch_size, self.state_size, device=device)
         a_E, a_I, b_E, b_I, x = self.unpack_state(state)
-        # b_E, b_I: set to 1 (fully available synapses)
-        b_E = torch.ones_like(b_E)
-        b_I = torch.ones_like(b_I)
-        # x: small random perturbation
-        x = 0.1 * torch.randn_like(x)
-        return self.pack_state(a_E, a_I, b_E, b_I, x)
+        return self.pack_state(a_E, a_I, torch.ones_like(b_E), torch.ones_like(b_I),
+                               0.1 * torch.randn_like(x))
 
-    # ---- Diagnostics (read-only) ----
+    # -- dynamics -------------------------------------------------------------
 
-    def get_diagnostics(
-        self,
-        state: torch.Tensor,
-        inputs: Optional[torch.Tensor] = None,
-    ) -> dict:
-        """Recompute solver-internal quantities from a packed state.
-
-        Mirrors the x_eff / r / b_full block of ``_batched_step_semi_implicit``
-        and ``_batched_compute_rhs`` exactly. No state mutation, no parameters.
-        Useful for visualisation, FTLE, phase-plane analysis, etc.
-
-        Parameters
-        ----------
-        state : (K, B, max_state_dim)
-        inputs : (K, B, input_size) or (B, input_size), optional
-            If provided, ``u`` is included in the returned dict.
-
-        Returns
-        -------
-        dict with keys (all (K, B, ...) tensors):
-            x       : dendritic potential
-            x_eff   : x with SFA contributions subtracted (input to threshold)
-            r       : firing rate, piecewise_sigmoid(x_eff - a_0)
-            b_E     : raw STD E values (ones if STD inactive in that variant)
-            b_I     : raw STD I values
-            b_full  : (K, B, N) STD value used in br = b_full * r
-            a_E     : (K, B, n_E, max_n_a_E) SFA E values
-            a_I     : (K, B, n_I, max_n_a_I) SFA I values
-            br      : b_full * r (synaptic output)
-            u       : (K, B, N) post-W_in input drive (only if inputs given)
-        """
-        K = self.K
-        n_E, n_I, N = self.n_E, self.n_I, self.N
-
-        a_E, a_I, b_E, b_I, x = self.unpack_state(state)
-
-        # Effective potential -- mirror _batched_step_semi_implicit:1292-1306
-        x_eff = x.clone()
-        if self.max_n_a_E > 0:
-            c_E = self._c_E()
-            c_E_masked = c_E * self.sfa_E_mask
-            sfa_E_contrib = (c_E_masked.unsqueeze(1) * a_E).sum(-1)
-            x_eff = torch.cat([x[:, :, :n_E] - sfa_E_contrib, x_eff[:, :, n_E:]], dim=-1)
-        if self.max_n_a_I > 0:
-            c_I = self._c_I()
-            c_I_masked = c_I * self.sfa_I_mask
-            sfa_I_contrib = (c_I_masked.unsqueeze(1) * a_I).sum(-1)
-            x_eff = torch.cat([x_eff[:, :, :n_E], x_eff[:, :, n_E:] - sfa_I_contrib], dim=-1)
-
-        r = piecewise_sigmoid(x_eff - self._a_0().unsqueeze(1))
-
-        # b_full: applies std_zero_floor rescaling (when enabled) and
-        # std_E/I_mask so STD-inactive variants see b_full == 1.
-        b_full = self._compute_b_full(b_E, b_I)
-        br = b_full * r
-
-        out = {
-            "x": x,
-            "x_eff": x_eff,
-            "r": r,
-            "b_E": b_E,
-            "b_I": b_I,
-            "b_full": b_full,
-            "a_E": a_E,
-            "a_I": a_I,
-            "br": br,
-        }
-        if inputs is not None:
-            out["u"] = self._batched_input_drive(inputs)
-        return out
-
-    # ---- BMM recurrent drive ----
-
-    def _batched_recurrent_drive(
-        self, br: torch.Tensor, W_eff: torch.Tensor
-    ) -> torch.Tensor:
-        """Compute Wbr = br @ W_eff.T for all K variants and B batch elements.
-
-        Parameters
-        ----------
-        br    : (K, B, N)
-        W_eff : (K, N, N)
-
-        Returns
-        -------
-        Wbr : (K, B, N)
-        """
-        K, B, N = br.shape
-        # Expand W to (K*B, N, N) by repeating each variant B times
-        W_exp = W_eff.unsqueeze(1).expand(K, B, N, N).reshape(K * B, N, N)
-        # br to (K*B, N, 1)
-        br_exp = br.reshape(K * B, N, 1)
-        # bmm: (K*B, N, N) @ (K*B, N, 1) -> (K*B, N, 1)
-        # We want br @ W.T.  As column vectors: (br @ W.T)^T = W @ br_col.
-        Wbr = torch.bmm(W_exp, br_exp).squeeze(-1)  # (K*B, N)
-        return Wbr.reshape(K, B, N)
-
-    # ---- Batched input drive ----
-
-    def _batched_input_drive(self, inputs: torch.Tensor) -> torch.Tensor:
-        """Compute u = inputs @ W_in.T for all K variants.
-
-        Parameters
-        ----------
-        inputs : (K, B, input_size) or (B, input_size)
-
-        Returns
-        -------
-        u : (K, B, N)
-        """
+    def _input_drive(self, inputs: Tensor) -> Tensor:
+        """``u = W_in x`` for every variant: ``(K, B, N)``."""
         if inputs.dim() == 2:
-            # Broadcast: (B, input_size) -> (K, B, input_size)
             inputs = inputs.unsqueeze(0).expand(self.K, -1, -1)
         K, B, D = inputs.shape
-        # Apply W_in_mask (neuron partition) and per-variant W_in_gain before
-        # computing drive.
-        W_in = self.W_in  # (K, N, input_size)
-        if self.W_in_mask is not None:
-            W_in = W_in * self.W_in_mask  # (K, N, D) * (1, N, 1)
+        W_in = self.W_in if self.W_in_mask is None else self.W_in * self.W_in_mask
         W_in = self.W_in_gain.view(self.K, 1, 1) * W_in
-        # (K*B, 1, D) @ (K*B, D, N) -> (K*B, 1, N) -> (K, B, N)
-        W_in_exp = W_in.unsqueeze(1).expand(K, B, self.N, D).reshape(K * B, self.N, D)
-        inp_exp = inputs.reshape(K * B, D, 1)
-        u = torch.bmm(W_in_exp, inp_exp).squeeze(-1).reshape(K, B, self.N)
-        return u
+        W_in = W_in.unsqueeze(1).expand(K, B, self.N, D).reshape(K * B, self.N, D)
+        return torch.bmm(W_in, inputs.reshape(K * B, D, 1)).squeeze(-1).reshape(K, B, self.N)
 
-    # ---- Semi-implicit step (batched) ----
+    def _recurrent_drive(self, br: Tensor, W_eff: Tensor) -> Tensor:
+        """``W br`` for every variant and batch row: ``(K, B, N)``."""
+        K, B, N = br.shape
+        W = W_eff.unsqueeze(1).expand(K, B, N, N).reshape(K * B, N, N)
+        return torch.bmm(W, br.reshape(K * B, N, 1)).squeeze(-1).reshape(K, B, N)
 
-    def _batched_step_semi_implicit(self, dt, x, a_E, a_I, b_E, b_I, u, W_eff):
-        """Semi-implicit step for all K variants in parallel."""
-        K = self.K
-        n_E, n_I, N = self.n_E, self.n_I, self.N
+    def _b_full(self, b_E: Tensor, b_I: Tensor) -> Tensor:
+        """``(K, B, N)`` synaptic gain: optionally rescaled to [0, 1], ones where STD is off."""
+        flag = self.std_zero_floor_mask
+        used = {}
+        for side, b in (("E", b_E), ("I", b_I)):
+            if self._max[f"n_b_{side}"] > 0:
+                tau_rec = self._tau_b(side, "rec").unsqueeze(1)
+                tau_rel = self._tau_b(side, "rel").unsqueeze(1)
+                b_min = tau_rel / (tau_rec + tau_rel)      # asymptote of b at r = 1
+                b = b * (1.0 - flag) + ((b - b_min) / (1.0 - b_min)) * flag
+            mask = getattr(self, f"std_{side}_mask").unsqueeze(1)
+            used[side] = b * mask + (1.0 - mask)
+        return torch.cat([used["E"], used["I"]], dim=-1)
 
-        # Effective potential with SFA
-        x_eff = x.clone()
-        if self.max_n_a_E > 0:
-            c_E = self._c_E()  # (K, n_E, max_n_a_E)
-            # Mask inactive timescales
-            c_E_masked = c_E * self.sfa_E_mask  # (K, n_E, max_n_a_E) * (K, 1, max_n_a_E)
-            sfa_E_contrib = (c_E_masked.unsqueeze(1) * a_E).sum(-1)  # (K, B, n_E)
-            x_eff_E = x[:, :, :n_E] - sfa_E_contrib
-            x_eff = torch.cat([x_eff_E, x_eff[:, :, n_E:]], dim=-1)
+    def _drive(self, x, a_E, a_I, b_E, b_I, W_eff: Optional[Tensor]):
+        """Firing rate and synaptic output from the state.
 
-        if self.max_n_a_I > 0:
-            c_I = self._c_I()
-            c_I_masked = c_I * self.sfa_I_mask
-            sfa_I_contrib = (c_I_masked.unsqueeze(1) * a_I).sum(-1)  # (K, B, n_I)
-            x_eff_I = x_eff[:, :, n_E:] - sfa_I_contrib
-            x_eff = torch.cat([x_eff[:, :, :n_E], x_eff_I], dim=-1)
-
-        # Firing rate
-        r = piecewise_sigmoid(x_eff - self._a_0().unsqueeze(1))  # (K, B, N)
-
-        # Synaptic gain: applies std_zero_floor rescaling (when enabled per-variant)
-        # then std_E/I_mask so STD-inactive variants see b_full == 1.
-        b_full = self._compute_b_full(b_E, b_I)  # (K, B, N)
-        br = b_full * r
-
-        # Recurrent drive via bmm
-        Wbr = self._batched_recurrent_drive(br, W_eff)  # (K, B, N)
-
-        # Semi-implicit x update
-        tau_d = self._tau_d().unsqueeze(1)  # (K, 1, N)
-        alpha_x = dt / tau_d
-        x_new = (x + alpha_x * (u + Wbr)) / (1.0 + alpha_x)
-
-        # SFA E update
-        if self.max_n_a_E > 0:
-            tau_a_E = self._tau_a_E()  # (K, n_E, max_n_a_E)
-            alpha_a_E = dt / tau_a_E
-            r_E = r[:, :, :n_E].unsqueeze(-1)  # (K, B, n_E, 1)
-            c_0_E = self._c_0_E().unsqueeze(1)  # (K, 1, n_E, max_n_a_E)
-            alpha_a_E_b = alpha_a_E.unsqueeze(1)  # (K, 1, n_E, max_n_a_E)
-            a_E_updated = (a_E + alpha_a_E_b * (c_0_E + r_E)) / (1.0 + alpha_a_E_b)
-            sfa_E_mask_b = self.sfa_E_mask.unsqueeze(1)
-            a_E_new = a_E * (1.0 - sfa_E_mask_b) + a_E_updated * sfa_E_mask_b
-        else:
-            a_E_new = a_E
-
-        # SFA I update
-        if self.max_n_a_I > 0:
-            tau_a_I = self._tau_a_I()
-            alpha_a_I = dt / tau_a_I
-            r_I = r[:, :, n_E:].unsqueeze(-1)
-            c_0_I = self._c_0_I().unsqueeze(1)
-            alpha_a_I_b = alpha_a_I.unsqueeze(1)
-            a_I_updated = (a_I + alpha_a_I_b * (c_0_I + r_I)) / (1.0 + alpha_a_I_b)
-            sfa_I_mask_b = self.sfa_I_mask.unsqueeze(1)
-            a_I_new = a_I * (1.0 - sfa_I_mask_b) + a_I_updated * sfa_I_mask_b
-        else:
-            a_I_new = a_I
-
-        # STD E update
-        if self.max_n_b_E > 0:
-            tau_b_rec_E = self._tau_b_rec_E().unsqueeze(1)  # (K, 1, n_E)
-            tau_b_rel_E = self._tau_b_rel_E().unsqueeze(1)
-            r_E_flat = r[:, :, :n_E]
-            b_E_updated = (b_E + dt / tau_b_rec_E) / (
-                1.0 + dt * (1.0 / tau_b_rec_E + r_E_flat / tau_b_rel_E)
-            )
-            b_E_updated = b_E_updated.clamp(0.0, 1.0)
-            std_E_m = self.std_E_mask.unsqueeze(1)
-            b_E_new = b_E * (1.0 - std_E_m) + b_E_updated * std_E_m
-        else:
-            b_E_new = b_E
-
-        # STD I update
-        if self.max_n_b_I > 0:
-            tau_b_rec_I = self._tau_b_rec_I().unsqueeze(1)
-            tau_b_rel_I = self._tau_b_rel_I().unsqueeze(1)
-            r_I_flat = r[:, :, n_E:]
-            b_I_updated = (b_I + dt / tau_b_rec_I) / (
-                1.0 + dt * (1.0 / tau_b_rec_I + r_I_flat / tau_b_rel_I)
-            )
-            b_I_updated = b_I_updated.clamp(0.0, 1.0)
-            std_I_m = self.std_I_mask.unsqueeze(1)
-            b_I_new = b_I * (1.0 - std_I_m) + b_I_updated * std_I_m
-        else:
-            b_I_new = b_I
-
-        return x_new, a_E_new, a_I_new, b_E_new, b_I_new, r, b_full
-
-    # ---- Batched RHS for explicit / RK4 / exponential solvers ----
-
-    def _batched_compute_rhs(self, x, a_E, a_I, b_E, b_I, u, W_eff):
-        """Compute derivatives for all K variants. Returns (dx, da_E, da_I, db_E, db_I, r, b_full)."""
-        n_E, n_I, N = self.n_E, self.n_I, self.N
-
-        # Effective potential
-        x_eff = x.clone()
-        if self.max_n_a_E > 0:
-            c_E = self._c_E()
-            c_E_masked = c_E * self.sfa_E_mask
-            sfa_E_contrib = (c_E_masked.unsqueeze(1) * a_E).sum(-1)
-            x_eff = torch.cat([x[:, :, :n_E] - sfa_E_contrib, x_eff[:, :, n_E:]], dim=-1)
-
-        if self.max_n_a_I > 0:
-            c_I = self._c_I()
-            c_I_masked = c_I * self.sfa_I_mask
-            sfa_I_contrib = (c_I_masked.unsqueeze(1) * a_I).sum(-1)
-            x_eff = torch.cat([x_eff[:, :, :n_E], x_eff[:, :, n_E:] - sfa_I_contrib], dim=-1)
-
-        r = piecewise_sigmoid(x_eff - self._a_0().unsqueeze(1))
-
-        b_full = self._compute_b_full(b_E, b_I)
-        br = b_full * r
-
-        Wbr = self._batched_recurrent_drive(br, W_eff)
-
-        tau_d = self._tau_d().unsqueeze(1)
-        dx = (-x + u + Wbr) / tau_d
-
-        # SFA derivatives
-        if self.max_n_a_E > 0:
-            tau_a_E = self._tau_a_E().unsqueeze(1)
-            r_E = r[:, :, :n_E].unsqueeze(-1)
-            c_0_E = self._c_0_E().unsqueeze(1)
-            da_E = ((-a_E + c_0_E + r_E) / tau_a_E) * self.sfa_E_mask.unsqueeze(1)
-        else:
-            da_E = torch.zeros_like(a_E)
-
-        if self.max_n_a_I > 0:
-            tau_a_I = self._tau_a_I().unsqueeze(1)
-            r_I = r[:, :, n_E:].unsqueeze(-1)
-            c_0_I = self._c_0_I().unsqueeze(1)
-            da_I = ((-a_I + c_0_I + r_I) / tau_a_I) * self.sfa_I_mask.unsqueeze(1)
-        else:
-            da_I = torch.zeros_like(a_I)
-
-        # STD derivatives
-        if self.max_n_b_E > 0:
-            tau_b_rec_E = self._tau_b_rec_E().unsqueeze(1)
-            tau_b_rel_E = self._tau_b_rel_E().unsqueeze(1)
-            r_E_flat = r[:, :, :n_E]
-            db_E = ((1.0 - b_E) / tau_b_rec_E - r_E_flat * b_E / tau_b_rel_E) * self.std_E_mask.unsqueeze(1)
-        else:
-            db_E = torch.zeros_like(b_E)
-
-        if self.max_n_b_I > 0:
-            tau_b_rec_I = self._tau_b_rec_I().unsqueeze(1)
-            tau_b_rel_I = self._tau_b_rel_I().unsqueeze(1)
-            r_I_flat = r[:, :, n_E:]
-            db_I = ((1.0 - b_I) / tau_b_rec_I - r_I_flat * b_I / tau_b_rel_I) * self.std_I_mask.unsqueeze(1)
-        else:
-            db_I = torch.zeros_like(b_I)
-
-        return dx, da_E, da_I, db_E, db_I, r, b_full
-
-    def _batched_step_explicit(self, dt, x, a_E, a_I, b_E, b_I, u, W_eff):
-        """Forward Euler step for all K variants."""
-        dx, da_E, da_I, db_E, db_I, r, b_full = self._batched_compute_rhs(
-            x, a_E, a_I, b_E, b_I, u, W_eff
-        )
-        return (
-            x + dt * dx,
-            a_E + dt * da_E,
-            a_I + dt * da_I,
-            (b_E + dt * db_E).clamp(0.0, 1.0),
-            (b_I + dt * db_I).clamp(0.0, 1.0),
-            r, b_full,
-        )
-
-    def _batched_step_rk4(self, dt, x, a_E, a_I, b_E, b_I, u, W_eff):
-        """RK4 step for all K variants."""
-        k1 = self._batched_compute_rhs(x, a_E, a_I, b_E, b_I, u, W_eff)
-        k2 = self._batched_compute_rhs(
-            x + 0.5 * dt * k1[0], a_E + 0.5 * dt * k1[1],
-            a_I + 0.5 * dt * k1[2], b_E + 0.5 * dt * k1[3],
-            b_I + 0.5 * dt * k1[4], u, W_eff,
-        )
-        k3 = self._batched_compute_rhs(
-            x + 0.5 * dt * k2[0], a_E + 0.5 * dt * k2[1],
-            a_I + 0.5 * dt * k2[2], b_E + 0.5 * dt * k2[3],
-            b_I + 0.5 * dt * k2[4], u, W_eff,
-        )
-        k4 = self._batched_compute_rhs(
-            x + dt * k3[0], a_E + dt * k3[1],
-            a_I + dt * k3[2], b_E + dt * k3[3],
-            b_I + dt * k3[4], u, W_eff,
-        )
-        s = dt / 6.0
-        return (
-            x + s * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]),
-            a_E + s * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]),
-            a_I + s * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2]),
-            (b_E + s * (k1[3] + 2 * k2[3] + 2 * k3[3] + k4[3])).clamp(0.0, 1.0),
-            (b_I + s * (k1[4] + 2 * k2[4] + 2 * k3[4] + k4[4])).clamp(0.0, 1.0),
-            k1[5], k1[6],
-        )
-
-    def _batched_step_exponential(self, dt, x, a_E, a_I, b_E, b_I, u, W_eff):
-        """Exponential Euler step for all K variants."""
-        dx, da_E, da_I, db_E, db_I, r, b_full = self._batched_compute_rhs(
-            x, a_E, a_I, b_E, b_I, u, W_eff
-        )
-        n_E = self.n_E
-
-        # Exponential x
-        tau_d = self._tau_d().unsqueeze(1)
-        decay_x = torch.exp(-dt / tau_d)
-        br = b_full * r
-        Wbr = self._batched_recurrent_drive(br, W_eff)
-        x_new = x * decay_x + (1.0 - decay_x) * (u + Wbr)
-
-        # Exponential SFA
-        if self.max_n_a_E > 0:
-            tau_a_E = self._tau_a_E().unsqueeze(1)
-            decay_a_E = torch.exp(-dt / tau_a_E)
-            r_E = r[:, :, :n_E].unsqueeze(-1)
-            c_0_E = self._c_0_E().unsqueeze(1)
-            a_E_updated = a_E * decay_a_E + (1.0 - decay_a_E) * (c_0_E + r_E)
-            sfa_E_mask_b = self.sfa_E_mask.unsqueeze(1)
-            a_E_new = a_E * (1.0 - sfa_E_mask_b) + a_E_updated * sfa_E_mask_b
-        else:
-            a_E_new = a_E
-
-        if self.max_n_a_I > 0:
-            tau_a_I = self._tau_a_I().unsqueeze(1)
-            decay_a_I = torch.exp(-dt / tau_a_I)
-            r_I = r[:, :, n_E:].unsqueeze(-1)
-            c_0_I = self._c_0_I().unsqueeze(1)
-            a_I_updated = a_I * decay_a_I + (1.0 - decay_a_I) * (c_0_I + r_I)
-            sfa_I_mask_b = self.sfa_I_mask.unsqueeze(1)
-            a_I_new = a_I * (1.0 - sfa_I_mask_b) + a_I_updated * sfa_I_mask_b
-        else:
-            a_I_new = a_I
-
-        # STD: explicit Euler for nonlinear equation
-        b_E_new = (b_E + dt * db_E).clamp(0.0, 1.0)
-        b_I_new = (b_I + dt * db_I).clamp(0.0, 1.0)
-
-        return x_new, a_E_new, a_I_new, b_E_new, b_I_new, r, b_full
-
-    # ---- Forward ----
-
-    def forward(
-        self,
-        inputs: torch.Tensor,
-        state: torch.Tensor,
-        W_eff: Optional[torch.Tensor] = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        Returns ``(x_eff, r, b_full, Wbr)``; ``Wbr`` is None without ``W_eff``.
         """
-        Parameters
-        ----------
-        inputs : (K, batch, input_size) or (batch, input_size)
-        state  : (K, batch, max_state_dim)
-        W_eff  : optional pre-computed effective recurrent weight (K, N, N).
-            See SRNNCell.forward for rationale.
+        n_E = self.n_E
+        x_eff = x.clone()
+        if self._max["n_a_E"] > 0:
+            contrib = ((self._c("E") * self.sfa_E_mask).unsqueeze(1) * a_E).sum(-1)
+            x_eff = torch.cat([x[:, :, :n_E] - contrib, x_eff[:, :, n_E:]], dim=-1)
+        if self._max["n_a_I"] > 0:
+            contrib = ((self._c("I") * self.sfa_I_mask).unsqueeze(1) * a_I).sum(-1)
+            x_eff = torch.cat([x_eff[:, :, :n_E], x_eff[:, :, n_E:] - contrib], dim=-1)
+        r = piecewise_sigmoid(x_eff - self._a_0().unsqueeze(1))
+        b_full = self._b_full(b_E, b_I)
+        Wbr = None if W_eff is None else self._recurrent_drive(b_full * r, W_eff)
+        return x_eff, r, b_full, Wbr
 
-        Returns
-        -------
-        output    : (K, batch, num_units)
-        new_state : (K, batch, max_state_dim)
+    def _split(self, r: Tensor, side: str) -> Tensor:
+        return r[:, :, :self.n_E] if side == "E" else r[:, :, self.n_E:]
+
+    def _step_semi_implicit(self, dt, x, a_E, a_I, b_E, b_I, u, W_eff):
+        """Linearly implicit Euler: each variable relaxes to its target with its own alpha = dt / tau."""
+        _, r, b_full, Wbr = self._drive(x, a_E, a_I, b_E, b_I, W_eff)
+        alpha_x = dt / self._tau_d().unsqueeze(1)
+        x_new = (x + alpha_x * (u + Wbr)) / (1.0 + alpha_x)
+        a_new = {"E": a_E, "I": a_I}
+        for side, a in (("E", a_E), ("I", a_I)):
+            if self._max[f"n_a_{side}"] > 0:
+                alpha = (dt / self._tau_a(side)).unsqueeze(1)
+                target = self._c_0(side).unsqueeze(1) + self._split(r, side).unsqueeze(-1)
+                mask = getattr(self, f"sfa_{side}_mask").unsqueeze(1)
+                a_new[side] = a * (1.0 - mask) + ((a + alpha * target) / (1.0 + alpha)) * mask
+        b_new = {"E": b_E, "I": b_I}
+        for side, b in (("E", b_E), ("I", b_I)):
+            if self._max[f"n_b_{side}"] > 0:
+                tau_rec = self._tau_b(side, "rec").unsqueeze(1)
+                tau_rel = self._tau_b(side, "rel").unsqueeze(1)
+                r_side = self._split(r, side)
+                updated = ((b + dt / tau_rec) / (1.0 + dt * (1.0 / tau_rec + r_side / tau_rel))).clamp(0.0, 1.0)
+                mask = getattr(self, f"std_{side}_mask").unsqueeze(1)
+                b_new[side] = b * (1.0 - mask) + updated * mask
+        return x_new, a_new["E"], a_new["I"], b_new["E"], b_new["I"], r, b_full
+
+    def _rhs(self, x, a_E, a_I, b_E, b_I, u, W_eff):
+        """Time derivatives ``(dx, da_E, da_I, db_E, db_I)`` plus ``(r, b_full)``."""
+        _, r, b_full, Wbr = self._drive(x, a_E, a_I, b_E, b_I, W_eff)
+        dx = (-x + u + Wbr) / self._tau_d().unsqueeze(1)
+        da = {"E": torch.zeros_like(a_E), "I": torch.zeros_like(a_I)}
+        for side, a in (("E", a_E), ("I", a_I)):
+            if self._max[f"n_a_{side}"] > 0:
+                target = self._c_0(side).unsqueeze(1) + self._split(r, side).unsqueeze(-1)
+                da[side] = ((-a + target) / self._tau_a(side).unsqueeze(1)) * getattr(self, f"sfa_{side}_mask").unsqueeze(1)
+        db = {"E": torch.zeros_like(b_E), "I": torch.zeros_like(b_I)}
+        for side, b in (("E", b_E), ("I", b_I)):
+            if self._max[f"n_b_{side}"] > 0:
+                tau_rec = self._tau_b(side, "rec").unsqueeze(1)
+                tau_rel = self._tau_b(side, "rel").unsqueeze(1)
+                db[side] = ((1.0 - b) / tau_rec - self._split(r, side) * b / tau_rel) * getattr(self, f"std_{side}_mask").unsqueeze(1)
+        return (dx, da["E"], da["I"], db["E"], db["I"]), r, b_full
+
+    def _step_explicit_family(self, step, dt, x, a_E, a_I, b_E, b_I, u, W_eff):
+        first = {}
+
+        def f(y):
+            derivs, r, b_full = self._rhs(*y, u, W_eff)
+            first.setdefault("r", r)
+            first.setdefault("b_full", b_full)
+            return derivs
+
+        x, a_E, a_I, b_E, b_I = step(f, (x, a_E, a_I, b_E, b_I), dt)
+        # r and b_full evaluated at the pre-step state feed the readout.
+        return x, a_E, a_I, b_E.clamp(0.0, 1.0), b_I.clamp(0.0, 1.0), first["r"], first["b_full"]
+
+    def forward(self, inputs: Tensor, state: Tensor, W_eff: Optional[Tensor] = None):
+        """One step of ``h`` seconds for every variant.
+
+        Args:
+            inputs: ``(B, I)`` shared by all variants, or ``(K, B, I)``.
+            state: ``(K, B, state_size)``.
+            W_eff: effective recurrent weight from :meth:`hoist`, when the
+                caller already computed it for this pass.
+        Returns:
+            output ``(K, B, N)`` per the variant's readout, and the new state.
         """
         a_E, a_I, b_E, b_I, x = self.unpack_state(state)
         if W_eff is None:
-            W_eff = self._effective_W()  # (K, N, N)
-        u = self._batched_input_drive(inputs)  # (K, B, N)
+            W_eff = self._effective_W()
+        u = self._input_drive(inputs)
         dt = self.h / self.ode_unfolds
-
-        # Solver selection -- static Python branching on config string, compile-safe
-        if self.solver == "semi_implicit":
-            step_fn = self._batched_step_semi_implicit
-        elif self.solver == "explicit":
-            step_fn = self._batched_step_explicit
-        elif self.solver == "rk4":
-            step_fn = self._batched_step_rk4
-        elif self.solver == "exponential":
-            step_fn = self._batched_step_exponential
-        else:
-            raise ValueError(f"Unknown solver: {self.solver}")
-
-        r_last = None
-        b_last = None
         for _ in range(self.ode_unfolds):
-            x, a_E, a_I, b_E, b_I, r_last, b_last = step_fn(
-                dt, x, a_E, a_I, b_E, b_I, u, W_eff,
-            )
-
-        # Readout: encode all three variants, select via mask
-        # readout_ids: (K,)  -> 0=synaptic, 1=rate, 2=dendritic
-        out_synaptic = b_last * r_last          # (K, B, N)
-        out_rate = r_last                       # (K, B, N)
-        out_dendritic = x                       # (K, B, N)
-
-        # Build selection masks: (K, 1, 1)
+            if self.solver == "semi_implicit":
+                x, a_E, a_I, b_E, b_I, r, b_full = self._step_semi_implicit(dt, x, a_E, a_I, b_E, b_I, u, W_eff)
+            else:
+                step = euler_step if self.solver == "explicit" else rk4_step
+                x, a_E, a_I, b_E, b_I, r, b_full = self._step_explicit_family(step, dt, x, a_E, a_I, b_E, b_I, u, W_eff)
         is_synaptic = (self.readout_ids == 0).float().reshape(self.K, 1, 1)
         is_rate = (self.readout_ids == 1).float().reshape(self.K, 1, 1)
         is_dendritic = (self.readout_ids == 2).float().reshape(self.K, 1, 1)
+        output = is_synaptic * (b_full * r) + is_rate * r + is_dendritic * x
+        return output, self.pack_state(a_E, a_I, b_E, b_I, x)
 
-        output = (
-            is_synaptic * out_synaptic
-            + is_rate * out_rate
-            + is_dendritic * out_dendritic
-        )
+    # -- introspection ----------------------------------------------------------
 
-        new_state = self.pack_state(a_E, a_I, b_E, b_I, x)
-        return output, new_state
+    def get_diagnostics(self, state: Tensor, inputs: Optional[Tensor] = None) -> dict:
+        """Solver-internal quantities for a packed state (no parameters change)."""
+        a_E, a_I, b_E, b_I, x = self.unpack_state(state)
+        x_eff, r, b_full, _ = self._drive(x, a_E, a_I, b_E, b_I, None)
+        out = {"x": x, "x_eff": x_eff, "r": r, "b_E": b_E, "b_I": b_I,
+               "b_full": b_full, "a_E": a_E, "a_I": a_I, "br": b_full * r}
+        if inputs is not None:
+            out["u"] = self._input_drive(inputs)
+        return out
+
+    def freeze(self, groups: list[str]) -> list[str]:
+        """Pin logical parameter groups (see ``FREEZE_GROUPS``); returns the attributes frozen."""
+        frozen = []
+        for g in groups:
+            if g not in FREEZE_GROUPS:
+                raise ValueError(f"Unknown freeze group {g!r}. Valid: {sorted(FREEZE_GROUPS)}")
+            hits = [a for a in FREEZE_GROUPS[g] if isinstance(getattr(self, a, None), nn.Parameter)]
+            if not hits:
+                raise ValueError(f"freeze group {g!r} has no parameters on this cell (ablated away)")
+            for a in hits:
+                getattr(self, a).requires_grad_(False)
+                frozen.append(a)
+        return frozen

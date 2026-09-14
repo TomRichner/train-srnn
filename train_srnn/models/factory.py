@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import fields, replace
+from dataclasses import fields
 from typing import Optional
 
 import torch
@@ -15,7 +15,8 @@ from train_srnn.models.lstm_cell import LSTMCell
 from train_srnn.models.ltc_cell import LTCCell, LTCConfig
 from train_srnn.models.rmt_matrix import RMTMatrix
 from train_srnn.models.sequence_model import SequenceModel
-from train_srnn.models.srnn_cell import BatchedSRNNCell, SRNNCell, SRNNConfig
+from train_srnn.models.base import RNNCell
+from train_srnn.models.srnn_cell import SRNNCell, SRNNConfig
 from train_srnn.utils.io_masks import generate_neuron_partition, make_input_mask
 
 
@@ -61,8 +62,9 @@ def srnn_variants(cfg: DictConfig, names: Optional[list[str]] = None,
     return V.expand(names, seeds, m, default_seed=int(cfg.seed))
 
 
-def build_cell(cfg: DictConfig, W_in_mask: Optional[torch.Tensor] = None) -> nn.Module:
-    """Build a single-network cell for ``cfg.model.type``."""
+def build_cell(cfg: DictConfig, W_in_mask: Optional[torch.Tensor] = None,
+               variants: Optional[list[str]] = None, seeds: Optional[list[int]] = None) -> RNNCell:
+    """Build the cell for ``cfg.model.type``; SRNN gets one network per resolved variant."""
     model_type: str = cfg.model.type
     input_size: int = cfg.task.input_size
 
@@ -77,14 +79,26 @@ def build_cell(cfg: DictConfig, W_in_mask: Optional[torch.Tensor] = None) -> nn.
     if model_type == "ctgru":
         return CTGRUCell(input_size, _dataclass_from_cfg(cfg.model, CTGRUConfig), W_in_mask=W_in_mask)
     if model_type == "srnn":
-        variant = srnn_variants(cfg)[0]
-        srnn_cfg = _srnn_config(cfg, variant)
-        rmt_export = _rmt(cfg, variant.seed).export_for_srnn(dales=srnn_cfg.dales)
-        return SRNNCell(srnn_cfg, input_size, rmt_export, W_in_mask=W_in_mask)
+        resolved = srnn_variants(cfg, variants, seeds)
+        configs = [_srnn_config(cfg, v) for v in resolved]
+        # Variants sharing a seed share one recurrent matrix, so comparisons
+        # across variants at the same seed are paired on connectivity.
+        rmt_cache: dict[int, RMTMatrix] = {}
+        for v in resolved:
+            if v.seed not in rmt_cache:
+                rmt_cache[v.seed] = _rmt(cfg, v.seed)
+        exports = [rmt_cache[v.seed].export_for_srnn(dales=c.dales) for c, v in zip(configs, resolved)]
+        cell = SRNNCell(configs, input_size, exports, W_in_mask=W_in_mask)
+        cell.variant_names = [v.name for v in resolved]
+        return cell
     raise ValueError(f"Unknown model type: {model_type!r}")
 
 
-def _wrap(cfg: DictConfig, cell: nn.Module) -> SequenceModel:
+def build_model(cfg: DictConfig, variants: Optional[list[str]] = None,
+                seeds: Optional[list[int]] = None) -> SequenceModel:
+    """Cell plus readout. The neuron partition (input/output masks) comes from ``cfg.seed``."""
+    W_in_mask = _input_mask(cfg.model.num_units, cfg.seed)
+    cell = build_cell(cfg, W_in_mask=W_in_mask, variants=variants, seeds=seeds)
     return SequenceModel(
         cell=cell,
         input_size=cfg.task.input_size,
@@ -93,38 +107,3 @@ def _wrap(cfg: DictConfig, cell: nn.Module) -> SequenceModel:
         task_type=cfg.task.task_type,
         io_mask_seed=cfg.seed,
     )
-
-
-def build_model(cfg: DictConfig) -> SequenceModel:
-    """Single-network model (for SRNN: the first entry of ``model.variants``)."""
-    W_in_mask = _input_mask(cfg.model.num_units, cfg.seed)
-    return _wrap(cfg, build_cell(cfg, W_in_mask=W_in_mask))
-
-
-def build_batched_model(
-    cfg: DictConfig,
-    names: Optional[list[str]] = None,
-    seeds: Optional[list[int]] = None,
-) -> SequenceModel:
-    """K SRNN variants in one batched cell.
-
-    Variants sharing a recurrent-matrix seed share one ``RMTMatrix``, so a
-    comparison across variants at the same seed is paired on connectivity.
-    The neuron partition (input/output masks) is built from ``cfg.seed`` and
-    shared by all K networks.
-    """
-    variants = srnn_variants(cfg, names, seeds)
-    configs = [_srnn_config(cfg, v) for v in variants]
-
-    rmt_cache: dict[int, RMTMatrix] = {}
-    for v in variants:
-        if v.seed not in rmt_cache:
-            rmt_cache[v.seed] = _rmt(cfg, v.seed)
-    rmt_exports = [rmt_cache[v.seed].export_for_srnn(dales=c.dales)
-                   for c, v in zip(configs, variants)]
-
-    W_in_mask = _input_mask(cfg.model.num_units, cfg.seed)
-    cell = BatchedSRNNCell(configs, cfg.task.input_size, rmt_exports, W_in_mask=W_in_mask)
-    model = _wrap(cfg, cell)
-    model.ablation_names = [v.name for v in variants]
-    return model

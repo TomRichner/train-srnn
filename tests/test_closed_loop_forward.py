@@ -19,7 +19,7 @@ from omegaconf import DictConfig
 
 from train_srnn.config import compose_config
 
-from train_srnn.models.factory import build_model, build_batched_model
+from train_srnn.models.factory import build_model
 
 
 def _make_cfg(num_units: int = 16, n_features: int = 4,
@@ -50,7 +50,7 @@ def test_open_loop_unchanged():
     y_a = model(x, readout_idx=slice(0, T))
     y_b = model(x, readout_idx=slice(0, T), alpha_schedule=None)
     assert torch.equal(y_a, y_b)
-    assert y_a.shape == (B, T, C)
+    assert y_a.shape == (1, B, T, C)          # K = 1 axis is always present
 
 
 def test_closed_loop_output_shape_single():
@@ -66,16 +66,16 @@ def test_closed_loop_output_shape_single():
     alpha[0].zero_()
 
     y_full = model(x, readout_idx=slice(0, T), alpha_schedule=alpha)
-    assert y_full.shape == (B, T, C)
+    assert y_full.shape == (1, B, T, C)
 
     y_last = model(x, readout_idx=T - 1, alpha_schedule=alpha)
-    assert y_last.shape == (B, C)
+    assert y_last.shape == (1, B, C)
 
 
 def test_closed_loop_output_shape_batched():
     torch.manual_seed(0)
     cfg = _make_cfg()
-    model = build_batched_model(cfg, ["srnn", "srnn-no-adapt"])
+    model = build_model(cfg, ["srnn", "srnn-no-adapt"])
     model.eval()
     K = 2
 

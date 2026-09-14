@@ -362,7 +362,7 @@ def run_continuous_training(
     rng: np.random.RandomState,
     device: torch.device,
     K: Optional[int],
-    ablation_names: Optional[list[str]],
+    variant_names: Optional[list[str]],
     eval_and_log_test_fn,         # train.py's eval_and_log_test, passed in to avoid circular import
     run_epoch_fn,                 # train.py's run_epoch, passed in for eval
     amp_autocast_fn,              # train.py's amp_autocast, passed in
@@ -597,7 +597,7 @@ def run_continuous_training(
             # Train-only epoch: terse one-line log, no eval columns.
             if K is not None:
                 tl_str = " ".join(
-                    f"[{ablation_names[k]}]={train_loss[k]:.4f}/{train_metric[k]:.4f}"
+                    f"[{variant_names[k]}]={train_loss[k]:.4f}/{train_metric[k]:.4f}"
                     for k in range(K)
                 )
                 log.info("Epoch %d (continuous, train-only, %.1fs): %s",
@@ -616,7 +616,7 @@ def run_continuous_training(
                     vm = valid_metric[k] if valid_metric is not None else float("nan")
                     log.info(
                         "  [%s] train_loss=%.4f train_metric=%.4f valid_loss=%.4f valid_metric=%.4f",
-                        ablation_names[k], train_loss[k], train_metric[k], vl, vm,
+                        variant_names[k], train_loss[k], train_metric[k], vl, vm,
                     )
             else:
                 log.info(
@@ -640,7 +640,7 @@ def run_continuous_training(
                     cfg.output_dir, epoch,
                     train_loss=train_loss, train_metric=train_metric,
                     valid_loss=valid_loss, valid_metric=valid_metric,
-                    lr=cur_lr, K=K, ablation_names=ablation_names,
+                    lr=cur_lr, K=K, variant_names=variant_names,
                 )
                 write_progress(cfg.output_dir, epoch + 1, total_epochs)
 
@@ -650,7 +650,7 @@ def run_continuous_training(
             with timer.section("test_eval"):
                 eval_and_log_test_fn(
                     model, test_x, test_y, criterion, cfg, rng, device,
-                    epoch=epoch, tag=tag, K=K, ablation_names=ablation_names,
+                    epoch=epoch, tag=tag, K=K, variant_names=variant_names,
                 )
 
         # Per-phase profiler report (no-op when profile=false)
@@ -660,5 +660,5 @@ def run_continuous_training(
     save_checkpoint(model, optimizer, scheduler, total_epochs - 1, cfg, "last")
     eval_and_log_test_fn(
         model, test_x, test_y, criterion, cfg, rng, device,
-        epoch=total_epochs - 1, tag="last", K=K, ablation_names=ablation_names,
+        epoch=total_epochs - 1, tag="last", K=K, variant_names=variant_names,
     )

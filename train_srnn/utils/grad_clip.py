@@ -28,7 +28,7 @@ def clip_grad_norm_per_variant(
 
     Args:
         parameters: Iterable of parameters.  Every one carrying a gradient must
-            be ``(K, ...)``-shaped — true for all ``BatchedSRNNCell`` /
+            be ``(K, ...)``-shaped — true for all ``SRNNCell`` /
             batched ``SequenceModel`` parameters.
         max_norm: Per-variant max L2 norm.
         K: Number of batched variants.

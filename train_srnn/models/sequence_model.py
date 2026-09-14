@@ -5,7 +5,7 @@ time-step unrolling, optional I/O masking, readout head, trainable
 initial conditions, and truncated BPTT support.
 
 Supports both single-variant cells (output shape ``(B, N)``) and
-K-batched cells like ``BatchedSRNNCell`` (output shape ``(K, B, N)``).
+K-batched cells like ``SRNNCell`` (output shape ``(K, B, N)``).
 """
 
 import math
@@ -107,6 +107,15 @@ class SequenceModel(nn.Module):
             self.readout = nn.Linear(effective_output_size, output_size)
             # Scalar gain on the readout weight (single-variant analogue).
             self.W_out_gain = nn.Parameter(torch.tensor(1.0))
+
+    @property
+    def K(self):
+        return self._K
+
+    @property
+    def variant_names(self):
+        """Names of the K networks, or None for a single-network cell."""
+        return getattr(self.cell, "variant_names", None) if self._K is not None else None
 
     # ------------------------------------------------------------------
     @staticmethod

@@ -1,6 +1,6 @@
 """Equivalence test for the hoisted-W_eff path on SRNN cells.
 
-`SRNNCell` and `BatchedSRNNCell` rebuild the effective recurrent weight
+`SRNNCell` rebuilds the effective recurrent weight
 matrix on every forward call. To avoid 250x reconstruction inside per-step
 BPTT loops, we added an optional ``W_eff=...`` kwarg to both forwards: when
 provided, the cell uses it directly instead of calling ``self._effective_W()``.
@@ -29,7 +29,7 @@ from omegaconf import DictConfig
 
 from train_srnn.config import compose_config
 
-from train_srnn.models.factory import build_batched_model, build_model
+from train_srnn.models.factory import build_model
 
 
 def _make_cfg(num_units: int = 16, n_features: int = 4,
@@ -121,7 +121,7 @@ def test_single_cell_forward_backward_equivalence():
     B = 4
     torch.manual_seed(1)
     inputs = torch.randn(B, cfg.task.input_size)
-    state = torch.randn(B, cell_a.state_size)
+    state = torch.randn(1, B, cell_a.state_size)
 
     out_a, state_a, out_b, state_b, ga, gb = _run_cell_pair(
         cell_a, cell_b, inputs, state,
@@ -136,11 +136,11 @@ def test_single_cell_forward_backward_equivalence():
 
 
 def test_batched_cell_forward_backward_equivalence():
-    """BatchedSRNNCell: hoisted W_eff vs internal — byte-identical fp32."""
+    """SRNNCell: hoisted W_eff vs internal — byte-identical fp32."""
     torch.manual_seed(0)
     cfg = _make_cfg()
     abls = ["srnn-e-only-per-neuron", "srnn-e-only-skip-per-neuron"]
-    model_a = build_batched_model(cfg, abls).eval()
+    model_a = build_model(cfg, abls).eval()
     model_b = copy.deepcopy(model_a)
     cell_a, cell_b = model_a.cell, model_b.cell
 
@@ -178,7 +178,7 @@ def test_single_cell_multistep_equivalence():
     B, T = 4, 12
     torch.manual_seed(3)
     xs = torch.randn(T, B, cfg.task.input_size)
-    s0 = torch.randn(B, cell_a.state_size)
+    s0 = torch.randn(1, B, cell_a.state_size)
 
     _zero_grads(cell_a); _zero_grads(cell_b)
 
@@ -214,7 +214,7 @@ def test_batched_cell_multistep_equivalence():
     torch.manual_seed(0)
     cfg = _make_cfg()
     abls = ["srnn-e-only-per-neuron", "srnn-e-only-skip-per-neuron"]
-    model_a = build_batched_model(cfg, abls).eval()
+    model_a = build_model(cfg, abls).eval()
     model_b = copy.deepcopy(model_a)
     cell_a, cell_b = model_a.cell, model_b.cell
 

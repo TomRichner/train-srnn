@@ -43,7 +43,7 @@ def save_checkpoint(
             scheduler.state_dict() if scheduler and hasattr(scheduler, "state_dict") else None
         ),
         "config": OmegaConf.to_container(cfg, resolve=True),
-        "ablation_names": getattr(model, "ablation_names", None),
+        "variant_names": model.variant_names,
         "torch_rng_state": torch.random.get_rng_state(),
         "numpy_rng_state": np.random.get_state(),
     }
@@ -123,7 +123,7 @@ def append_history_row(
     valid_metric: float | list[float],
     lr: float,
     K: int | None = None,
-    ablation_names: list[str] | None = None,
+    variant_names: list[str] | None = None,
 ) -> None:
     """Append one (or K) rows to ``training_history.csv``."""
     os.makedirs(output_dir, exist_ok=True)
@@ -140,7 +140,7 @@ def append_history_row(
             for k in range(K):
                 writer.writerow([
                     epoch,
-                    ablation_names[k] if ablation_names else f"variant_{k}",
+                    variant_names[k] if variant_names else f"variant_{k}",
                     f"{train_loss[k]:.6f}",
                     f"{train_metric[k]:.6f}",
                     f"{valid_loss[k]:.6f}",
@@ -181,7 +181,7 @@ def append_test_history_row(
     test_loss: float | list[float],
     test_metric: float | list[float],
     K: int | None = None,
-    ablation_names: list[str] | None = None,
+    variant_names: list[str] | None = None,
 ) -> None:
     """Append test metrics to ``test_history.csv`` (one row per variant)."""
     os.makedirs(output_dir, exist_ok=True)
@@ -199,7 +199,7 @@ def append_test_history_row(
                 writer.writerow([
                     epoch,
                     tag,
-                    ablation_names[k] if ablation_names else f"variant_{k}",
+                    variant_names[k] if variant_names else f"variant_{k}",
                     f"{test_loss[k]:.6f}",
                     f"{test_metric[k]:.6f}",
                     ts,

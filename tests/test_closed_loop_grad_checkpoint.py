@@ -21,7 +21,7 @@ from omegaconf import DictConfig
 
 from train_srnn.config import compose_config
 
-from train_srnn.models.factory import build_batched_model, build_model
+from train_srnn.models.factory import build_model
 
 
 def _make_cfg(num_units: int = 16, n_features: int = 4,
@@ -50,7 +50,7 @@ def _build_paired_models_single():
 def _build_paired_models_batched(ablations):
     torch.manual_seed(0)
     cfg = _make_cfg()
-    a = build_batched_model(cfg, ablations)
+    a = build_model(cfg, ablations)
     b = copy.deepcopy(a)
     return cfg, a, b
 

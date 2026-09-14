@@ -14,7 +14,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from train_srnn.data import build_task
 from train_srnn.data.transforms import wrap_eval_batch, wrap_train_batch
-from train_srnn.models.factory import build_batched_model, build_model
+from train_srnn.models.factory import build_model
 from train_srnn.training.closed_loop import (
     ClosedLoopConfig,
     effective_alpha_baseline,
@@ -35,63 +35,15 @@ from train_srnn.utils.trainable_ic import compute_burn_in
 log = logging.getLogger(__name__)
 
 
-# Logical name -> list of attribute names on model.cell. Each attr that
-# resolves to a real nn.Parameter is set requires_grad_(False). Both halves
-# of the BatchedSRNNCell `_vec`/`_scalar`(/`_gain`) split are listed so a
-# single logical name fully pins the value regardless of which cell built.
-FREEZE_NAME_MAP: dict[str, list[str]] = {
-    "a_0":         ["a_0", "a_0_vec", "a_0_scalar"],
-    "W_raw":       ["W_raw"],
-    "W_in":        ["W_in"],
-    "W_raw_gain":  ["W_raw_gain"],
-    "W_in_gain":   ["W_in_gain"],
-    "W_out_gain":  ["W_out_gain"],
-    "tau_global":  ["isp_tau_global"],
-    "tau_d":       ["isp_tau_d", "isp_tau_d_vec", "log_tau_d_gain"],
-    "tau_a_E":     ["isp_tau_a_E", "isp_tau_a_E_lo", "isp_tau_a_E_hi",
-                    "isp_tau_a_E_vec", "log_tau_a_E_gain"],
-    "c_E":         ["isp_c_E", "isp_c_E_vec", "log_c_E_gain"],
-    "c_0_E":       ["c_0_E", "c_0_E_vec", "c_0_E_scalar"],
-    "tau_a_I":     ["isp_tau_a_I", "isp_tau_a_I_lo", "isp_tau_a_I_hi",
-                    "isp_tau_a_I_vec", "log_tau_a_I_gain"],
-    "c_I":         ["isp_c_I", "isp_c_I_vec", "log_c_I_gain"],
-    "c_0_I":       ["c_0_I", "c_0_I_vec", "c_0_I_scalar"],
-    "tau_b_rec_E": ["isp_tau_b_rec_E", "isp_tau_b_rec_E_vec", "log_tau_b_rec_E_gain"],
-    "tau_b_rel_E": ["isp_tau_b_rel_E", "isp_tau_b_rel_E_vec", "log_tau_b_rel_E_gain"],
-    "tau_b_rec_I": ["isp_tau_b_rec_I", "isp_tau_b_rec_I_vec", "log_tau_b_rec_I_gain"],
-    "tau_b_rel_I": ["isp_tau_b_rel_I", "isp_tau_b_rel_I_vec", "log_tau_b_rel_I_gain"],
-}
-
-
-def _apply_freeze_params(model, freeze_list):
-    if not freeze_list:
+def _freeze_params(model, groups: list[str]) -> None:
+    """Pin logical parameter groups at init (no optimizer updates)."""
+    if not groups:
         return
-    cell = model.cell
-    frozen_attrs: list[str] = []
-    for logical in freeze_list:
-        if logical not in FREEZE_NAME_MAP:
-            raise ValueError(
-                f"freeze_params: unknown '{logical}'. "
-                f"Valid: {sorted(FREEZE_NAME_MAP)}"
-            )
-        hits = 0
-        for attr in FREEZE_NAME_MAP[logical]:
-            # Most params live on the cell (W_raw, taus, etc.); a few — like
-            # W_out_gain — live on the SequenceModel. Check cell first, then
-            # fall back to the model itself.
-            for owner, prefix in ((cell, "cell."), (model, "")):
-                p = getattr(owner, attr, None)
-                if isinstance(p, nn.Parameter):
-                    p.requires_grad_(False)
-                    frozen_attrs.append(f"{prefix}{attr}")
-                    hits += 1
-                    break
-        if hits == 0:
-            raise ValueError(
-                f"freeze_params: '{logical}' resolved to no Parameters on this cell "
-                f"— ablation may have dropped it."
-            )
-    log.info("Frozen params (logical=%s, attrs=%s)", list(freeze_list), frozen_attrs)
+    frozen = model.cell.freeze([g for g in groups if g != "W_out_gain"])
+    if "W_out_gain" in groups:
+        model.W_out_gain.requires_grad_(False)
+        frozen.append("W_out_gain")
+    log.info("Frozen params (groups=%s, attrs=%s)", list(groups), frozen)
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +309,7 @@ def eval_and_log_test(
     epoch: int,
     tag: str,
     K: int | None,
-    ablation_names: list[str] | None,
+    variant_names: list[str] | None,
 ) -> None:
     """Evaluate test set and append a row to test_history.csv."""
     was_training = model.training
@@ -373,14 +325,14 @@ def eval_and_log_test(
     append_test_history_row(
         cfg.output_dir, epoch, tag,
         test_loss, test_metric,
-        K=K, ablation_names=ablation_names,
+        K=K, variant_names=variant_names,
     )
     if K is not None:
         log.info("Test [%s @ epoch %d]:", tag, epoch)
         for k in range(K):
             log.info(
                 "  [%s] test_loss=%.4f test_metric=%.4f",
-                ablation_names[k], test_loss[k], test_metric[k],
+                variant_names[k], test_loss[k], test_metric[k],
             )
     else:
         log.info(
@@ -432,19 +384,15 @@ def main(cfg: DictConfig) -> None:
     test_x, test_y = dataset.test
 
     # 4. Build model ----------------------------------------------------------
-    if cfg.model.type == "srnn":
-        model = build_batched_model(cfg)
-    else:
-        model = build_model(cfg)
-    model = model.to(device)
-    _apply_freeze_params(model, list(cfg.freeze_params))
+    model = build_model(cfg).to(device)
+    _freeze_params(model, list(cfg.freeze_params))
     log.info("Model parameters: %d", sum(p.numel() for p in model.parameters()))
     log.info("Trainable parameters: %d",
              sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     # Extract K and ablation names before possible torch.compile wrapping
-    K = getattr(model, "_K", None)
-    ablation_names = getattr(model, "ablation_names", None)
+    K = model.K
+    variant_names = model.variant_names
 
     # 5. Optional torch.compile -----------------------------------------------
     # Cell-level compile is deferred to the continuous trainer (so that eval,
@@ -604,7 +552,7 @@ def main(cfg: DictConfig) -> None:
     save_checkpoint(model, optimizer, scheduler, epoch=0, cfg=cfg, tag="init")
     eval_and_log_test(
         model, test_x, test_y, criterion, cfg, rng, device,
-        epoch=0, tag="init", K=K, ablation_names=ablation_names,
+        epoch=0, tag="init", K=K, variant_names=variant_names,
     )
 
     if cfg.early_exit_after_init:
@@ -649,7 +597,7 @@ def main(cfg: DictConfig) -> None:
                 closed_loop_gen=cl_gen,
                 rng=rng,
                 device=device,
-                K=K, ablation_names=ablation_names,
+                K=K, variant_names=variant_names,
                 eval_and_log_test_fn=eval_and_log_test,
                 run_epoch_fn=run_epoch,
                 amp_autocast_fn=amp_autocast,
@@ -713,7 +661,7 @@ def main(cfg: DictConfig) -> None:
                     log.info(
                         "  [%s] train_loss=%.4f train_metric=%.4f "
                         "valid_loss=%.4f valid_metric=%.4f",
-                        ablation_names[k],
+                        variant_names[k],
                         train_loss[k], train_metric[k],
                         valid_loss[k], valid_metric[k],
                     )
@@ -731,7 +679,7 @@ def main(cfg: DictConfig) -> None:
             save_checkpoint(model, optimizer, scheduler, epoch, cfg, tag)
             eval_and_log_test(
                 model, test_x, test_y, criterion, cfg, rng, device,
-                epoch=epoch, tag=tag, K=K, ablation_names=ablation_names,
+                epoch=epoch, tag=tag, K=K, variant_names=variant_names,
             )
 
         # Training history + progress
@@ -739,7 +687,7 @@ def main(cfg: DictConfig) -> None:
             cfg.output_dir, epoch,
             train_loss, train_metric, valid_loss, valid_metric,
             lr=scheduler.get_last_lr()[0],
-            K=K, ablation_names=ablation_names,
+            K=K, variant_names=variant_names,
         )
         write_progress(cfg.output_dir, epoch, cfg.epochs)
 
@@ -750,7 +698,7 @@ def main(cfg: DictConfig) -> None:
     )
     eval_and_log_test(
         model, test_x, test_y, criterion, cfg, rng, device,
-        epoch=last_epoch, tag="last", K=K, ablation_names=ablation_names,
+        epoch=last_epoch, tag="last", K=K, variant_names=variant_names,
     )
 
 

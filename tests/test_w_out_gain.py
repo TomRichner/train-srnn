@@ -29,7 +29,7 @@ from train_srnn.config import compose_config
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from train_srnn.models.factory import build_batched_model, build_model  # noqa: E402
+from train_srnn.models.factory import build_model
 
 
 def _make_cfg(num_units: int = 16, n_features: int = 4) -> DictConfig:
@@ -47,7 +47,7 @@ def test_identity_batched():
     torch.manual_seed(0)
     cfg = _make_cfg()
     ablations = ["srnn", "srnn-skip"]
-    model = build_batched_model(cfg, ablations)
+    model = build_model(cfg, ablations)
 
     assert model.W_out_gain.shape == (2,)
     assert torch.equal(model.W_out_gain.data, torch.ones(2))
@@ -90,7 +90,7 @@ def test_doubling_batched():
     torch.manual_seed(0)
     cfg = _make_cfg()
     ablations = ["srnn", "srnn-no-adapt"]   # both non-skip
-    model = build_batched_model(cfg, ablations)
+    model = build_model(cfg, ablations)
 
     # Zero the bias so the gain*y comparison isolates the weight scaling
     with torch.no_grad():
@@ -118,7 +118,7 @@ def test_grad_flow_batched():
     torch.manual_seed(0)
     cfg = _make_cfg()
     ablations = ["srnn", "srnn-skip"]
-    model = build_batched_model(cfg, ablations)
+    model = build_model(cfg, ablations)
 
     with torch.no_grad():
         model.W_out_gain.data.fill_(1.5)
@@ -143,7 +143,7 @@ def test_identity_single():
     cfg = _make_cfg()
     model = build_model(cfg)
 
-    assert model.W_out_gain.shape == ()
+    assert model.W_out_gain.shape == (1,)
     assert model.W_out_gain.data.item() == 1.0
 
     torch.manual_seed(1)
@@ -164,7 +164,7 @@ def test_doubling_single():
     model = build_model(cfg)
 
     with torch.no_grad():
-        model.readout.bias.zero_()
+        model.readout_bias.zero_()
 
     torch.manual_seed(1)
     x = torch.randn(3, 5, cfg.task.input_size)
