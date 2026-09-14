@@ -1,9 +1,9 @@
-"""Record golden snapshots from the pre-refactor code.
+"""Record golden snapshots: forward outputs, gradients, and three trainer steps per cell.
 
-Run once at the last pre-refactor commit and commit the resulting ``*.pt``
-files. Later refactors are checked against them by ``tests/test_golden_*.py``.
+Regenerate only when a numerical change is intended, and say so in the
+commit; ``tests/test_golden_*.py`` replay the ``*.pt`` files.
 
-    uv run python tests/golden/make_golden.py
+    PYTHONPATH=. uv run python tests/golden/make_golden.py
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import pathlib
 
 import torch
 
-from tests.golden import legacy_api as api
+from tests.golden import harness as api
 
 
 def snapshot_model(name: str, model) -> None:

@@ -1,8 +1,5 @@
-"""Builders and runners against the pre-refactor API.
-
-Shared by ``make_golden.py`` (which records snapshots) and the
-``test_golden_*`` tests (which replay them). Small shapes keep the
-snapshots a few hundred KB.
+"""Builders and runners shared by ``make_golden.py`` (records snapshots) and the
+``test_golden_*`` tests (replay them). Small shapes keep the snapshots small.
 """
 from __future__ import annotations
 
@@ -22,8 +19,6 @@ CHUNK = 5
 SEG = 5
 
 SINGLE_MODELS = ["lstm", "ltc", "ltc_rk", "ltc_ex", "ctrnn", "node", "ctgru"]
-BATCHED_PER_NEURON = [True, False, False, False]
-BATCHED_ECHO = [False, False, False, True]
 BATCHED_VARIANTS = ["srnn-per-neuron", "srnn-no-adapt", "srnn-e-only-skip",
                     "srnn-echo"]
 TRAINER_VARIANTS = ["srnn-no-dales-skip", "srnn-no-adapt-no-dales-skip"]

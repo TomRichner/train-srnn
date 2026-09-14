@@ -6,7 +6,7 @@ import pathlib
 import pytest
 import torch
 
-from tests.golden import legacy_api as api
+from tests.golden import harness as api
 
 
 def _load(name):
@@ -17,10 +17,6 @@ def _load(name):
 
 
 def _assert_state_close(got, want):
-    # The old cell kept its gradient-hook masks as buffers; the new one has a
-    # single per_neuron_mask buffer instead. Compare everything else.
-    want = {k: v for k, v in want.items() if not (k.startswith("cell._") and k.endswith("_mask"))}
-    got = {k: v for k, v in got.items() if k != "cell.per_neuron_mask"}
     assert got.keys() == want.keys()
     for k in want:
         assert torch.allclose(got[k], want[k], atol=1e-6, rtol=1e-5), k
