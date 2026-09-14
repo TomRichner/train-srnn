@@ -33,7 +33,6 @@ from train_srnn.training.closed_loop import (
     sample_per_reader_jitter,
     summarize_alpha,
 )
-from train_srnn.utils.cell_loop import empty_time_buffer, mark_cudagraph_step
 from train_srnn.utils.grad_clip import clip_grad_norm_per_variant
 from train_srnn.utils.checkpoint import (
     append_history_row,
@@ -179,124 +178,17 @@ def _gather_chunks(
 # Forward / chunk step
 # ---------------------------------------------------------------------------
 
-def _readout_chunk(model, hidden_seq: torch.Tensor, x_in_seq: torch.Tensor) -> torch.Tensor:
-    """Apply per-timestep readout across a chunk.
-
-    hidden_seq : (B, T, N) or (K, B, T, N)
-    x_in_seq   : (B, T, C) or (K, B, T, C)   — for skip residual
-    Returns    : (B, T, O) or (K, B, T, O)
-
-    SequenceModel._readout_one applies output_mask, readout_weight,
-    readout_bias, and (for batched) skip flags. We call it per t because
-    it's already designed for one timestep; loop is small (T ≤ chunk_len).
-    """
-    T = hidden_seq.shape[-2]
-    outs = []
-    for t in range(T):
-        if hidden_seq.dim() == 4:    # (K, B, T, N)
-            h_t = hidden_seq[:, :, t, :]
-            x_t = x_in_seq[:, :, t, :] if x_in_seq.dim() == 4 else x_in_seq[:, t, :]
-        else:                         # (B, T, N)
-            h_t = hidden_seq[:, t, :]
-            x_t = x_in_seq[:, t, :]
-        outs.append(model._readout_one(h_t, x_t))
-    return torch.stack(outs, dim=-2)
+def _forward_chunk_pure_tf(model, cell, chunk_x, state):
+    """Teacher-forced chunk: ``(logits, new_state)`` with logits ``(K, B, T, O)``."""
+    res = model.unroll(chunk_x, state, hoisted=cell.hoist(), cell=cell)
+    return model.apply_readout(res.hidden, chunk_x), res.state
 
 
-def _forward_chunk_pure_tf(
-    model, cell, chunk_x: torch.Tensor, state: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Pure teacher forcing forward over a chunk.
-
-    chunk_x : (B, T, C)
-    state   : (B, S) or (K, B, S)
-    Returns : (logits, new_state) where logits has shape (B, T, O) or (K, B, T, O).
-
-    Pre-allocates ``hidden_seq`` lazily on the first iteration (so it
-    picks up the cell's output dtype, which differs from chunk_x under
-    AMP autocast) and writes per-step outputs by slice-assign. This is
-    the CUDA-graph-friendly equivalent of an ``append + torch.stack``
-    accumulator: avoids holding refs to graph-owned output buffers
-    across iterations under ``compile(mode='reduce-overhead')``.
-    """
-    T = chunk_x.shape[1]
-    # Hoist effective recurrent weight: SRNN cells rebuild W_eff from W_raw
-    # via softplus + Dale signs + sparsity_mask on every forward call. W_raw
-    # is constant across this chunk (only changes at optimizer.step), so
-    # build once and pass in. Other cell types (LSTM/LTC/CTRNN) don't have
-    # _effective_W; fall through to the original signature.
-    W_eff = cell.hoist()
-    hidden_seq: torch.Tensor | None = None
-    for t in range(T):
-        # Tells the cudagraph trees allocator the previous step's outputs
-        # are no longer in use (so it may recycle them). No-op outside
-        # CUDA-graph capture.
-        mark_cudagraph_step()
-        if W_eff is not None:
-            h_t, state = cell(chunk_x[:, t, :], state, W_eff=W_eff)
-        else:
-            h_t, state = cell(chunk_x[:, t, :], state)
-        # Clone state: it's both an output of call t and the input of call
-        # t+1, so it cannot be recycled by mark_cudagraph_step. The clone
-        # produces a fresh non-graph-owned tensor with canonical strides
-        # and breaks aliasing — required for reduce-overhead, and also
-        # keeps Dynamo from recompiling on stride variation.
-        state = state.clone()
-        if hidden_seq is None:
-            hidden_seq = empty_time_buffer(h_t, T)
-        hidden_seq[..., t, :] = h_t
-    # x_in_seq matches hidden_seq's leading dims for the skip residual.
-    if hidden_seq.dim() == 4:  # K-batched -> hidden (K, B, T, N)
-        x_in_seq = chunk_x.unsqueeze(0).expand(hidden_seq.shape[0], -1, -1, -1)
-    else:
-        x_in_seq = chunk_x
-    logits = _readout_chunk(model, hidden_seq, x_in_seq)
-    return logits, state
-
-
-def _forward_chunk_closed_loop(
-    model, cell, chunk_x: torch.Tensor, state: torch.Tensor,
-    y_prev: torch.Tensor, alpha_chunk: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Closed-loop forward over a chunk, per-reader α.
-
-    chunk_x      : (B, T, C)
-    state        : (B, S) or (K, B, S)
-    y_prev       : (B, C) or (K, B, C) — last-step prediction (zeros at t=0)
-    alpha_chunk  : (B, T, C)              — per-reader, per-step, per-channel α
-    Returns      : (logits, new_state, new_y_prev)
-
-    Same pre-alloc + slice-assign pattern as _forward_chunk_pure_tf. The
-    blended ``x_in_t`` must be retained for the per-step skip residual
-    (unlike the pure-TF path where x_in_t == chunk_x[:, t, :]), so it
-    gets its own pre-allocated buffer.
-    """
-    T = chunk_x.shape[1]
-    # Hoist W_eff once per chunk (see _forward_chunk_pure_tf for rationale).
-    W_eff = cell.hoist()
-    hidden_seq: torch.Tensor | None = None
-    x_in_seq: torch.Tensor | None = None
-    for t in range(T):
-        mark_cudagraph_step()
-        alpha_t = alpha_chunk[:, t, :]          # (B, C)
-        x_real_t = chunk_x[:, t, :]              # (B, C)
-        # Blend broadcasts to whatever y_prev is: (B, C) or (K, B, C).
-        x_in_t = (1.0 - alpha_t) * x_real_t + alpha_t * y_prev
-        if W_eff is not None:
-            h_t, state = cell(x_in_t, state, W_eff=W_eff)
-        else:
-            h_t, state = cell(x_in_t, state)
-        state = state.clone()
-        # _readout_one is einsum/linear (not graph-owned), so its output
-        # is a fresh allocation — no clone needed for the y_prev carry.
-        y_prev = model._readout_one(h_t, x_in_t)
-        if hidden_seq is None:
-            hidden_seq = empty_time_buffer(h_t, T)
-            x_in_seq = empty_time_buffer(x_in_t, T)
-        hidden_seq[..., t, :] = h_t
-        x_in_seq[..., t, :] = x_in_t
-    logits = _readout_chunk(model, hidden_seq, x_in_seq)
-    return logits, state, y_prev
+def _forward_chunk_closed_loop(model, cell, chunk_x, state, y_prev, alpha_chunk):
+    """Closed-loop chunk with per-reader alpha ``(B, T, C)``: ``(logits, new_state, y_prev)``."""
+    res = model.unroll(chunk_x, state, alpha_seg=alpha_chunk, y_prev=y_prev,
+                       hoisted=cell.hoist(), cell=cell)
+    return res.y, res.state, res.y_prev
 
 
 # ---------------------------------------------------------------------------
