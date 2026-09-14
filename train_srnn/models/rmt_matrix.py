@@ -114,7 +114,7 @@ class RMTMatrix:
     @property
     def n_E(self) -> int:
         """Number of excitatory neurons."""
-        return round(self.f * self.n)
+        return int(self.f * self.n)   # truncates like the cell's n_E = N // 2 at f = 0.5
 
     @property
     def n_I(self) -> int:

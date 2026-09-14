@@ -30,6 +30,14 @@ CLASSIFICATION = {"har", "gesture", "occupancy", "smnist", "ozone_fixed", "perso
 HIGHER_IS_BETTER = CLASSIFICATION  # accuracy & F1
 
 
+def _default_bucket():
+    env = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.gpu.env")
+    for line in open(env):
+        if line.strip().startswith("GCP_BUCKET="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return "gs://<bucket>"
+
+
 def gcs_ls(path):
     """List GCS path contents."""
     try:
@@ -260,7 +268,7 @@ def print_table(results, experiments, models):
 def main():
     parser = argparse.ArgumentParser(description="Collect experiment results from GCS")
     parser.add_argument("run_name", help="Run name")
-    parser.add_argument("--bucket", default="gs://liquidneuralnets-experiments")
+    parser.add_argument("--bucket", default=_default_bucket(), help="GCS bucket (default: cloud/config.gpu.env)")
     parser.add_argument("--seeds", type=int, default=5)
     parser.add_argument("--models", nargs="+", default=None)
     parser.add_argument("--experiments", nargs="+", default=None)

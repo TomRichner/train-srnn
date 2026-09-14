@@ -1,15 +1,8 @@
----
-title: "STD asymptote analysis: why $b_E$ hits a $0.2$ floor"
-author: "train-srnn"
-date: "2026-04-30"
----
-
 # STD asymptote analysis: why $b_E$ hits a $0.2$ floor
 
 ## Setup
 
-Consider a single excitatory neuron in the `srnn-std-e-only` preset
-(\texttt{train\_srnn/models/srnn\_cell.py:135}) with all initial-condition
+Consider a single excitatory neuron of the `srnn-std-e-only` variant with all initial-condition
 parameter values held at their defaults. The relevant cell-internal flags
 for this preset are
 \begin{align*}
@@ -213,13 +206,13 @@ this is often not the case:
 \item Recurrent inhibition (Dale's law gives an explicit I population)
 suppresses E firing, so a typical E neuron in the trained network
 operates at $r$ well below $1$.
-\item For zero-mean inputs (as with z-scored SEEG channels), driving
+\item For zero-mean inputs (as with z-scored input channels), driving
 $x$ above the saturation threshold $x > 0.9$ requires either large
 positive excursions in the input or strong recurrent excitation.
 \item Once trained, $a_0$ may have shifted away from its initial value
 $0.35$, raising or lowering the effective threshold for saturation.
 \end{itemize}
-At the modest typical firing rates achieved during SEEG training
+At the modest typical firing rates achieved during training
 (empirically order $r \approx 0.1$--$0.3$), the steady-state $b$ from
 equation~\eqref{eq:b_inf} is in the range $0.45$--$0.71$, all above
 $0.5$. This is consistent with the observation that trained models'

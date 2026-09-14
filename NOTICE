@@ -1,0 +1,9 @@
+train-srnn
+Copyright 2026 Thomas Richner
+
+This product includes software ported from the liquid time-constant networks
+repository by Ramin Hasani, Mathias Lechner, Alexander Amini, Daniela Rus, and
+Radu Grosu (https://github.com/raminmh/liquid_time_constant_networks),
+licensed under the Apache License, Version 2.0. The ported files are marked
+with a provenance header: train_srnn/models/ltc_cell.py,
+train_srnn/models/ctrnn_cell.py, and train_srnn/data/classic.py.

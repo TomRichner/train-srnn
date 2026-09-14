@@ -1,32 +1,22 @@
 # Python
 __pycache__/
 *.pyc
-*.pyo
 .venv/
 .pytest_cache/
 .DS_Store
 *.code-workspace
+.claude/
 
-# Training outputs and analysis caches
+# Anything a run or an analysis script writes; all of it lives under $SRNN_HOME
 outputs/
 results/
 tmp/
-
-# Scratch/working files (not checked in)
 *.pt
 !tests/golden/*.pt
 *.png
 *.npz
 
-# Downloaded datasets
-train_srnn/data/*/
-
-# SSH deploy keys
+# Keys
 *.pem
 id_ed25519*
 deploy_key*
-train-srnn-deploy*
-.claude/*
-
-# Reference papers / OCR output — 12 MB of PDFs, not project source
-docs/LNN/

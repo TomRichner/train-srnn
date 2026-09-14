@@ -26,7 +26,7 @@ STATUS=$(gcloud compute instances describe "$VM_NAME" \
 echo "Status: $STATUS"
 
 # API-level RUNNING != sshd ready. Poll SSH until it answers, so subsequent
-# run_on_vm.sh / scp doesn't fail with "Connection refused".
+# submit.sh / scp doesn't fail with "Connection refused".
 echo "Waiting for sshd..."
 for i in $(seq 1 30); do
     if gcloud compute ssh "$VM_NAME" --zone="$VM_ZONE" --project="$GCP_PROJECT" \
@@ -38,4 +38,4 @@ for i in $(seq 1 30); do
 done
 
 echo "SSH:    gcloud compute ssh $VM_NAME --zone=$VM_ZONE --project=$GCP_PROJECT"
-echo "Re-run: cloud/run_on_vm.sh $VM_NAME <run_name> <experiment> <model> <seed> [args...]"
+echo "Dispatch: cloud/submit.sh $VM_NAME <run_name> <experiment> <model> <seed> [args...]"

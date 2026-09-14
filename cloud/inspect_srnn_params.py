@@ -420,7 +420,7 @@ def main():
         base_dir = args.local or os.path.join(str(_paths.cache_dir()), "collect_results", args.run)
 
         if not os.path.exists(base_dir):
-            print(f"  No local data at {base_dir}. Download first with collect_results.py --with-checkpoints")
+            print(f"  No local data at {base_dir}. Mirror the run from GCS into that directory first")
             sys.exit(1)
 
         out_dir = args.out_dir or os.path.join(project_dir, "results", args.run)
