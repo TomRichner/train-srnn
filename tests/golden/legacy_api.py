@@ -107,9 +107,9 @@ def _windowed_data(rng: np.random.RandomState):
 
 
 def run_windowed_epoch(closed_loop: bool):
-    """One epoch (3 optimizer steps) of the old windowed trainer on K=2."""
-    import train  # root train.py
-    from train_srnn.utils.lr_schedule import WarmupHoldCosineSchedule
+    """One epoch (3 optimizer steps) of the windowed trainer on K=2."""
+    from train_srnn.data import Dataset, build_task
+    from train_srnn.training import WindowedTrainer
 
     extra = ["task.trainer=windowed", "task.no_augment=true",
              "task.loss_over_bptt=true"]
@@ -121,39 +121,26 @@ def run_windowed_epoch(closed_loop: bool):
     model = build_batched(TRAINER_VARIANTS)
     rng = np.random.RandomState(0)
     x, y = _windowed_data(rng)
-    opt = torch.optim.Adam(model.parameters(), lr=cfg.lr)
-    sched = WarmupHoldCosineSchedule(opt, total_steps=3, max_lr=cfg.lr,
-                                     warmup_frac=0.2, cosine_decay=False)
-    cl_cfg = train._build_closed_loop_cfg(cfg)
-    gen = torch.Generator().manual_seed(7)
-    model.train()
-    loss, metric = train.run_epoch(
-        model, x, y, opt, sched, torch.nn.MSELoss(), cfg, rng,
-        torch.device("cpu"), training=True, K=2,
-        closed_loop_cfg=cl_cfg, closed_loop_gen=gen,
-    )
-    alpha_stats = dict(getattr(train.run_epoch, "last_alpha_stats", {}) or {})
-    model.eval()
-    with torch.no_grad():
-        vloss, vmetric = train.run_epoch(
-            model, x, y, None, None, torch.nn.MSELoss(), cfg, rng,
-            torch.device("cpu"), training=False, K=2,
-        )
+    data = Dataset(train=(x, y), valid=(x, y), test=(x, y), input_size=C, output_size=C)
+    trainer = WindowedTrainer(cfg, model, build_task(cfg), data, torch.device("cpu"),
+                              pathlib.Path("/nonexistent"), rng=rng,
+                              cl_gen=torch.Generator().manual_seed(7))
+    train = trainer.train_epoch(0)
+    valid = trainer.evaluate("valid")
     return {
-        "train_loss": loss, "train_metric": metric,
-        "valid_loss": vloss, "valid_metric": vmetric,
-        "alpha_stats": alpha_stats,
+        "train_loss": train.loss, "train_metric": train.metric,
+        "valid_loss": valid.loss, "valid_metric": valid.metric,
+        "alpha_stats": train.alpha or {},
         "state_dict": {k: v.detach().clone() for k, v in model.state_dict().items()},
     }
 
 
 def run_continuous_epoch(closed_loop: bool, out_dir: pathlib.Path):
-    """One epoch (3 chunks) of the old ring trainer on K=2."""
-    import train
-    from train_srnn.training.continuous import run_continuous_training
-    from train_srnn.utils.lr_schedule import WarmupHoldCosineSchedule
+    """One epoch (3 chunks) of the ring trainer on K=2, with its end-of-epoch I/O."""
+    from train_srnn.data import Dataset, build_task
+    from train_srnn.training import ContinuousTrainer
 
-    extra = [f"output_dir={out_dir}", "checkpoint_interval=1", "log_interval=1"]
+    extra = ["checkpoint_interval=1", "log_interval=1"]
     if closed_loop:
         extra += ["closed_loop.enabled=true", "closed_loop.alpha_baseline=0.3",
                   "closed_loop.teacher_forcing_batch_frac=0.0",
@@ -165,16 +152,13 @@ def run_continuous_epoch(closed_loop: bool, out_dir: pathlib.Path):
     g = torch.Generator().manual_seed(99)
     trace = torch.randn(29, C, generator=g)  # ceil(29 / (B*CHUNK)) = 3 steps
     vx, vy = _windowed_data(rng)
-    opt = torch.optim.Adam(model.parameters(), lr=cfg.lr)
-    sched = WarmupHoldCosineSchedule(opt, total_steps=3, max_lr=cfg.lr,
-                                     warmup_frac=0.2, cosine_decay=False)
-    cl_cfg = train._build_closed_loop_cfg(cfg)
-    gen = torch.Generator().manual_seed(7)
-    run_continuous_training(
-        model, trace, vx, vy, vx, vy, opt, sched, torch.nn.MSELoss(), cfg,
-        cl_cfg, gen, rng, torch.device("cpu"), 2, list(model.variant_names),
-        train.eval_and_log_test, train.run_epoch, train.amp_autocast,
-    )
+    data = Dataset(train=(vx, vy), valid=(vx, vy), test=(vx, vy), input_size=C,
+                   output_size=C, train_trace=trace.numpy())
+    trainer = ContinuousTrainer(cfg, model, build_task(cfg), data, torch.device("cpu"),
+                                out_dir, rng=rng, cl_gen=torch.Generator().manual_seed(7))
+    trainer.run_epoch_and_log(0)
+    trainer.checkpoint(0, "last")
+    trainer.test(0, "last")
     return {
         "training_history": strip_timestamps((out_dir / "training_history.csv").read_text()),
         "test_history": strip_timestamps((out_dir / "test_history.csv").read_text()),

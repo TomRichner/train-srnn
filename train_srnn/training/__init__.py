@@ -1,8 +1,9 @@
-"""Training-time utilities (closed-loop scheduling, etc.)."""
-from train_srnn.training.closed_loop import (
-    ClosedLoopConfig,
-    effective_alpha_baseline,
-    sample_alpha_schedule,
-)
+"""Training loops."""
 
-__all__ = ["ClosedLoopConfig", "effective_alpha_baseline", "sample_alpha_schedule"]
+from train_srnn.training.continuous import ContinuousTrainer
+from train_srnn.training.trainer import EpochStats, Trainer
+from train_srnn.training.windowed import WindowedTrainer
+
+TRAINERS = {"windowed": WindowedTrainer, "continuous": ContinuousTrainer}
+
+__all__ = ["ContinuousTrainer", "EpochStats", "Trainer", "WindowedTrainer", "TRAINERS"]
