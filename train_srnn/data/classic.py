@@ -20,9 +20,7 @@ import pandas as pd
 from train_srnn.data.task import TASKS, Dataset, Task
 
 
-# ---------------------------------------------------------------------------
 # Windowing and splits shared by the loaders
-# ---------------------------------------------------------------------------
 
 def cut_in_sequences(data, labels, seq_len, inc=1):
     """Cut ``(N, F)`` data and its labels into overlapping windows of ``seq_len``."""
@@ -64,9 +62,7 @@ class ClassicTask(Task):
                        input_size=c.input_size, output_size=c.output_size)
 
 
-# ---------------------------------------------------------------------------
 # Tasks
-# ---------------------------------------------------------------------------
 
 def _read_idx_gz(path):
     with gzip.open(path, "rb") as f:

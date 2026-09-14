@@ -1,19 +1,5 @@
-"""Regression test for the W_out_gain parameter on SequenceModel.
+"""The readout gain W_out_gain is the identity at 1, scales the output linearly, and gets a gradient.
 
-W_out_gain is a free-real per-variant scalar gain on the readout weight,
-mirroring W_in_gain / W_raw_gain on the cell. Three checks:
-
-1. Identity at gain=1.0 — forward output bit-identical to a manual
-   reference (no gain machinery), proving the parameter is purely
-   additive to the API at its init value.
-2. Gradient flow — gain receives a non-zero gradient through backward.
-3. Doubling identity — with bias=0 and gain=2.0, output is exactly 2×
-   the gain=1.0 output. (Catches accidental bias scaling or off-by-one
-   in the multiplication path.)
-
-Both single-cell and K-batched paths are exercised.
-
-Run: PYTHONPATH=. python scripts/test_w_out_gain.py
 """
 
 from __future__ import annotations

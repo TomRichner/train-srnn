@@ -18,9 +18,7 @@ from omegaconf import II, MISSING, DictConfig
 CONF_DIR = Path(__file__).resolve().parent.parent / "conf"
 
 
-# ---------------------------------------------------------------------------
 # Run-level blocks
-# ---------------------------------------------------------------------------
 
 @dataclass
 class PathsConfig:
@@ -52,9 +50,7 @@ class ClosedLoopConfig:
     alpha_rnd_period_epochs: int = 10         # per-channel rotation period (continuous trainer only)
 
 
-# ---------------------------------------------------------------------------
 # Tasks
-# ---------------------------------------------------------------------------
 
 @dataclass
 class TaskConfig:
@@ -192,9 +188,7 @@ TASK_CONFIGS: dict[str, type[TaskConfig]] = {
 }
 
 
-# ---------------------------------------------------------------------------
 # Models
-# ---------------------------------------------------------------------------
 
 @dataclass
 class ModelConfig:
@@ -308,9 +302,7 @@ MODEL_CONFIGS: dict[str, type[ModelConfig]] = {
 }
 
 
-# ---------------------------------------------------------------------------
 # Run
-# ---------------------------------------------------------------------------
 
 @dataclass
 class TrainConfig:

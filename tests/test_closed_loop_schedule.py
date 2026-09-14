@@ -1,7 +1,5 @@
 """Tests for train_srnn.training.closed_loop schedule sampling.
 
-Run as: python scripts/test_closed_loop_schedule.py
-or:     pytest scripts/test_closed_loop_schedule.py -v
 """
 from __future__ import annotations
 
@@ -185,9 +183,7 @@ def test_device_cpu():
     assert a.device.type == "cpu"
 
 
-# ---------------------------------------------------------------------------
 # Run as a script: collect and execute every test_*.
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     import sys

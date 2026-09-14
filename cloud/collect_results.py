@@ -171,7 +171,7 @@ def collect(run_name, bucket, seeds=5, models=None, experiments=None):
     return results, timing
 
 
-# ── Timing helpers ────────────────────────────────────────────────────
+# Timing helpers
 
 def _parse_utc(s):
     """Parse a UTC ISO timestamp string to datetime."""
@@ -216,7 +216,7 @@ def _fmt_timedelta(td):
     return " ".join(parts)
 
 
-# ── Table formatting ─────────────────────────────────────────────────
+# Table formatting
 
 def _fmt_sigfigs(val, n=3):
     from math import log10, floor

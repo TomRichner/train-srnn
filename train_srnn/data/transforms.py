@@ -1,11 +1,7 @@
-"""Time stretch, palindrome looping, and training/eval wrappers.
+"""Augmentation for the windowed benchmark tasks: PCHIP time stretch, palindrome looping, windowing.
 
-All functions operate on numpy arrays.  The training loop is responsible
-for converting the final outputs to torch tensors.
-
-Convention: arrays are batch-first (batch, seq_len, features) everywhere
-in the public API, matching the dataset loaders.  Internal helper
-functions note their axis conventions.
+Everything works on batch-first numpy arrays ``(B, T, F)``; the trainer
+converts the results to tensors.
 """
 
 import math
@@ -13,40 +9,17 @@ import numpy as np
 from scipy.interpolate import PchipInterpolator
 
 
-# ---------------------------------------------------------------------------
 # Time stretch (PCHIP interpolation)
-# ---------------------------------------------------------------------------
 
 def random_stretch_factor(lo=0.25, hi=4.0, rng=None):
-    """Sample a time-stretch factor from a log-uniform distribution.
-
-    Args:
-        lo: Minimum stretch factor.
-        hi: Maximum stretch factor.
-        rng: numpy RandomState (default: np.random).
-
-    Returns:
-        float in [lo, hi], log-uniformly sampled.
-    """
+    """Log-uniform stretch factor in ``[lo, hi]``."""
     if rng is None:
         rng = np.random
     return float(np.exp(rng.uniform(np.log(lo), np.log(hi))))
 
 
 def time_stretch(x, y, factor, per_timestep_labels=True):
-    """Stretch a single sequence by *factor* using PCHIP interpolation.
-
-    Args:
-        x: (seq_len, features) numpy array.
-        y: (seq_len,) or (seq_len, label_dim) for per-timestep labels,
-           or scalar / (label_dim,) for single-label tasks.
-        factor: float > 0.  >1 = longer (slower), <1 = shorter (faster).
-        per_timestep_labels: Whether y has a time dimension.
-
-    Returns:
-        x_new: (new_seq_len, features)
-        y_new: Appropriately resampled labels.
-    """
+    """Stretch one ``(T, F)`` sequence in time by ``factor`` with PCHIP; labels follow if per-timestep."""
     if abs(factor - 1.0) < 1e-6:
         return x, y
 
@@ -68,16 +41,7 @@ def time_stretch(x, y, factor, per_timestep_labels=True):
 
 
 def _pchip_resample(arr, t_orig, t_new):
-    """Resample a 2-D array along axis 0 with PCHIP.
-
-    Args:
-        arr: (T, D) float array.
-        t_orig: (T,) original sample positions.
-        t_new: (T_new,) new sample positions.
-
-    Returns:
-        (T_new, D) float array.
-    """
+    """PCHIP-resample ``(T, D)`` along axis 0 to ``(T_new, D)``."""
     if arr.ndim == 1:
         arr = arr[:, None]
         squeeze = True
@@ -106,23 +70,10 @@ def _resample_labels(y, t_orig, t_new, T):
         return _pchip_resample(y, t_orig, t_new)
 
 
-# ---------------------------------------------------------------------------
 # Batch-level time stretch
-# ---------------------------------------------------------------------------
 
 def time_stretch_batch(batch_x, batch_y, factor, per_timestep_labels=True):
-    """Stretch an entire batch by the same factor.  Vectorized over batch.
-
-    Args:
-        batch_x: (B, T, F) numpy array.
-        batch_y: (B, T, ...) or (B,) numpy array.
-        factor: float > 0.
-        per_timestep_labels: Whether y has a time dimension.
-
-    Returns:
-        x_new: (B, T_new, F)
-        y_new: Appropriately resampled labels.
-    """
+    """Stretch a whole ``(B, T, F)`` batch by one factor."""
     if abs(factor - 1.0) < 1e-6:
         return batch_x, batch_y
 
@@ -146,17 +97,7 @@ def time_stretch_batch(batch_x, batch_y, factor, per_timestep_labels=True):
 
 
 def _resample_labels_batch(y, t_orig, t_new, T):
-    """Resample batched labels: nearest-neighbor for ints, PCHIP for floats.
-
-    Args:
-        y: (B, T, ...) numpy array.
-        t_orig: (T,) original sample positions.
-        t_new: (T_new,) new sample positions.
-        T: original sequence length.
-
-    Returns:
-        (B, T_new, ...) resampled labels.
-    """
+    """Resample ``(B, T, ...)`` labels: nearest neighbour for integers, PCHIP for floats."""
     if np.issubdtype(y.dtype, np.integer):
         indices = np.searchsorted(t_orig, t_new, side="right") - 1
         indices = np.clip(indices, 0, T - 1)
@@ -177,39 +118,15 @@ def _resample_labels_batch(y, t_orig, t_new, T):
         return resampled.reshape(len(t_new), B, *D).transpose(1, 0, *range(2, y.ndim))
 
 
-# ---------------------------------------------------------------------------
 # Palindrome looping
-# ---------------------------------------------------------------------------
 
 def compute_n_loops(seq_len, min_loop_len=500, min_loops=5):
-    """Compute number of palindrome fwd+bwd loop pairs needed.
-
-    Each pair = one forward pass + one backward pass = 2 * seq_len steps.
-
-    Args:
-        seq_len: Length of the original (possibly stretched) sequence.
-        min_loop_len: Minimum total looped length in timesteps.
-        min_loops: Minimum number of fwd+bwd loop pairs.
-
-    Returns:
-        n_loops: int, number of fwd+bwd pairs.
-    """
+    """Forward-plus-backward loop pairs needed to reach ``min_loop_len`` steps (at least ``min_loops``)."""
     return max(min_loops, math.ceil(min_loop_len / (2 * seq_len)))
 
 
 def palindrome_loop(x, y, n_loops, per_timestep_labels=True):
-    """Create palindrome-looped sequence: [fwd, bwd, fwd, bwd, ...].
-
-    Args:
-        x: (seq_len, features) numpy array.
-        y: (seq_len, ...) or scalar labels.
-        n_loops: Number of fwd+bwd pairs.
-        per_timestep_labels: Whether y has a time dimension.
-
-    Returns:
-        x_looped: (n_loops * 2 * seq_len, features)
-        y_looped: Mirrored labels (or unchanged scalar).
-    """
+    """``[x, x reversed] * n_loops`` along time, with labels mirrored the same way."""
     x_fwd = x
     x_bwd = x[::-1]
 
@@ -234,18 +151,7 @@ def palindrome_loop(x, y, n_loops, per_timestep_labels=True):
 
 
 def palindrome_loop_batch(x, y, n_loops, per_timestep_labels=True):
-    """Palindrome-loop an entire batch.  No per-sample loop.
-
-    Args:
-        x: (B, T, F) numpy array.
-        y: (B, T, ...) or (B,) numpy array.
-        n_loops: Number of fwd+bwd pairs.
-        per_timestep_labels: Whether y has a time dimension.
-
-    Returns:
-        x_looped: (B, n_loops * 2 * T, F)
-        y_looped: Mirrored labels (or unchanged scalar array).
-    """
+    """Palindrome-loop a ``(B, T, F)`` batch along time."""
     x_fwd = x
     x_bwd = x[:, ::-1, :]
     x_pieces = [x_fwd, x_bwd] * n_loops
@@ -264,27 +170,7 @@ def palindrome_loop_batch(x, y, n_loops, per_timestep_labels=True):
 
 def random_window(x_looped, y_looped, loop_len, rng,
                   n_bptt_loops=2, per_timestep_labels=True):
-    """Extract a random window from a palindrome-looped sequence.
-
-    Picks a random start offset within the first loop, producing a window
-    of exactly (n_total_loops - 1) * loop_len timesteps.  Also returns
-    the readout index (random point in the last loop) and the BPTT
-    boundary.
-
-    Args:
-        x_looped: (T_total, features) palindrome-looped input.
-        y_looped: (T_total, ...) or scalar labels.
-        loop_len: Length of one fwd+bwd pair (2 * seq_len).
-        rng: numpy RandomState.
-        n_bptt_loops: Loops at the end to backpropagate through.
-        per_timestep_labels: Whether y has a time dimension.
-
-    Returns:
-        x_win: (win_len, features)
-        y_win: Windowed labels.
-        readout_idx: int, index within window for readout.
-        bptt_start_idx: int, where to start BPTT.
-    """
+    """Random ``(n_loops - 1) * loop_len`` window of a looped sequence, with a readout index in its last loop."""
     T_total = x_looped.shape[0]
     n_total_loops = T_total // loop_len
 
@@ -314,9 +200,7 @@ def random_window(x_looped, y_looped, loop_len, rng,
     return x_win, y_win, readout_idx, bptt_start_idx
 
 
-# ---------------------------------------------------------------------------
 # Training / eval wrappers (batch level)
-# ---------------------------------------------------------------------------
 
 def wrap_train_batch(batch_x, batch_y, rng,
                      stretch_lo=1.0, stretch_hi=1.0,

@@ -148,13 +148,9 @@ SSHEOF
     chmod 600 "$SSH_DIR/config"
   fi
 
-    # Clone with retry — or git fetch + reset if a checkout already exists.
-    # Honors the per-run "branch" metadata key (default: main); lets feature
-    # branches be tested without merging to main first. Reset to FETCH_HEAD
-    # (not origin/$BRANCH) because shallow clones only set up a remote-
-    # tracking ref for the originally-cloned branch; FETCH_HEAD always
-    # points to whatever was just fetched, regardless of which branch the
-    # workdir was originally cloned with.
+    # Fresh shallow clone, or fetch + reset to the requested branch. FETCH_HEAD
+    # rather than origin/$BRANCH: a shallow clone only tracks the branch it
+    # was cloned with.
     if [ -d "$WORKDIR/.git" ]; then
         echo "Existing repo at $WORKDIR; refreshing via git fetch + reset to $BRANCH"
         ( cd "$WORKDIR" \

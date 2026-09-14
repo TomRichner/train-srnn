@@ -1,23 +1,6 @@
-"""Equivalence test for the hoisted-W_eff path on SRNN cells.
+"""Passing the hoisted effective weight into the cell gives the same outputs and gradients
+as letting the cell rebuild it every step.
 
-`SRNNCell` rebuilds the effective recurrent weight
-matrix on every forward call. To avoid 250x reconstruction inside per-step
-BPTT loops, we added an optional ``W_eff=...`` kwarg to both forwards: when
-provided, the cell uses it directly instead of calling ``self._effective_W()``.
-
-This test exercises both paths (cell-internal vs. caller-hoisted) and
-verifies byte-identical forward output **and** byte-identical per-parameter
-gradients in fp32. Mathematically the two paths are identical — the only
-difference is whether the same tensor is built inside or outside the cell —
-so any drift indicates a plumbing bug.
-
-End-to-end equivalence (warmup + grad-region segments + checkpointing,
-single and K-batched) is already covered by
-``test_closed_loop_grad_checkpoint.py`` running unchanged with the hoist
-in place. This test isolates the cell-level contract.
-
-Run: PYTHONPATH=. python scripts/test_effective_w_hoist.py
-or:  pytest scripts/test_effective_w_hoist.py -v
 """
 from __future__ import annotations
 
@@ -87,9 +70,7 @@ def _assert_grads_close(grads_a, grads_b, atol=1e-6, rtol=1e-5):
         )
 
 
-# ---------------------------------------------------------------------------
 # Cell-level equivalence
-# ---------------------------------------------------------------------------
 
 def _run_cell_pair(cell_a, cell_b, inputs, state):
     """Forward+backward through cell_a with internal W_eff vs cell_b with
@@ -161,9 +142,7 @@ def test_batched_cell_forward_backward_equivalence():
     _assert_grads_byte_identical(ga, gb)
 
 
-# ---------------------------------------------------------------------------
 # Multi-step equivalence (mirrors the per-timestep BPTT loop)
-# ---------------------------------------------------------------------------
 
 def test_single_cell_multistep_equivalence():
     """T-step unroll: hoist W_eff once vs rebuild every step. Outputs are
@@ -251,7 +230,6 @@ def test_batched_cell_multistep_equivalence():
     _assert_grads_close(grads_a, grads_b)
 
 
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     fns = [v for k, v in globals().items()

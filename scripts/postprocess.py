@@ -604,23 +604,18 @@ def effective_c_0(ms, k, side):
 def is_per_neuron(ms, k) -> bool:
     """True iff variant k trains its ``*_vec`` tensors per neuron.
 
-    SRNNCell allocates per-neuron shapes regardless of the flag
-    (KnownIssues §1); the flag survives only as the gradient-linking masks
-    installed at srnn_cell.py:1027, which zero the ``*_vec`` gradient when
-    per_neuron=False. ``_isp_tau_d_vec_mask`` is the robust probe because
-    tau_d exists for every variant, unlike the SFA/STD masks.
+    Current checkpoints carry ``cell.per_neuron_mask``; older ones only the
+    gradient-hook mask buffers, of which ``_isp_tau_d_vec_mask`` exists for
+    every variant.
     """
-    m = ms.get("cell._isp_tau_d_vec_mask")
+    m = ms.get("cell.per_neuron_mask")
+    if m is None:
+        m = ms.get("cell._isp_tau_d_vec_mask")
     return bool(m is not None and float(m[k].reshape(-1)[0]) > 0.5)
 
 
 def effective_W_out(ms, k):
-    """readout_weight * W_out_gain.
-
-    Note the bias is deliberately NOT gain-scaled — see sequence_model.py:252
-    ("Bias unaffected"), so W_out_gain shifts the weight/bias balance during
-    training.
-    """
+    """readout_weight * W_out_gain (the bias is not gain-scaled)."""
     return (ms["readout_weight"][k] * ms["W_out_gain"][k]).numpy()
 
 

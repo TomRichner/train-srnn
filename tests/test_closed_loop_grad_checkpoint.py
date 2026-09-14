@@ -1,15 +1,5 @@
-"""Gradient + forward equivalence under closed-loop grad_checkpoint.
+"""Gradient checkpointing must not change forward outputs or gradients, open or closed loop.
 
-This is the high-fidelity correctness test for the closed-loop checkpointing
-path. We run the same forward+backward twice on identically-initialized
-models — once with `grad_checkpoint=False`, once with `=True` — and verify
-that per-parameter gradients match within tight numerical tolerance, and
-that forward outputs are bit-identical.
-
-If these pass, the checkpoint path's autograd plumbing is correct.
-
-Run: PYTHONPATH=. python scripts/test_closed_loop_grad_checkpoint.py
-or:  pytest scripts/test_closed_loop_grad_checkpoint.py -v
 """
 from __future__ import annotations
 
@@ -102,9 +92,7 @@ def _assert_grads_close(model_a, model_b, atol=1e-5, rtol=1e-4):
     assert pairs_checked > 0, "no parameters had gradients to compare"
 
 
-# ---------------------------------------------------------------------------
 # Tests
-# ---------------------------------------------------------------------------
 
 def test_grad_equivalence_single_mode():
     cfg, a, b = _build_paired_models_single()
@@ -120,7 +108,7 @@ def test_grad_equivalence_single_mode():
 
 
 def test_grad_equivalence_k_batched_no_skip():
-    # All-per-neuron variants. Avoids KnownIssues #6 (the _install_vec_mask
+    # All-per-neuron variants (the _install_vec_mask
     # grad-hook does not fire under torch.utils.checkpoint when use_reentrant=
     # False; mask is all-ones for per-neuron variants so hook is a no-op).
     abls = ["srnn-e-only-per-neuron", "srnn-sfa-e-only-per-neuron"]
@@ -207,8 +195,7 @@ def test_grad_equivalence_int_readout_idx():
     _assert_grads_close(a, b)
 
 
-# ---------------------------------------------------------------------------
-# bf16 autocast variants — exercise checkpoint+autocast composition (KnownIssues #7).
+# bf16 autocast: checkpoint and autocast must compose.
 # CPU bf16 autocast is supported by PyTorch 2.11 and exercises the same code
 # path as CUDA bf16 (saved-tensor metadata check inside torch.utils.checkpoint).
 #
@@ -220,7 +207,6 @@ def test_grad_equivalence_int_readout_idx():
 #
 # Tolerance is relaxed because bf16 has ~7 mantissa bits — gradients won't
 # match exactly, just within a few percent.
-# ---------------------------------------------------------------------------
 
 def _run_pair_autocast(model_a, model_b, x, alpha, *,
                         readout_idx, bptt_start_idx, bptt_chunk_len,
@@ -266,7 +252,6 @@ def test_grad_equivalence_under_cpu_autocast_bf16_k_batched():
     _assert_grads_close(a, b, atol=5e-3, rtol=5e-3)
 
 
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     fns = [v for k, v in globals().items()

@@ -8,7 +8,6 @@ Verifies:
 - Validation errors fire correctly.
 - Gradients flow through closed-loop and respect bptt_chunk_len detach.
 
-Run: PYTHONPATH=. python scripts/test_closed_loop_forward.py
 """
 from __future__ import annotations
 

@@ -23,7 +23,7 @@ def softplus(x):
     return np.where(x > 20, x, np.log1p(np.exp(x)))
 
 
-# ── Parameter definitions ────────────────────────────────────────────
+# Parameter definitions
 
 # (state_dict_suffix, display_name, transform, applies_to_batched)
 # All keys are relative to "cell." prefix in the state_dict.
@@ -65,7 +65,7 @@ def fmt_ms(mean, std):
     return f"{fmt(mean)}+/-{fmt(std)}"
 
 
-# ── Single-variant extraction ────────────────────────────────────────
+# Single-variant extraction
 
 def extract_single_params(state_dict):
     """Extract SRNN parameters from a single-model state_dict.
@@ -124,7 +124,7 @@ def _extract_weight_stats(state_dict, row, prefix="cell.", k_idx=None):
         row["W_in_std"] = float(W_in.std())
 
 
-# ── Batched variant extraction ───────────────────────────────────────
+# Batched variant extraction
 
 def extract_batched_params(state_dict, ablation_names):
     """Extract parameters for each variant in a batched model.
@@ -155,7 +155,7 @@ def extract_batched_params(state_dict, ablation_names):
     return rows
 
 
-# ── Checkpoint loading ───────────────────────────────────────────────
+# Checkpoint loading
 
 def load_ckpt(path):
     """Load a checkpoint, return (state_dict, ablation_names, config)."""
@@ -167,7 +167,7 @@ def load_ckpt(path):
     return state_dict, ablation_names, config
 
 
-# ── Table generation ─────────────────────────────────────────────────
+# Table generation
 
 def generate_tables(ckpt_dir, out_dir=None):
     """Generate Init/Best/Last parameter comparison tables.
@@ -306,7 +306,7 @@ def _generate_batched_tables(stages, md_lines, console_lines):
         md_lines.append("")
 
 
-# ── Multi-experiment mode ────────────────────────────────────────────
+# Multi-experiment mode
 
 EXPERIMENTS = [
     "har", "gesture", "occupancy", "smnist", "traffic",
@@ -391,7 +391,7 @@ def generate_multi_experiment(base_dir, out_dir, run_name, experiment, seed):
         print(f"\n  Markdown: {md_path}")
 
 
-# ── Main ─────────────────────────────────────────────────────────────
+# Main
 
 def main():
     parser = argparse.ArgumentParser(

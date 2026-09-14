@@ -1,14 +1,9 @@
-"""Per-variant gradient-norm clipping for K-batched ablation models.
+"""Gradient-norm clipping per variant.
 
-``torch.nn.utils.clip_grad_norm_`` takes ONE norm over every parameter in the
-model and rescales all gradients by a single factor.  In ``batched_ablations``
-mode every trainable tensor is ``(K, ...)``-shaped, so that single factor is
-shared by all K variants: one variant with a large gradient throttles the step
-size of all the others (KnownIssues §14).
-
-Because the leading axis is the variant axis and nothing else couples the
-variants, the slices are separable and clipping can be done per variant with
-one extra reduction per parameter and no host sync.
+``clip_grad_norm_`` takes one norm over the whole model, so in a K-batched
+model a single variant with a large gradient would shrink every other
+variant's step. Every trainable tensor is ``(K, ...)``-shaped and nothing
+couples the variants, so each slice is clipped on its own.
 """
 
 from __future__ import annotations
@@ -24,24 +19,7 @@ def clip_grad_norm_per_variant(
     max_norm: float,
     K: int,
 ) -> torch.Tensor:
-    """Clip each batched variant's gradient slice independently.
-
-    Args:
-        parameters: Iterable of parameters.  Every one carrying a gradient must
-            be ``(K, ...)``-shaped — true for all ``SRNNCell`` /
-            batched ``SequenceModel`` parameters.
-        max_norm: Per-variant max L2 norm.
-        K: Number of batched variants.
-
-    Returns:
-        ``(K,)`` tensor of the *pre-clip* gradient norms, one per variant.
-        Useful for per-variant gradient-norm logging.
-
-    Raises:
-        ValueError: If a parameter with a gradient is not ``(K, ...)``-shaped,
-            which would mean the variants share a trainable tensor and per-
-            variant clipping is not well defined.
-    """
+    """Clip each variant's gradient slice to ``max_norm``; returns the ``(K,)`` pre-clip norms."""
     grads: list[torch.Tensor] = []
     sq: torch.Tensor | None = None
 

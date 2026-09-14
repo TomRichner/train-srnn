@@ -1,20 +1,6 @@
-"""Numerical equivalence tests for cell_loop slice-assign vs. append+stack.
+"""Writing cell outputs into a preallocated buffer by slice-assign equals append + stack,
+in forward values and gradients. Checked on a GRUCell so it is independent of the SRNN.
 
-The continuous trainer and SequenceModel were refactored to write
-per-timestep cell outputs into a pre-allocated ``(..., T, F)`` buffer by
-slice-assign, replacing the prior ``outputs.append(out)`` +
-``torch.stack(outputs, dim=-2)`` pattern. Both forward values and
-gradients must be byte-identical — slice-assign dispatches to
-``index_put_`` whose backward (``CopySlices``) is mathematically the
-same as stack's backward.
-
-This test pins that contract on a tiny generic RNN cell (GRUCell), so a
-failure clearly indicates the slice-assign primitive itself is broken,
-independent of any SRNN-specific behavior. The integration smoke tests
-(the training smoke runs) cover
-the full SRNN path.
-
-Run: PYTHONPATH=. python scripts/test_cell_loop.py
 """
 from __future__ import annotations
 
