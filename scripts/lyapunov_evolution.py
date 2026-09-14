@@ -1,24 +1,24 @@
 """Run Benettin's method on every saved checkpoint of a run + plot FTLE-vs-epoch.
 
 Wraps `scripts.plots.plot_srnn_timeseries.plot_replay` to do:
-  1. Phase A: per-checkpoint replay with seeg-driven input. Each
+  1. Phase A: per-checkpoint replay with trace-driven input. Each
      checkpoint produces (per variant): a `timeseries_*.png` and a
      `lyapunov_*.npz` containing `t_lya`, `local_lya`, `finite_lya`,
      `LLE`. The runtime knobs (`t_warm`, `t_end`, `lya_*`) match what
      postprocess.py uses for the same mode.
   2. Phase B: aggregate every variant's `LLE` across checkpoints into
-     a single `ftle_vs_epoch_seeg_w<W>e<E>.png` summary plot, one line
+     a single `ftle_vs_epoch_trace_w<W>e<E>.png` summary plot, one line
      per variant.
 
 To avoid clobbering the long-window LLE NPZs that postprocess.py writes
 (default `t_range=(-15, 30)`), this script tags its output filenames
-with a window suffix: `lyapunov_<ckpt>_seeg_w<warm>e<end>.npz` and
-`timeseries_<ckpt>_seeg_w<warm>e<end>.png`. `--skip-replay` reads only
+with a window suffix: `lyapunov_<ckpt>_trace_w<warm>e<end>.npz` and
+`timeseries_<ckpt>_trace_w<warm>e<end>.png`. `--skip-replay` reads only
 those suffixed NPZs, so legacy postprocess outputs are never picked up.
 
 Usage:
     python scripts/lyapunov_evolution.py <run_name>
-    python scripts/lyapunov_evolution.py overnight-run1-Whoist
+    python scripts/lyapunov_evolution.py ring6-400e
     python scripts/lyapunov_evolution.py myrun --checkpoints init,last
     python scripts/lyapunov_evolution.py myrun --skip-replay
     python scripts/lyapunov_evolution.py myrun --variants srnn-e-only-skip-per-neuron
@@ -34,15 +34,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
-DEFAULT_TMP = REPO / "tmp"
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from scripts.postprocess import _resolve_replay_checkpoints  # noqa: E402
-from scripts.plots.plot_srnn_timeseries import (  # noqa: E402
-    _default_ckpt_tag,
-    plot_replay,
-)
+from _runs import cache_dir  # noqa: E402
+from postprocess import _resolve_replay_checkpoints  # noqa: E402
+from plot_srnn_timeseries import _default_ckpt_tag, plot_replay  # noqa: E402
+
+DEFAULT_TMP = cache_dir()
 
 
 def _window_suffix(t_warm: float, t_end: float) -> str:
@@ -121,7 +120,7 @@ def migrate_legacy_outputs(run_dir: Path, mode: str) -> int:
                 tag = m.group(1)
                 if re.search(r"_w\d+(p\d+)?e\d+(p\d+)?$", tag):
                     continue
-                stem = f.stem  # e.g. lyapunov_init_seeg
+                stem = f.stem  # e.g. lyapunov_init_trace
                 dst = variant_dir / f"{stem}_{LEGACY_POSTPROCESS_SUFFIX}{f.suffix}"
                 if dst.exists():
                     continue  # already migrated previously; leave both alone
@@ -156,7 +155,7 @@ def _rename_outputs_for_window(run_dir: Path, ckpt_tag: str, mode: str,
 
 
 def collect_lle_table(run_dir: Path, mode: str, window_suffix: str,
-                      ablation_names_filter: list[str] | None
+                      variants_filter: list[str] | None
                       ) -> tuple[list[str], dict[str, list[tuple[int, float]]]]:
     """Walk <run_dir>/<variant>/lyapunov_*_<mode>_<suffix>.npz and pull
     out (epoch, LLE) per variant.
@@ -172,7 +171,7 @@ def collect_lle_table(run_dir: Path, mode: str, window_suffix: str,
         npzs = sorted(variant_dir.glob(pattern))
         if not npzs:
             continue
-        if ablation_names_filter and variant_dir.name not in ablation_names_filter:
+        if variants_filter and variant_dir.name not in variants_filter:
             continue
         v_name = variant_dir.name
         if v_name not in variants_seen:
@@ -213,9 +212,9 @@ def make_aggregate_plot(run_dir: Path, mode: str, window_suffix: str,
         ax.plot(eps, lles, "o-", lw=1.4, ms=4, color=cmap(i % 10), label=v)
     ax.axhline(0, color="k", lw=0.5)
     ax.set_xlabel("epoch  (init plotted at -1)")
-    ax.set_ylabel(f"FTLE [1/s]   ({t_warm:g} s warm-up + {t_end:g} s seeg-driven)")
+    ax.set_ylabel(f"FTLE [1/s]   ({t_warm:g} s warm-up + {t_end:g} s trace-driven)")
     ax.set_title(f"{run_dir.name} — Lyapunov stability across training "
-                 f"(seeg input, {window_suffix})")
+                 f"(trace input, {window_suffix})")
     if variants:
         ax.legend(fontsize=8, loc="best")
     ax.grid(alpha=0.3)
@@ -234,7 +233,7 @@ def parse_args():
     )
     p.add_argument("run_name",
                    help="run name; data is read from <tmp_dir>/<run_name>/")
-    p.add_argument("--task", default="seeg")
+    p.add_argument("--task", default="cheetah100")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--tmp-dir", default=str(DEFAULT_TMP),
                    help=f"local tmp root (default: {DEFAULT_TMP})")
@@ -244,8 +243,8 @@ def parse_args():
                         "scripts/postprocess.py:_resolve_replay_checkpoints.")
     p.add_argument("--variants", default=None,
                    help="comma-separated variant filter (default: all)")
-    p.add_argument("--mode", default="seeg",
-                   help="replay drive mode (default: seeg)")
+    p.add_argument("--mode", default="trace",
+                   help="replay drive mode (default: trace)")
     p.add_argument("--t-warm", type=float, default=5.0,
                    help="warm-up duration in seconds (zero-input; the "
                         "Benettin perturbation aligns with the most-expanding "

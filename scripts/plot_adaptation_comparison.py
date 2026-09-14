@@ -2,7 +2,7 @@
 
 Two variants only, on log-log axes: `srnn` (SFA n_a=3 + STD n_b=1, both E and
 I) against `srnn-no-adapt` (all adaptation off). Everything else — Dale's law,
-no skip, size, seed, and the shared recurrent matrix from BatchedSRNNCell — is
+no skip, size, seed, and the shared recurrent matrix — is
 identical, so the difference is the adaptation states alone.
 
 Log-log matters here: on linear axes the two curves appear to converge and sit
@@ -10,7 +10,7 @@ on top of each other, when in fact they are power laws with different
 exponents that cross over past ~100 epochs.
 
 Usage:
-    python scripts/plot_adaptation_comparison.py tmp/ring6-400e
+    python scripts/plot_adaptation_comparison.py $SRNN_HOME/cache/ring6-400e
 """
 import argparse
 import csv

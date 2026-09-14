@@ -1,38 +1,30 @@
 """Gradient direction-consistency probe.
 
-For variant srnn-e-only-skip, measure for each parameter:
-  - mean ‖∇θ‖ across N batches
-  - mean pairwise cosine similarity of ∇θ across batches
-  - "concentration" r = ‖mean(∇θ)‖ / mean(‖∇θ‖)  (1 = perfectly aligned, ~0 = noise)
-
-High mean-cosine → consistent direction → Adam can accumulate signal → param will move.
-Low mean-cosine → direction noise → Adam normalizes the magnitude but the running mean
-  stays near zero → param drifts much more slowly than the per-step magnitude suggests.
-
-Output:
-  tmp/grad_probe/cosine_consistency_srnn-e-only-skip.csv
-  tmp/grad_probe/cosine_consistency_srnn-e-only-skip.txt
-  tmp/grad_probe/cosine_consistency_srnn-e-only-skip.png
+For one variant, over N batches, measure per parameter the mean gradient
+norm, the mean pairwise cosine between batch gradients, and the
+concentration ||mean(g)|| / mean(||g||). A consistent direction lets Adam
+accumulate signal; noise keeps the running mean near zero. Outputs go to
+$SRNN_CACHE_DIR/grad_probe/cosine_consistency_<variant>.{csv,txt,png}.
 """
-import os
-import sys
 import csv
+import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-import matplotlib.pyplot as plt
-from omegaconf import OmegaConf
-from hydra import compose, initialize_config_dir
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from train_srnn.models.factory import build_batched_model  # noqa
-from train_srnn.data.datasets import load_dataset           # noqa
+from _runs import cache_dir  # noqa: E402
+from train_srnn.config import compose_config  # noqa: E402
+from train_srnn.data import build_task  # noqa: E402
+from train_srnn.models.factory import build_model  # noqa: E402
 
-OUT_DIR = REPO / "tmp" / "grad_probe"
+OUT_DIR = cache_dir() / "grad_probe"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+
 VARIANT = "srnn-e-only-skip"
 N_BATCHES = 16
 CHUNK_LEN = 128
@@ -42,38 +34,27 @@ BATCH_SIZE = 4
 
 
 def build_cfg():
-    with initialize_config_dir(config_dir=str(REPO / "conf"), version_base=None):
-        cfg = compose(
-            config_name="config",
-            overrides=[
-                "task=seeg", "model=srnn",
-                "size=300", "model.h=0.004", "model.ode_unfolds=1",
-                f"batch_size={BATCH_SIZE}",
-                f"window_len={WINDOW_LEN}", f"bptt_len={BPTT_LEN}",
-                "stretch_lo=1.0", "stretch_hi=1.0", "no_augment=true", "loss_over_bptt=true",
-                "seed=1", "device=cpu",
-            ],
-        )
-    return cfg
+    return compose_config([
+        "task=cheetah100", "model=srnn", "model.num_units=300", "seed=1", "device=cpu",
+        f"task.batch_size={BATCH_SIZE}", f"task.window_len={WINDOW_LEN}", f"task.bptt_len={BPTT_LEN}",
+        "task.seq_len=1024", f"model.variants=[{VARIANT}]",
+    ])
 
 
 def get_data(cfg):
-    task_kwargs = OmegaConf.to_container(cfg.task, resolve=True)
-    name = task_kwargs.pop("name"); ddir = task_kwargs.pop("data_dir", None)
-    ds = load_dataset(name, data_dir=ddir, **task_kwargs)
-    return ds["train"]
+    return build_task(cfg).load(Path(cfg.task.data_dir)).train
 
 
 def make_batch(train_x, train_y, rng, cfg):
     """Random contiguous window from a random subset of recordings."""
     N = len(train_x)
-    idx = rng.choice(N, size=cfg.batch_size, replace=False)
+    idx = rng.choice(N, size=BATCH_SIZE, replace=False)
     T_full = train_x.shape[1]
-    start = rng.randint(0, T_full - cfg.window_len + 1)
-    bx = train_x[idx][:, start:start + cfg.window_len, :]
-    by = train_y[idx][:, start:start + cfg.window_len, :]
-    bptt_start = cfg.window_len - cfg.bptt_len
-    readout_idx = slice(bptt_start, cfg.window_len)
+    start = rng.randint(0, T_full - WINDOW_LEN + 1)
+    bx = train_x[idx][:, start:start + WINDOW_LEN, :]
+    by = train_y[idx][:, start:start + WINDOW_LEN, :]
+    bptt_start = WINDOW_LEN - BPTT_LEN
+    readout_idx = slice(bptt_start, WINDOW_LEN)
     by = by[:, readout_idx]
     return (
         torch.tensor(bx, dtype=torch.float32),
@@ -103,7 +84,7 @@ def grads_one_batch(model, bx, by, readout_idx, bptt_start, K):
 def main():
     print("Building cfg + model (K=1)...")
     cfg = build_cfg()
-    model = build_batched_model(cfg, [VARIANT]).to("cpu")
+    model = build_model(cfg).to("cpu")
     K = 1
 
     print("Loading dataset...")

@@ -9,8 +9,8 @@ on the persistence baseline E||y-x||^2), so plotting them on shared axes hides
 all within-group motion. They get separate panels with independent y-scales.
 
 Usage:
-    python scripts/plot_learning_curves.py tmp/ring6-150e [-o out.png]
-    python scripts/plot_learning_curves.py tmp/ring6-150e --loglog
+    python scripts/plot_learning_curves.py $SRNN_HOME/cache/ring6-400e [-o out.png]
+    python scripts/plot_learning_curves.py $SRNN_HOME/cache/ring6-400e --loglog
 """
 import argparse
 import csv
@@ -25,7 +25,7 @@ def read_history(run_dir: pathlib.Path):
     tr = list(csv.DictReader(open(run_dir / "training_history.csv")))
     te_path = run_dir / "test_history.csv"
     te = list(csv.DictReader(open(te_path))) if te_path.exists() else []
-    # dict.fromkeys preserves first-seen order (= the batched_ablations order)
+    # dict.fromkeys preserves first-seen order (= the model.variants order)
     variants = list(dict.fromkeys(r["variant"] for r in tr))
     return tr, te, variants
 

@@ -1,38 +1,16 @@
-"""Unified post-run analysis: download + plots + tables.
+"""Post-run analysis: download a run from GCS, then plots and tables.
 
-Single entry point. Replaces the legacy trio of:
-  - scripts/plots/plot_overnight9h.py     (loss/metric curves, weight evolution)
-  - scripts/plots/plot_lr_schedule.py     (LR schedule)
-  - scripts/plots/plot_param_evolution.py (per-variant tau/W_EI plots, param table)
+    python scripts/postprocess.py <run_name>                     # task cheetah100, seed 1
+    python scripts/postprocess.py ring2x5-100e --task cheetah100
+    python scripts/postprocess.py myrun --skip-download --variants srnn-skip,srnn-no-adapt-skip
+    python scripts/postprocess.py later-run --prepend-runs earlier-run   # concatenate a resumed run
 
-Usage:
-    python scripts/postprocess.py <run_name>
-    python scripts/postprocess.py overnight-cl250 --task seeg --seed 1
-    python scripts/postprocess.py myrun --skip-download
-    python scripts/postprocess.py myrun --variants srnn-skip,srnn-e-only-skip
-    python scripts/postprocess.py overnight-cl250-resume120 \\
-        --prepend-runs overnight-cl250 --skip-download
-        # ^ concatenates cl250 (epochs 0-99) + resume120 (epochs 100-219) into
-        # tmp/overnight-cl250-resume120__concat/ and runs all phases on the
-        # merged 220-epoch trajectory.
-
-Output layout:
-    tmp/<run_name>/
-        init.pt, last.pt, epoch_*.pt, *.csv, *.json, training_log.txt
-        curves_{skip,no-skip}.png
-        semilogy_curves_{skip,no-skip}.png
-        log_log_curves_{skip,no-skip}.png
-        semilogy_direct_curves_{skip,no-skip}.png
-        lr_schedule.png
-        weight_evolution.png
-        <variant_1>/
-            tau_evolution.png
-            W_EI_evolution.png
-            param_table.txt
-            timeseries_<ckpt>_<mode>.png   (with optional Lyapunov panel)
-            lyapunov_<ckpt>_<mode>.npz     (t_lya, local_lya, finite_lya, LLE)
-            # <ckpt> is 'init', 'last', or 'epNNN' per --replay-checkpoints
-        <variant_2>/...
+Output layout under $SRNN_CACHE_DIR/<run_name>/ (default $SRNN_HOME/cache):
+    init.pt, last.pt, epoch_*.pt, *.csv, *.json, training_log.txt
+    curves_{skip,no-skip}.png (+ semilogy_, log_log_, semilogy_direct_ variants)
+    lr_schedule.png, weight_evolution.png, report.pdf
+    <variant>/tau_evolution.png, W_EI_evolution.png, param_table.txt,
+              timeseries_<ckpt>_<mode>.png, lyapunov_<ckpt>_<mode>.npz
 """
 from __future__ import annotations
 
@@ -55,37 +33,16 @@ import torch.nn.functional as F
 
 
 REPO = Path(__file__).resolve().parents[1]
-DEFAULT_TMP = REPO / "tmp"
-DEFAULT_BUCKET = "gs://liquidneuralnets-experiments"
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+from _runs import cache_dir, gcloud_storage, read_bucket, variant_names as _ckpt_names  # noqa: E402
+
+DEFAULT_TMP = cache_dir()
 
 
 # =============================================================================
 # Phase 1: download
 # =============================================================================
-
-def _read_bucket_from_config() -> str:
-    """Parse cloud/config.env for GCP_BUCKET; fall back to default."""
-    cfg = REPO / "cloud" / "config.env"
-    if not cfg.exists():
-        return DEFAULT_BUCKET
-    for line in cfg.read_text().splitlines():
-        line = line.strip()
-        if line.startswith("GCP_BUCKET="):
-            val = line.split("=", 1)[1].strip().strip('"').strip("'")
-            return val or DEFAULT_BUCKET
-    return DEFAULT_BUCKET
-
-
-def _gsutil(*args: str, capture: bool = True) -> subprocess.CompletedProcess:
-    if not shutil.which("gsutil"):
-        sys.exit("ERROR: gsutil not found in PATH. Install Google Cloud SDK.")
-    return subprocess.run(
-        ["gsutil", *args],
-        capture_output=capture,
-        text=True,
-        check=False,
-    )
-
 
 def ensure_local_run(args) -> Path:
     """Download (or reuse) artifacts for <run_name>/srnn/<task>/seed<seed>/."""
@@ -98,9 +55,9 @@ def ensure_local_run(args) -> Path:
 
     remote_prefix = f"{args.bucket}/results-pytorch/{args.run_name}/srnn/{args.task}/seed{args.seed}"
     print(f"[download] enumerating {remote_prefix}/*")
-    res = _gsutil("ls", f"{remote_prefix}/")
+    res = gcloud_storage("ls", f"{remote_prefix}/")
     if res.returncode != 0:
-        sys.exit(f"ERROR: gsutil ls failed:\n{res.stderr}\n"
+        sys.exit(f"ERROR: gcloud storage ls failed:\n{res.stderr}\n"
                  f"Check that {remote_prefix} exists and you're authenticated.")
 
     remote_files = [line.strip() for line in res.stdout.splitlines() if line.strip().startswith("gs://")]
@@ -118,9 +75,9 @@ def ensure_local_run(args) -> Path:
             skipped += 1
             continue
         print(f"[download] {name}")
-        cp = _gsutil("cp", rf, str(dest), capture=False)
+        cp = gcloud_storage("cp", rf, str(dest), capture=False)
         if cp.returncode != 0:
-            sys.exit(f"ERROR: gsutil cp {rf} -> {dest} failed (exit {cp.returncode})")
+            sys.exit(f"ERROR: download of {rf} failed (exit {cp.returncode})")
         new += 1
     print(f"[download] done: {new} new, {skipped} cached, total {new+skipped} files")
 
@@ -158,14 +115,14 @@ def _run_epoch_count(run_dir: Path) -> int:
     sys.exit(f"ERROR: cannot determine epoch count for {run_dir}")
 
 
-def _ablation_names_for(run_dir: Path) -> list[str]:
-    """Read ablation_names from any checkpoint in run_dir."""
+def _variant_names_for(run_dir: Path) -> list[str]:
+    """Read variant_names from any checkpoint in run_dir."""
     for cand in ("last.pt", "init.pt"):
         p = run_dir / cand
         if p.exists():
             sd = torch.load(p, map_location="cpu", weights_only=False)
-            if isinstance(sd, dict) and sd.get("ablation_names"):
-                return list(sd["ablation_names"])
+            if isinstance(sd, dict) and _ckpt_names(sd):
+                return _ckpt_names(sd)
     # CSV fallback
     csv_path = run_dir / "training_history.csv"
     if csv_path.exists():
@@ -178,17 +135,17 @@ def _ablation_names_for(run_dir: Path) -> list[str]:
                 seen.append(v)
         if seen:
             return seen
-    sys.exit(f"ERROR: cannot determine ablation_names for {run_dir}")
+    sys.exit(f"ERROR: cannot determine variant_names for {run_dir}")
 
 
 def _validate_chain_compat(run_dirs: list[Path]) -> list[str]:
-    """All runs in a concat chain must share ablation_names."""
-    canonical = _ablation_names_for(run_dirs[0])
+    """All runs in a concat chain must share variant_names."""
+    canonical = _variant_names_for(run_dirs[0])
     for rd in run_dirs[1:]:
-        names = _ablation_names_for(rd)
+        names = _variant_names_for(rd)
         if names != canonical:
             sys.exit(
-                f"ERROR: ablation_names mismatch in concat chain.\n"
+                f"ERROR: variant_names mismatch in concat chain.\n"
                 f"  {run_dirs[0].name}: {canonical}\n"
                 f"  {rd.name}: {names}"
             )
@@ -315,7 +272,7 @@ def _build_concat_run_dir(prepend_dirs: list[Path], primary_dir: Path, out_dir: 
 # =============================================================================
 
 def load_snapshots(run_dir: Path):
-    """Returns (snaps, ablation_names) where snaps = [(label, x_epoch, model_state_dict), ...]
+    """Returns (snaps, variant_names) where snaps = [(label, x_epoch, model_state_dict), ...]
     and x_epoch is the true epoch index from the checkpoint (init -> -1)."""
     raw = []
     init = run_dir / "init.pt"
@@ -336,8 +293,8 @@ def load_snapshots(run_dir: Path):
         out.append((label, ep, ms))
     if not raw:
         return [], []
-    ablation_names = list(raw[-1][2].get("ablation_names", []))
-    return out, ablation_names
+    variant_names = _ckpt_names(raw[-1][2])
+    return out, variant_names
 
 
 def load_history_by_variant(path: Path) -> dict[str, list[dict]]:
@@ -360,7 +317,7 @@ def _is_skip(variant: str) -> bool:
     return "-skip" in variant
 
 
-# Matches the "-seed<int>" suffix that build_batched_model appends when
+# Matches the "-seed<int>" suffix the factory appends to variant names when
 # `batched_ablation_seeds` is set (train_srnn/models/factory.py:_SEED_SEP).
 _SEED_SUFFIX_RE = re.compile(r"^(?P<base>.+)-seed(?P<seed>\d+)$")
 
@@ -605,7 +562,7 @@ def effective_taus(ms, k):
 
 
 def effective_W(ms, k):
-    """Reproduce BatchedSRNNCell._effective_W for variant k."""
+    """Reproduce SRNNCell._effective_W for variant k."""
     W_raw = ms["cell.W_raw"][k]
     gain = ms["cell.W_raw_gain"][k].item()
     dales_mask = ms["cell.dales_mask"][k].item()
@@ -647,7 +604,7 @@ def effective_c_0(ms, k, side):
 def is_per_neuron(ms, k) -> bool:
     """True iff variant k trains its ``*_vec`` tensors per neuron.
 
-    BatchedSRNNCell allocates per-neuron shapes regardless of the flag
+    SRNNCell allocates per-neuron shapes regardless of the flag
     (KnownIssues §1); the flag survives only as the gradient-linking masks
     installed at srnn_cell.py:1027, which zero the ``*_vec`` gradient when
     per_neuron=False. ``_isp_tau_d_vec_mask`` is the robust probe because
@@ -1028,7 +985,7 @@ def write_param_table(out_dir: Path, run_label: str, snaps, k, name):
 # Orchestration
 # =============================================================================
 
-def build_report(run_dir: Path, ablation_names: list[str], variants_filter: list[str] | None):
+def build_report(run_dir: Path, variant_names: list[str], variants_filter: list[str] | None):
     """Assemble a single PDF report:
        - log-log loss curves first (skip + no-skip)
        - then per variant: tau_evolution + W_EI_evolution on one page,
@@ -1042,7 +999,7 @@ def build_report(run_dir: Path, ablation_names: list[str], variants_filter: list
         print("[report] lualatex not in PATH — skipping PDF assembly (install MacTeX)")
         return
 
-    selected = ablation_names if not variants_filter else [n for n in ablation_names if n in variants_filter]
+    selected = variant_names if not variants_filter else [n for n in variant_names if n in variants_filter]
 
     md = []
     # YAML frontmatter — geometry + small font so the wide param tables fit US-letter
@@ -1126,15 +1083,15 @@ def build_report(run_dir: Path, ablation_names: list[str], variants_filter: list
     print(f"  wrote report.pdf")
 
 
-def run_per_variant(run_dir: Path, snaps, ablation_names: list[str], variants_filter: list[str] | None):
-    if not ablation_names:
-        print("[per-variant] no ablation_names found in last.pt — skipping per-variant phase")
+def run_per_variant(run_dir: Path, snaps, variant_names: list[str], variants_filter: list[str] | None):
+    if not variant_names:
+        print("[per-variant] no variant_names found in last.pt — skipping per-variant phase")
         return
-    selected = ablation_names if not variants_filter else [n for n in ablation_names if n in variants_filter]
+    selected = variant_names if not variants_filter else [n for n in variant_names if n in variants_filter]
     if variants_filter and not selected:
-        print(f"[per-variant] WARNING: --variants {variants_filter} matched none of {ablation_names}")
+        print(f"[per-variant] WARNING: --variants {variants_filter} matched none of {variant_names}")
     print(f"[per-variant] {len(selected)} variant(s)")
-    for k, name in enumerate(ablation_names):
+    for k, name in enumerate(variant_names):
         if name not in selected:
             continue
         out = run_dir / name
@@ -1202,17 +1159,17 @@ def _resolve_replay_checkpoints(run_dir: Path, spec: str) -> list[Path]:
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("run_name", help="GCS run name (top-level folder under results-pytorch/)")
-    p.add_argument("--task", default="seeg", help="task name (default: seeg)")
+    p.add_argument("--task", default="cheetah100", help="task name (default: cheetah100)")
     p.add_argument("--seed", type=int, default=1, help="seed (default: 1)")
-    p.add_argument("--bucket", default=_read_bucket_from_config(), help=f"GCS bucket (default: {_read_bucket_from_config()})")
+    p.add_argument("--bucket", default=read_bucket(), help="GCS bucket (default: cloud/config.gpu.env)")
     p.add_argument("--tmp-dir", default=str(DEFAULT_TMP), help=f"local destination root (default: {DEFAULT_TMP})")
     p.add_argument("--skip-download", action="store_true", help="skip GCS download; use existing local files only")
     p.add_argument("--variants", default=None, help="comma-separated variant names to render per-variant (default: all)")
     p.add_argument("--no-report", action="store_true", help="skip the consolidated PDF report")
     p.add_argument("--skip-replay", action="store_true",
                    help="skip the forward-replay time-series phase")
-    p.add_argument("--replay-modes", default="no_input,step,seeg",
-                   help="comma-separated subset of {no_input,step,seeg} (default: all three)")
+    p.add_argument("--replay-modes", default="no_input,step,trace",
+                   help="comma-separated subset of {no_input,step,trace} (default: all three)")
     p.add_argument("--replay-t-start", type=float, default=-15.0,
                    help="replay start time in seconds (negative = zero-input warm-up; default: -15)")
     p.add_argument("--replay-t-end", type=float, default=30.0,
@@ -1234,7 +1191,7 @@ def parse_args():
     p.add_argument("--prepend-runs", default=None,
                    help="comma-separated list of earlier run names to concat before "
                         "<run_name> (e.g. --prepend-runs overnight-cl250 to extend "
-                        "overnight-cl250-resume120). Builds tmp/<primary>__concat/ and "
+                        "a resumed run). Builds <cache>/<primary>__concat/ and "
                         "runs all phases on the merged dir.")
     return p.parse_args()
 
@@ -1264,13 +1221,13 @@ def main():
     plot_curves_split(run_dir)
     plot_lr_schedule(run_dir)
 
-    snaps, ablation_names = load_snapshots(run_dir)
+    snaps, variant_names = load_snapshots(run_dir)
     print(f"  {len(snaps)} snapshots: {[s[0] for s in snaps]}")
     plot_weight_evolution(run_dir, snaps)
 
     print(f"\n=== Phase 3: per-variant outputs ===")
     variants_filter = [s.strip() for s in args.variants.split(",")] if args.variants else None
-    run_per_variant(run_dir, snaps, ablation_names, variants_filter)
+    run_per_variant(run_dir, snaps, variant_names, variants_filter)
 
     if not args.skip_replay:
         print(f"\n=== Phase 3b: forward-replay time-series ===")
@@ -1278,9 +1235,7 @@ def main():
         if not ckpts:
             print(f"  no replay checkpoints resolved in {run_dir} — skipping")
         else:
-            if str(REPO) not in sys.path:
-                sys.path.insert(0, str(REPO))
-            from scripts.plots.plot_srnn_timeseries import plot_replay
+            from plot_srnn_timeseries import plot_replay
             modes = [m.strip() for m in args.replay_modes.split(",") if m.strip()]
             for ckpt_path in ckpts:
                 for m in modes:
@@ -1301,7 +1256,7 @@ def main():
 
     if not args.no_report:
         print(f"\n=== Phase 4: consolidated PDF report ===")
-        build_report(run_dir, ablation_names, variants_filter)
+        build_report(run_dir, variant_names, variants_filter)
 
     print(f"\n=== Done — outputs in {run_dir} ===")
 

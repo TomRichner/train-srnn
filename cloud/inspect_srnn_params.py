@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 """Inspect SRNN parameters across Init/Best/Last checkpoints.
 
-Reads PyTorch ``.pt`` checkpoint files saved by ``train_srnn.utils.checkpoint``
-and produces comparison tables of SRNN dynamics parameters and weight statistics.
-
-Handles both single SRNNCell models and BatchedSRNNCell models (K variants
-stacked as ``(K, ...)`` tensors).
+Reads ``.pt`` checkpoints written by train_srnn.utils.history and tabulates
+SRNN dynamics parameters and weight statistics for the K variants.
 
 Usage:
-    python3 cloud/inspect_srnn_params_pytorch.py --local results/har/srnn_32
-    python3 cloud/inspect_srnn_params_pytorch.py --run myrun --experiment har --seed 1
-    python3 cloud/inspect_srnn_params_pytorch.py --run myrun --experiment all --seed 1
+    python3 cloud/inspect_srnn_params.py --local $SRNN_HOME/results/cheetah100/myrun
+    python3 cloud/inspect_srnn_params.py --run myrun --experiment cheetah100 --seed 1
 """
 
 import argparse
@@ -166,7 +162,7 @@ def load_ckpt(path):
     import torch
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
     state_dict = ckpt["model_state_dict"]
-    ablation_names = ckpt.get("ablation_names")
+    ablation_names = ckpt.get("variant_names") or ckpt.get("ablation_names")  # noqa: legacy key
     config = ckpt.get("config", {})
     return state_dict, ablation_names, config
 
@@ -404,7 +400,7 @@ def main():
     parser.add_argument("--local", default=None,
                         help="Path to local checkpoint directory (e.g., results/har/srnn_32)")
     parser.add_argument("--run", default=None,
-                        help="Run name in GCS (downloads to tmp/collect_results/<run>/)")
+                        help="Run name in GCS (expects <cache>/collect_results/<run>/)")
     parser.add_argument("--experiment", default="all",
                         help="Experiment name, or 'all' (default: all)")
     parser.add_argument("--seed", type=int, default=1)
@@ -419,9 +415,9 @@ def main():
         # Multi-experiment GCS mode
         script_dir = os.path.dirname(os.path.abspath(__file__))
         project_dir = os.path.dirname(script_dir)
-        base_dir = args.local or os.path.join(
-            project_dir, "tmp", "collect_results", args.run
-        )
+        sys.path.insert(0, project_dir)
+        from train_srnn import paths as _paths
+        base_dir = args.local or os.path.join(str(_paths.cache_dir()), "collect_results", args.run)
 
         if not os.path.exists(base_dir):
             print(f"  No local data at {base_dir}. Download first with collect_results.py --with-checkpoints")

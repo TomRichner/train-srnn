@@ -1,11 +1,15 @@
 """Replot grad_norms.csv by parameter group: readout / recurrent+input / dendritic / SFA / STD / global."""
 import csv
 from collections import defaultdict
+import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-OUT = Path("tmp/grad_probe")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _runs import cache_dir  # noqa: E402
+
+OUT = cache_dir() / "grad_probe"
 rows = list(csv.DictReader(open(OUT / "grad_norms.csv")))
 
 GROUPS = [

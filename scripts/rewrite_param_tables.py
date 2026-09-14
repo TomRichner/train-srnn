@@ -3,7 +3,7 @@
 the full postprocess pipeline. Uses init.pt + last.pt only.
 
 Usage:
-    python scripts/rewrite_param_tables.py tmp/run1 tmp/run2 ...
+    python scripts/rewrite_param_tables.py $SRNN_HOME/cache/run1 ...
 """
 import sys
 from pathlib import Path
@@ -33,14 +33,14 @@ def rewrite(run_dir: Path) -> None:
         print(f"[skip] {run_dir}: missing init.pt or last.pt")
         return
 
-    ablation_names = postprocess._ablation_names_for(run_dir)
+    variant_names = postprocess._variant_names_for(run_dir)
     init_ms = _load_ms(init_pt)
     last_ms = _load_ms(last_pt)
     e0 = _epoch_of(init_pt)
     e1 = _epoch_of(last_pt)
     snaps = [(e0, e0, init_ms), (e1, e1, last_ms)]
 
-    for k, name in enumerate(ablation_names):
+    for k, name in enumerate(variant_names):
         out = run_dir / name
         if not out.exists():
             print(f"  [skip variant] {name}: dir does not exist")

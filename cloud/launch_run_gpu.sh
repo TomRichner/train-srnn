@@ -66,7 +66,7 @@ if [ "$GCP_USE_SPOT" = "true" ]; then
     SCHEDULING_ARGS="$SCHEDULING_ARGS --provisioning-model=SPOT --instance-termination-action=STOP"
 fi
 
-# Write train-args to a temp file so commas in values (e.g. batched_ablations)
+# Write train-args to a temp file so commas in values (e.g. model.variants)
 # don't break gcloud's metadata comma-delimited parsing.
 TRAIN_ARGS_FILE=$(mktemp)
 echo "$EXTRA_ARGS" > "$TRAIN_ARGS_FILE"

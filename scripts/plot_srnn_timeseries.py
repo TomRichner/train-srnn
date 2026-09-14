@@ -5,9 +5,8 @@ Three input modes are supported:
     no_input : zeros for the entire t_range
     step     : zeros on [t_start, 0); on [0, t_end] divide into thirds —
                zero / 0.1*randn(input_size) per channel / zero
-    seeg     : zeros on [t_start, 0); on [0, t_end] use the first
-               int(t_end / cell.h) samples of the SEEG train trace
-               (decimated + z-scored exactly as `load_seeg` does)
+    trace    : zeros on [t_start, 0); on [0, t_end] the first
+               int(t_end / cell.h) samples of the task's z-scored train trace
 
 `t_start < 0` provides additional zero-input warm-up beyond the trained IC.
 
@@ -18,9 +17,9 @@ where <ckpt_tag> is derived from the checkpoint filename:
     init.pt -> 'init', last.pt -> 'last', epoch_050.pt -> 'ep050'.
 
 CLI:
-    python scripts/plots/plot_srnn_timeseries.py <ckpt> <out_dir> \\
+    python scripts/plot_srnn_timeseries.py <ckpt> <out_dir> \\
         --mode no_input --t-start -15 --t-end 30 --plot-fs 25
-    python scripts/plots/plot_srnn_timeseries.py <ckpt> <out_dir> --mode all
+    python scripts/plot_srnn_timeseries.py <ckpt> <out_dir> --mode all
 """
 from __future__ import annotations
 
@@ -35,14 +34,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from omegaconf import OmegaConf
 
-REPO = Path(__file__).resolve().parents[2]
+REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from train_srnn.models.factory import build_batched_model  # noqa: E402
-from train_srnn.utils.checkpoint import load_checkpoint  # noqa: E402
+from _runs import load_train_trace, rebuild_model  # noqa: E402
+from train_srnn.utils.history import load_checkpoint  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -83,42 +81,13 @@ def plot_lines(ax, t, data, n_E, ylabel_text, ylim_range=None):
 # Input builders
 # ─────────────────────────────────────────────────────────────────────────
 
-def _seeg_trace(cfg, n_samples_needed: int) -> np.ndarray:
-    """Read a continuous SEEG train trace (decimated + z-scored) and return
-    the first n_samples_needed rows.  Replicates the head of `load_seeg`
-    without windowing.  Returns shape (T, n_chan)."""
-    import h5py
-
-    task = cfg.task
-    data_dir = task.get("data_dir", "train_srnn/data/seeg")
-    if not os.path.isabs(data_dir):
-        data_dir = str(REPO / data_dir)
-    fname = (f"seeg_{task.subject_id}_b{task.block}_"
-             f"{task.sleep}_{task.cond}.mat")
-    path = os.path.join(data_dir, fname)
-    with h5py.File(path, "r") as f:
-        data = np.array(f["data_filt"]).T.astype(np.float32)  # (T, C)
-
-    decimate = int(task.get("decimate", 1))
-    if decimate > 1:
-        T = (data.shape[0] // decimate) * decimate
-        data = data[:T].reshape(-1, decimate, data.shape[1]).sum(axis=1) / decimate
-
-    n_samples = data.shape[0]
-    t1 = int(0.75 * n_samples)
-    train_trace = data[:t1]
-    mu = train_trace.mean(axis=0, keepdims=True)
-    sd = train_trace.std(axis=0, keepdims=True)
-    sd[sd < 1e-8] = 1.0
-    train_trace = (train_trace - mu) / sd
-
-    if train_trace.shape[0] < n_samples_needed:
-        raise RuntimeError(
-            f"SEEG train trace has {train_trace.shape[0]} samples "
-            f"after decimation; need {n_samples_needed} for the requested "
-            f"t_end. Reduce --t-end or use a longer recording."
-        )
-    return train_trace[:n_samples_needed]
+def _task_trace(cfg, n_samples_needed: int) -> np.ndarray:
+    """First ``n_samples_needed`` rows of the task's z-scored train trace, ``(T, C)``."""
+    trace = load_train_trace(cfg)
+    if trace is None or trace.shape[0] < n_samples_needed:
+        raise RuntimeError(f"task {cfg.task.name} has no train trace of at least "
+                           f"{n_samples_needed} samples; reduce --t-end")
+    return trace[:n_samples_needed]
 
 
 def build_inputs(
@@ -153,13 +122,10 @@ def build_inputs(
         # Middle third only
         inputs[T_warm + third : T_warm + 2 * third] = amp.unsqueeze(0)
 
-    elif mode == "seeg":
-        trace = _seeg_trace(cfg, T_main)  # (T_main, n_chan)
+    elif mode == "trace":
+        trace = _task_trace(cfg, T_main)  # (T_main, n_chan)
         if trace.shape[1] != input_size:
-            raise RuntimeError(
-                f"SEEG channel count {trace.shape[1]} != input_size "
-                f"{input_size}. Check task config."
-            )
+            raise RuntimeError(f"trace has {trace.shape[1]} channels but input_size is {input_size}")
         inputs[T_warm:T_warm + T_main] = torch.from_numpy(trace)
 
     else:
@@ -513,16 +479,7 @@ def plot_replay(
 
     print(f"[replay] ckpt={ckpt_tag} loading {ckpt_path}")
     ckpt = load_checkpoint(str(ckpt_path), device=device)
-    cfg = OmegaConf.create(ckpt["config"])
-    ablation_names = ckpt.get("ablation_names") or []
-    if not ablation_names:
-        raise RuntimeError(
-            f"{ckpt_path} has no ablation_names — not a batched-ablation run."
-        )
-
-    model = build_batched_model(cfg, ablation_names)
-    model.load_state_dict(ckpt["model_state_dict"])
-    model = model.to(device).eval()
+    model, cfg, variant_names = rebuild_model(ckpt, device)
 
     cell = model.cell
     h = float(cell.h)
@@ -552,7 +509,7 @@ def plot_replay(
             model, inputs, T_warm,
             lya_M=lya_M, d0=lya_d0, seed=lya_seed,
         )
-        for k, name in enumerate(ablation_names):
+        for k, name in enumerate(variant_names):
             variant_dir = out_dir / name
             variant_dir.mkdir(parents=True, exist_ok=True)
             np.savez(
@@ -570,10 +527,10 @@ def plot_replay(
                 variant=name,
             )
         print(f"[replay] ckpt={ckpt_tag} LLE per variant: " + ", ".join(
-            f"{n}={lya['LLE'][k]:+.4f}" for k, n in enumerate(ablation_names)
+            f"{n}={lya['LLE'][k]:+.4f}" for k, n in enumerate(variant_names)
         ))
 
-    for k, name in enumerate(ablation_names):
+    for k, name in enumerate(variant_names):
         variant_dir = out_dir / name
         variant_dir.mkdir(parents=True, exist_ok=True)
         out_path = variant_dir / f"timeseries_{ckpt_tag}_{mode}.png"
@@ -593,10 +550,10 @@ def plot_replay(
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("ckpt_path", help="Path to last.pt (or any *.pt with config + ablation_names)")
+    p.add_argument("ckpt_path", help="Path to last.pt (or any *.pt with config + variant names)")
     p.add_argument("out_dir", help="Per-variant subdirs are created under this path")
     p.add_argument("--mode", default="all",
-                   choices=["no_input", "step", "seeg", "all"],
+                   choices=["no_input", "step", "trace", "all"],
                    help="Input mode (default: all → runs all three)")
     p.add_argument("--t-start", type=float, default=-15.0,
                    help="Start time in seconds (negative = zero-input warm-up; default: -15)")
@@ -618,7 +575,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    modes = ["no_input", "step", "seeg"] if args.mode == "all" else [args.mode]
+    modes = ["no_input", "step", "trace"] if args.mode == "all" else [args.mode]
     for m in modes:
         plot_replay(
             ckpt_path=Path(args.ckpt_path),

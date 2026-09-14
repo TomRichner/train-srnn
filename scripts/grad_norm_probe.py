@@ -1,42 +1,31 @@
-"""Gradient-norm diagnostic: measure how parameter gradients scale with bptt_chunk_len.
+"""Gradient-norm diagnostic: how parameter gradients scale with bptt_chunk_len.
 
-Builds the same batched model the lr3e4-20ep run used, loads its trained weights from
-last.pt, runs ONE forward+backward at several values of bptt_chunk_len, and records the
-L2 norm of every parameter's gradient. Output:
-  - tmp/grad_probe/grad_norms.csv    long-form table (chunk_len, variant, param, grad_norm)
-  - tmp/grad_probe/grad_norms.png    grouped log-scale plot (key params vs chunk_len)
-  - tmp/grad_probe/grad_norms.txt    pretty per-variant table at default chunk_len=128
+Builds a small batch of variants at their initial weights, runs one
+forward+backward on one real cheetah100 batch at several bptt_chunk_len
+values, and records the L2 norm of every parameter's gradient. Outputs go
+to $SRNN_CACHE_DIR/grad_probe/: grad_norms.csv, grad_norms_chunk128.txt,
+grad_vs_chunk_<variant>.png, grad_vs_chunk_focus.png.
 """
-import os
-import sys
 import csv
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-from omegaconf import OmegaConf
-from hydra import compose, initialize_config_dir
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from train_srnn.models.factory import build_batched_model  # noqa: E402
-from train_srnn.data.datasets import load_dataset           # noqa: E402
-from train_srnn.data.transforms import wrap_train_batch     # noqa: E402
+from _runs import cache_dir  # noqa: E402
+from train_srnn.config import compose_config  # noqa: E402
+from train_srnn.data import build_task  # noqa: E402
+from train_srnn.models.factory import build_model  # noqa: E402
 
-OUT_DIR = REPO / "tmp" / "grad_probe"
+OUT_DIR = cache_dir() / "grad_probe"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-RUN_DIR = REPO / "tmp" / "lr3e4-20ep"
-# Light probe: just the canonical full SRNN and the no-adapt-no-dales baseline,
-# enough to compare across active vs inactive slow timescales.
-ABLATIONS = [
-    "srnn-e-only-skip",
-    "srnn-e-only-skip-per-neuron",
-]
-# Use shorter window so CPU forward is tractable. We still vary bptt_chunk_len
-# across an order of magnitude to characterize gradient scaling.
+ABLATIONS = ["srnn-e-only-skip", "srnn-e-only-skip-per-neuron"]
 WINDOW_LEN = 1024
 BPTT_LEN = 768
 BATCH_SIZE = 4
@@ -44,47 +33,27 @@ CHUNK_LENS = [16, 32, 64, 128, 256, 512]
 
 
 def build_cfg():
-    """Replicate the run's resolved Hydra config (size=300, h=0.004, etc.)."""
-    with initialize_config_dir(config_dir=str(REPO / "conf"), version_base=None):
-        cfg = compose(
-            config_name="config",
-            overrides=[
-                "task=seeg",
-                "model=srnn",
-                "size=300",
-                "model.h=0.004",
-                "model.ode_unfolds=1",
-                f"batch_size={BATCH_SIZE}",
-                f"window_len={WINDOW_LEN}",
-                f"bptt_len={BPTT_LEN}",
-                "stretch_lo=1.0",
-                "stretch_hi=1.0",
-                "no_augment=true",
-                "loss_over_bptt=true",
-                "seed=1",
-                "device=cpu",
-            ],
-        )
-    return cfg
+    return compose_config([
+        "task=cheetah100", "model=srnn", "model.num_units=300", "seed=1", "device=cpu",
+        f"task.batch_size={BATCH_SIZE}", f"task.window_len={WINDOW_LEN}", f"task.bptt_len={BPTT_LEN}",
+        "task.seq_len=1024",
+        "model.variants=[" + ",".join(ABLATIONS) + "]",
+    ])
 
 
 def make_batch(cfg, device):
-    """Pull one real training batch from the seeg dataset."""
-    task_kwargs = OmegaConf.to_container(cfg.task, resolve=True)
-    task_name = task_kwargs.pop("name")
-    data_dir = task_kwargs.pop("data_dir", None)
-    ds = load_dataset(task_name, data_dir=data_dir, **task_kwargs)
-    train_x, train_y = ds["train"]
+    """One real training batch: the first window_len steps of a few training windows."""
+    task = build_task(cfg)
+    train_x, train_y = task.load(Path(cfg.task.data_dir)).train
     rng = np.random.RandomState(0)
-    idx = rng.choice(len(train_x), size=cfg.batch_size, replace=False)
-    bx = train_x[idx][:, :cfg.window_len, :]   # take first window_len steps
-    by = train_y[idx][:, :cfg.window_len, :]
-    bptt_start = cfg.window_len - cfg.bptt_len
-    readout_idx = slice(bptt_start, cfg.window_len)  # loss_over_bptt: predict every step in grad region
+    idx = rng.choice(len(train_x), size=BATCH_SIZE, replace=False)
+    bx = train_x[idx][:, :WINDOW_LEN, :]
+    by = train_y[idx][:, :WINDOW_LEN, :]
+    bptt_start = WINDOW_LEN - BPTT_LEN
+    readout_idx = slice(bptt_start, WINDOW_LEN)
     by = by[:, readout_idx]
-    bx_t = torch.tensor(bx, dtype=torch.float32, device=device)
-    by_t = torch.tensor(by, dtype=torch.float32, device=device)
-    return bx_t, by_t, readout_idx, bptt_start
+    return (torch.tensor(bx, dtype=torch.float32, device=device),
+            torch.tensor(by, dtype=torch.float32, device=device), readout_idx, bptt_start)
 
 
 def measure(model, bx_t, by_t, readout_idx, bptt_start, chunk_len, K):
@@ -132,15 +101,10 @@ def main():
     torch.manual_seed(int(cfg.seed))
     np.random.seed(int(cfg.seed))
 
-    model = build_batched_model(cfg, ABLATIONS).to(device)
+    model = build_model(cfg).to(device)
     K = len(ABLATIONS)
 
-    # Use freshly-initialized weights — for the gradient-flow analysis the *shape*
-    # of |∇| vs chunk_len matters, and the post-training param values are very close
-    # to init for non-readout params anyway (gains barely moved during the actual run).
-    print("(using freshly-initialized weights — taus at their nominal inits)")
-
-    print("Pulling one batch from seeg train split...")
+    print("Pulling one batch from the cheetah100 train split...")
     bx_t, by_t, readout_idx, bptt_start = make_batch(cfg, device)
     print(f"batch: {tuple(bx_t.shape)} -> y {tuple(by_t.shape)}; readout_idx={type(readout_idx).__name__}; bptt_start={bptt_start}")
 
@@ -171,9 +135,8 @@ def main():
     # Pretty per-variant table at chunk=128
     write_table(rows, chunk_len=128, out=OUT_DIR / "grad_norms_chunk128.txt")
 
-    # Plot grad norms vs chunk_len for srnn-skip (k=5)
-    plot_grad_vs_chunk(rows, variant_k=5, variant_name="srnn-skip",
-                       out=OUT_DIR / "grad_vs_chunk_srnn-skip.png")
+    plot_grad_vs_chunk(rows, variant_k=0, variant_name=ABLATIONS[0],
+                       out=OUT_DIR / f"grad_vs_chunk_{ABLATIONS[0]}.png")
     # Plot for all variants combined: focus on log_tau_a_E_gain (slow) vs readout_weight (fast)
     plot_per_variant_focus(rows, ABLATIONS,
                            out=OUT_DIR / "grad_vs_chunk_focus.png")
@@ -186,8 +149,7 @@ def write_table(rows, chunk_len, out):
         if cl != chunk_len:
             continue
         by_var.setdefault(variant, []).append((param, gn))
-    lines = [f"# Grad L2 norms at bptt_chunk_len={chunk_len}, after one forward+backward on one real seeg batch."]
-    lines.append(f"# Model loaded from {RUN_DIR.name}/last.pt (post-training).")
+    lines = [f"# Grad L2 norms at bptt_chunk_len={chunk_len}, one forward+backward on one cheetah100 batch, initial weights."]
     lines.append("")
     for v in sorted(by_var):
         lines.append(f"## variant: {v}")
