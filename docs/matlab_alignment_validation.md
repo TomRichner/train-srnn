@@ -106,6 +106,52 @@ The outer `seed1` directory is the cloud dispatch seed; all 45 named variants
 are saved within it. The VM is configured to upload results periodically and
 stop after completion. The first epoch completed at 2026-09-16 06:04 UTC with finite training losses
 for all 45 networks. Sampled peak through that epoch was 9,376 MiB (40.70%
-of device memory); later evaluation peaks remain to be measured. Epoch 2
-then started normally. Scientific results remain pending. The manuscript and
-its figure links have not been edited by this implementation.
+of device memory). The manuscript and its figure links have not been edited
+by this implementation.
+
+## Completed manuscript run
+
+All 45 networks completed 100 epochs / 2,000 optimizer steps. Cloud metadata
+records exit code zero and completion at 2026-09-16 10:04:55 UTC. Runtime was
+14,890 seconds (about 4 h 8 min), including startup/compilation and evaluation.
+The VM is verified TERMINATED (stopped). `last.pt` exists in GCS. No traceback
+or ERROR entries were found in the training log. The summary verified every
+condition/seed has the complete validation grid from step 0 through 2,000
+at 100-step intervals and a finite final test result.
+
+Peak sampled whole-device memory was 10,414 / 23,034 MiB (45.21%), across
+14,861 samples. Median training-epoch duration excluding the first was
+117.3 seconds; this is not a controlled checkpointing speed comparison.
+
+| Condition | Final test MSE, mean ± sample SD | Final test MAE, mean |
+|---|---:|---:|
+| No adaptation | 0.489535 ± 0.423500 | 0.504246 |
+| SFA1 / STD1 | 0.041746 ± 0.003331 | 0.140524 |
+| SFA3 / STD2 | 0.088803 ± 0.007974 | 0.216172 |
+
+Each condition has 15 paired seeds. Single-timescale adaptation gave the
+lowest final loss and best validation learning-curve score. Both adaptation
+conditions improved average performance relative to no adaptation. These
+results do not support an MTS advantage on this task and protocol. The
+unadapted final MSE varied widely across seeds (0.093601 to 0.980178).
+
+For the prespecified average integral of log validation loss, lower is better:
+
+| Condition | Mean score | Bootstrap 95% interval |
+|---|---:|---:|
+| No adaptation | -0.488129 | [-0.781289, -0.210682] |
+| SFA1 / STD1 | -2.305354 | [-2.334357, -2.274226] |
+| SFA3 / STD2 | -1.441099 | [-1.505262, -1.381057] |
+
+Exact paired sign-flip P values for learning-curve scores are 0.0000610
+(no adaptation vs SFA1/STD1), 0.0001221 (no adaptation vs SFA3/STD2), and
+0.0000610 (SFA1/STD1 vs SFA3/STD2), unadjusted for three comparisons.
+Bootstrap intervals use 2,000 resamples. Test data were evaluated periodically,
+so these are not untouched holdout-test results. Single- and multiple-timescale
+STD are not strength-matched, as recorded in the protocol.
+
+Downloaded histories, execution metadata, full log, SVG/PNG learning curves,
+and `matlab_aligned_summary.json` are stored in
+`/Users/tom/Desktop/local_data/srnn/cache/m5-15s-100e-0916/`.
+Reproduce the analysis with `scripts/summarize_matlab_aligned.py <run-directory>`.
+
