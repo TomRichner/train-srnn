@@ -167,14 +167,12 @@ KEY_PARAMS = [
     ("cell.W_in", "W_in"),
     ("cell.W_in_gain", "W_in_gain"),
     ("cell.W_raw", "W_raw"),
-    ("cell.W_raw_gain", "W_raw_gain"),
-    ("cell.isp_tau_global", "isp_tau_global"),
+    ("cell.log_W_raw_gain", "W_raw_gain"),
     ("cell.log_tau_d_gain", "log_tau_d_gain"),
     ("cell.log_tau_a_E_gain", "log_tau_a_E_gain"),
     ("cell.log_c_E_gain", "log_c_E_gain"),
     ("cell.log_tau_b_rec_E_gain", "log_tau_b_rec_E_gain"),
     ("cell.a_0_scalar", "a_0_scalar"),
-    ("cell.c_0_E_scalar", "c_0_E_scalar"),
 ]
 
 

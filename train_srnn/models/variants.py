@@ -21,6 +21,8 @@ SEED_SEP = "-seed"
 
 # Canonical order. Each token overrides the listed flags.
 TOKENS: dict[str, dict[str, Any]] = {
+    "sfa1-std1": dict(n_a_E=1, n_a_I=1, n_b_E=1, n_b_I=1),
+    "sfa3-std2": dict(n_a_E=3, n_a_I=3, n_b_E=2, n_b_I=2),
     "no-adapt": dict(n_a_E=0, n_a_I=0, n_b_E=0, n_b_I=0),
     "sfa-only": dict(n_b_E=0, n_b_I=0),
     "std-only": dict(n_a_E=0, n_a_I=0),
@@ -103,6 +105,11 @@ def parse_name(name: str) -> tuple[tuple[str, ...], Optional[int]]:
 def make_variant(name: str, base: Mapping[str, Any], default_seed: int) -> SRNNVariant:
     """Resolve a name against the shared flags in *base* (an SRNNModelConfig-like mapping)."""
     tokens, seed = parse_name(name)
+    conditions = {"no-adapt", "sfa1-std1", "sfa3-std2"}.intersection(tokens)
+    if len(conditions) > 1 or (conditions and {"sfa-only", "std-only", "e-only"}.intersection(tokens)):
+        raise ValueError("Conflicting adaptation condition tokens")
+    if {"sfa-only", "std-only"}.issubset(tokens):
+        raise ValueError("Conflicting sfa-only and std-only tokens")
     flags = {k: base[k] for k in FLAGS}
     for tok in tokens:
         flags.update(TOKENS[tok])

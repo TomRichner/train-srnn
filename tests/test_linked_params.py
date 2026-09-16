@@ -29,7 +29,7 @@ def test_linked_rows_get_no_gradient():
                 assert torch.count_nonzero(grad[1]) > 0, (ckpt, name)    # per-neuron trains
         assert torch.count_nonzero(g["W_raw"][2]) == 0                    # echo: frozen W
         assert torch.count_nonzero(g["W_raw"][0]) > 0
-        assert torch.count_nonzero(g["W_raw_gain"][2]) > 0                # echo: gain still trains
+        assert torch.count_nonzero(g["log_W_raw_gain"][2]) > 0                # echo: gain still trains
 
 
 def test_checkpointing_does_not_change_gradients():

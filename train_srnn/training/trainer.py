@@ -63,6 +63,7 @@ class Trainer(ABC):
             self.cl_gen = (torch.Generator(device=device).manual_seed(int(cfg.seed) + 1)
                            if self.cl_cfg.enabled else None)
 
+        self.optimizer_steps = 0
         self.optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
         steps = self.steps_per_epoch()
         total_steps = cfg.epochs * steps
@@ -138,6 +139,7 @@ class Trainer(ABC):
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=clip)
         self.optimizer.step()
         self.scheduler.step()
+        self.optimizer_steps += 1
         self.model.constrain_parameters()
 
     def batches(self, x: np.ndarray, training: bool):
@@ -192,7 +194,7 @@ class Trainer(ABC):
     def record(self, epoch: int, train: EpochStats, valid: Optional[EpochStats]) -> None:
         append_history(self.run_dir, epoch, self.names, train.loss, train.metric,
                        valid.loss if valid else None, valid.metric if valid else None,
-                       lr=self.optimizer.param_groups[0]["lr"])
+                       lr=self.optimizer.param_groups[0]["lr"], optimizer_step=self.optimizer_steps)
         write_progress(self.run_dir, epoch + 1, self.cfg.epochs)
 
     def log_epoch(self, epoch: int, train: EpochStats, valid: Optional[EpochStats]) -> None:
@@ -239,6 +241,8 @@ class Trainer(ABC):
             if cfg.freeze_ic_after_burnin:
                 self.model.ic.ic.requires_grad_(False)
                 log.info("Initial condition frozen after burn-in")
+        initial_valid = self.evaluate("valid")
+        self.record(-1, EpochStats([float("nan")] * self.K, [float("nan")] * self.K), initial_valid)
         self.checkpoint(0, "init")
         self.test(0, "init")
         if cfg.early_exit_after_init:

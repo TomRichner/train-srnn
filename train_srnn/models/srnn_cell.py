@@ -7,7 +7,7 @@ Dale's law, frozen recurrent weights, per-neuron parameters, ...) are
 multiplicative masks, so the forward pass has no Python branching on the
 variant and compiles to one batched graph. The flat state of variant k is
 
-    [ a_E (n_E x n_a_E) | a_I (n_I x n_a_I) | b_E (n_E) | b_I (n_I) | x (N) ]
+    [ a_E (n_E x n_a_E) | a_I (n_I x n_a_I) | b_E (n_E x n_b_E) | b_I (n_I x n_b_I) | x (N) ]
 
 zero-padded to the widest variant in the batch. Positive parameters are
 stored in inverse-softplus space (``isp_*``); per-neuron vectors are paired
@@ -26,15 +26,17 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from train_srnn.models.base import RNNCell
-from train_srnn.models.ode import euler_step, rk4_step
+from train_srnn.models.ode import euler_step, rk4_step, sra1_step
 
 
 def inv_softplus(x: float) -> float:
     return math.log(math.expm1(x))
 
 
-def piecewise_sigmoid(x: Tensor, S_a: float = 0.9, S_c: float = 0.0) -> Tensor:
+def piecewise_sigmoid(x: Tensor, S_a: float = 0.8, S_c: float = 0.0) -> Tensor:
     """Activation in [0, 1]: linear over a fraction ``S_a`` of the range, quadratic edges."""
+    if S_a == 1.0:
+        return (x - S_c + 0.5).clamp(0.0, 1.0)
     a = S_a / 2.0
     c = S_c
     k = 0.5 / (1.0 - 2.0 * a) if abs(1.0 - 2.0 * a) > 1e-8 else 0.0
@@ -51,25 +53,32 @@ def piecewise_sigmoid(x: Tensor, S_a: float = 0.9, S_c: float = 0.0) -> Tensor:
 
 @dataclass
 class SRNNConfig:
-    """One variant. ``n_a_*`` counts SFA timescales (0 = off); ``n_b_*`` is STD on/off."""
+    """One variant. ``n_a_*`` counts SFA timescales (0 = off); ``n_b_*`` counts STD timescales."""
 
-    num_units: int = 32
+    num_units: int = 500
     dales: bool = True
     n_a_E: int = 3
     n_a_I: int = 3
-    n_b_E: int = 1
-    n_b_I: int = 1
+    n_b_E: int = 2
+    n_b_I: int = 2
     per_neuron: bool = False       # train per-neuron adaptation parameters
     echo: bool = False             # frozen recurrent weights (reservoir)
     skip: bool = False             # y = readout(state) + x; applied by SequenceModel
-    solver: str = "semi_implicit"  # semi_implicit | explicit | rk4
-    h: float = 0.02
-    ode_unfolds: int = 1
-    readout: str = "synaptic"      # synaptic | rate | dendritic
-    tau_global_init: float = 1.0
-    tau_a_lo_init: float = 0.25    # fastest SFA timescale (s)
-    tau_a_hi_init: float = 4.0     # slowest SFA timescale (s)
-    std_zero_floor: bool = True    # rescale b so the synaptic gain reaches 0 at saturation
+    solver: str = "sra1"          # zero-noise MATLAB SRA1; also semi_implicit, explicit, rk4
+    h: float = 0.01
+    ode_unfolds: int = 4
+    readout: str = "synaptic"
+    init_seed: int = 1
+    S_a: float = 0.8
+    a_0_mean_init: float = 0.2
+    a_0_std_init: float = 0.1
+    tau_d_init: float = 0.1
+    c_init: float = 0.5
+    tau_a_lo_init: float = 0.25
+    tau_a_hi_init: float = 10.0
+    tau_a_spread: float = 0.25
+    tau_b_rec_init: tuple[float, ...] = (2.0, 4.0)
+    tau_b_rel_init: tuple[float, ...] = (0.25, 0.5)
 
     @property
     def n_E(self) -> int:
@@ -89,15 +98,12 @@ class SRNNConfig:
 FREEZE_GROUPS: dict[str, tuple[str, ...]] = {
     "a_0": ("a_0_vec", "a_0_scalar"),
     "W_raw": ("W_raw",), "W_in": ("W_in",),
-    "W_raw_gain": ("W_raw_gain",), "W_in_gain": ("W_in_gain",),
-    "tau_global": ("isp_tau_global",),
+    "W_raw_gain": ("log_W_raw_gain",), "W_in_gain": ("W_in_gain",),
     "tau_d": ("isp_tau_d_vec", "log_tau_d_gain"),
     "tau_a_E": ("isp_tau_a_E_vec", "log_tau_a_E_gain"),
     "c_E": ("isp_c_E_vec", "log_c_E_gain"),
-    "c_0_E": ("c_0_E_vec", "c_0_E_scalar"),
     "tau_a_I": ("isp_tau_a_I_vec", "log_tau_a_I_gain"),
     "c_I": ("isp_c_I_vec", "log_c_I_gain"),
-    "c_0_I": ("c_0_I_vec", "c_0_I_scalar"),
     "tau_b_rec_E": ("isp_tau_b_rec_E_vec", "log_tau_b_rec_E_gain"),
     "tau_b_rel_E": ("isp_tau_b_rel_E_vec", "log_tau_b_rel_E_gain"),
     "tau_b_rec_I": ("isp_tau_b_rec_I_vec", "log_tau_b_rec_I_gain"),
@@ -106,7 +112,8 @@ FREEZE_GROUPS: dict[str, tuple[str, ...]] = {
 
 
 class SRNNCell(RNNCell):
-    SOLVERS = ("semi_implicit", "explicit", "rk4")
+    MODEL_VERSION = 2
+    SOLVERS = ("sra1", "semi_implicit", "explicit", "rk4")
     READOUTS = {"synaptic": 0, "rate": 1, "dendritic": 2}
 
     def __init__(self, configs: list[SRNNConfig], input_size: int,
@@ -117,14 +124,32 @@ class SRNNCell(RNNCell):
             raise ValueError("Provide one rmt_export per config")
         first = configs[0]
         for c in configs:
-            if (c.num_units, c.solver, c.h, c.ode_unfolds) != (
-                    first.num_units, first.solver, first.h, first.ode_unfolds):
-                raise ValueError("All variants must share num_units, solver, h, and ode_unfolds")
+            if (c.num_units, c.solver, c.h, c.ode_unfolds, c.S_a) != (
+                    first.num_units, first.solver, first.h, first.ode_unfolds, first.S_a):
+                raise ValueError("All variants must share num_units, solver, h, ode_unfolds, and S_a")
         if first.solver not in self.SOLVERS:
             raise ValueError(f"Unknown solver {first.solver!r}; expected one of {self.SOLVERS}")
         for c in configs:
             if c.readout not in self.READOUTS:
                 raise ValueError(f"Unknown readout {c.readout!r}; expected one of {list(self.READOUTS)}")
+
+        for c in configs:
+            counts = (c.n_a_E, c.n_a_I, c.n_b_E, c.n_b_I)
+            if any(not isinstance(v, int) or v < 0 for v in counts):
+                raise ValueError("Adaptation counts must be nonnegative integers")
+            if c.num_units < 2 or c.h <= 0 or c.ode_unfolds < 1:
+                raise ValueError("Need at least two neurons, positive h and ode_unfolds")
+            if not 0 <= c.S_a <= 1 or min(c.a_0_std_init, c.tau_a_spread) < 0:
+                raise ValueError("Invalid activation or heterogeneity parameters")
+            if min(c.tau_d_init, c.c_init, c.tau_a_lo_init, c.tau_a_hi_init) <= 0:
+                raise ValueError("Time constants and adaptation budget must be positive")
+            if c.tau_a_hi_init <= c.tau_a_lo_init and max(c.n_a_E, c.n_a_I) > 1:
+                raise ValueError("A multiple-timescale ladder needs hi > lo")
+            M = max(c.n_b_E, c.n_b_I)
+            if min(len(c.tau_b_rec_init), len(c.tau_b_rel_init)) < M:
+                raise ValueError("Provide a recovery/release value for every STD timescale")
+            if any(t <= 0 for t in (*c.tau_b_rec_init, *c.tau_b_rel_init)):
+                raise ValueError("STD time constants must be positive")
 
         N = first.num_units
         n_E, n_I = N // 2, N - N // 2
@@ -135,20 +160,32 @@ class SRNNCell(RNNCell):
                          W_in_mask=W_in_mask, mask_shape=(1, -1, 1))
         self.K, self.N, self.n_E, self.n_I = len(configs), N, n_E, n_I
         self.configs = configs
+        self.S_a = first.S_a
+        self.register_buffer("model_version", torch.tensor(self.MODEL_VERSION))
         self.solver, self.h, self.ode_unfolds = first.solver, first.h, first.ode_unfolds
         self.variant_names: list[str] = [f"variant_{k}" for k in range(self.K)]
 
         self._init_recurrent(rmt_exports)
-        self.a_0_vec = nn.Parameter(torch.full((self.K, N), 0.35))
+        self.a_0_vec = nn.Parameter(torch.stack([
+            c.a_0_mean_init + c.a_0_std_init * self._randn(c.init_seed + 104729, (N,))
+            for c in configs]))
         self.a_0_scalar = nn.Parameter(torch.zeros(self.K))
-        self.isp_tau_global = nn.Parameter(torch.tensor([inv_softplus(c.tau_global_init) for c in configs]))
-        self.isp_tau_d_vec = nn.Parameter(torch.full((self.K, N), inv_softplus(0.1)))
+        self.isp_tau_d_vec = nn.Parameter(torch.stack([
+            torch.full((N,), inv_softplus(c.tau_d_init)) for c in configs]))
         self.log_tau_d_gain = nn.Parameter(torch.zeros(self.K))
         for side, n in (("E", n_E), ("I", n_I)):
             self._init_sfa(side, n)
         for side, n in (("E", n_E), ("I", n_I)):
             self._init_std(side, n)
         self._init_masks()
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
+                              missing_keys, unexpected_keys, error_msgs):
+        version = state_dict.get(prefix + "model_version")
+        if version is None or int(version) != self.MODEL_VERSION:
+            raise RuntimeError("Incompatible SRNN checkpoint: use its recorded historical commit; model version 2 is required")
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
+                                     missing_keys, unexpected_keys, error_msgs)
 
     # -- construction ---------------------------------------------------------
 
@@ -172,47 +209,61 @@ class SRNNCell(RNNCell):
         self.W_raw = nn.Parameter(torch.stack([e["W_init"].clone() for e in rmt_exports]))
         self.register_buffer("sparsity_masks", torch.stack([e["sparsity_mask"].clone() for e in rmt_exports]))
         self.register_buffer("dales_signs", torch.stack([e["dales_sign"].clone() for e in rmt_exports]))
-        self.W_in = nn.Parameter(torch.randn(self.K, self.N, self.input_size) * 0.1)
-        # Per-variant scalar gains on the whole recurrent / input matrix. Init 1
-        # is the identity; they stay trainable for echo variants, whose W_raw
-        # structure is frozen but whose overall gain may still adapt.
-        self.W_raw_gain = nn.Parameter(torch.ones(self.K))
+        self.W_in = nn.Parameter(torch.stack([
+            0.1 * self._randn(c.init_seed + 32452843, (self.N, self.input_size))
+            for c in self.configs]))
+        self.log_W_raw_gain = nn.Parameter(torch.zeros(self.K))
         self.W_in_gain = nn.Parameter(torch.ones(self.K))
 
+    @staticmethod
+    def _randn(seed: int, shape: tuple[int, ...]) -> Tensor:
+        return torch.randn(shape, generator=torch.Generator().manual_seed(seed))
+
     def _init_sfa(self, side: str, n: int) -> None:
-        """SFA parameters for one population: per-neuron vectors plus per-variant gains."""
         A = self._max[f"n_a_{side}"]
         if A == 0:
-            for name in ("isp_tau_a_{}_vec", "log_tau_a_{}_gain", "isp_c_{}_vec",
-                         "log_c_{}_gain", "c_0_{}_vec", "c_0_{}_scalar"):
+            for name in ("isp_tau_a_{}_vec", "log_tau_a_{}_gain", "isp_c_{}_vec", "log_c_{}_gain"):
                 setattr(self, name.format(side), None)
             return
-        isp_tau = torch.zeros(self.K, n, A)
+        taus = torch.ones(self.K, n, A)
         for k, c in enumerate(self.configs):
-            n_a = getattr(c, f"n_a_{side}")
-            if n_a == 1:
-                isp_tau[k, :, 0] = inv_softplus(1.0)
-            elif n_a >= 2:   # timescales spread between tau_a_lo and tau_a_hi
-                lo, hi = inv_softplus(c.tau_a_lo_init), inv_softplus(c.tau_a_hi_init)
-                for a in range(n_a):
-                    isp_tau[k, :, a] = lo + (hi - lo) * a / (n_a - 1)
-        setattr(self, f"isp_tau_a_{side}_vec", nn.Parameter(isp_tau))
+            count = getattr(c, f"n_a_{side}")
+            if not count:
+                continue
+            nominal = torch.logspace(math.log10(c.tau_a_lo_init), math.log10(c.tau_a_hi_init), count)
+            z = self._randn(c.init_seed + 15485863, (self.N, 2))
+            z = z[:self.n_E] if side == "E" else z[self.n_E:]
+            fast, slow = (c.tau_a_spread * z).unbind(-1)
+            if count == 1:
+                offsets = slow[:, None]  # MATLAB's single-timescale convention
+            else:
+                span = math.log(c.tau_a_hi_init / c.tau_a_lo_init)
+                short = span + slow - fast < span / 4
+                mid = (fast + slow) / 2
+                fast = torch.where(short, mid + 3 * span / 8, fast)
+                slow = torch.where(short, mid - 3 * span / 8, slow)
+                w = torch.linspace(0, 1, count)
+                offsets = fast[:, None] * (1 - w) + slow[:, None] * w
+            taus[k, :, :count] = nominal * torch.exp(offsets)
+        setattr(self, f"isp_tau_a_{side}_vec", nn.Parameter(taus + torch.log(-torch.expm1(-taus))))
         setattr(self, f"log_tau_a_{side}_gain", nn.Parameter(torch.zeros(self.K)))
-        setattr(self, f"isp_c_{side}_vec", nn.Parameter(torch.full((self.K, n, A), inv_softplus(0.05))))
+        setattr(self, f"isp_c_{side}_vec", nn.Parameter(torch.stack([
+            torch.full((n,), inv_softplus(c.c_init)) for c in self.configs])))
         setattr(self, f"log_c_{side}_gain", nn.Parameter(torch.zeros(self.K)))
-        setattr(self, f"c_0_{side}_vec", nn.Parameter(torch.zeros(self.K, n, A)))
-        setattr(self, f"c_0_{side}_scalar", nn.Parameter(torch.zeros(self.K)))
 
     def _init_std(self, side: str, n: int) -> None:
-        if self._max[f"n_b_{side}"] == 0:
-            for name in ("isp_tau_b_rec_{}_vec", "log_tau_b_rec_{}_gain",
-                         "isp_tau_b_rel_{}_vec", "log_tau_b_rel_{}_gain"):
-                setattr(self, name.format(side), None)
-            return
-        setattr(self, f"isp_tau_b_rec_{side}_vec", nn.Parameter(torch.full((self.K, n), inv_softplus(1.0))))
-        setattr(self, f"log_tau_b_rec_{side}_gain", nn.Parameter(torch.zeros(self.K)))
-        setattr(self, f"isp_tau_b_rel_{side}_vec", nn.Parameter(torch.full((self.K, n), inv_softplus(0.25))))
-        setattr(self, f"log_tau_b_rel_{side}_gain", nn.Parameter(torch.zeros(self.K)))
+        M = self._max[f"n_b_{side}"]
+        for kind in ("rec", "rel"):
+            if M == 0:
+                setattr(self, f"isp_tau_b_{kind}_{side}_vec", None)
+                setattr(self, f"log_tau_b_{kind}_{side}_gain", None)
+                continue
+            taus = torch.ones(self.K, n, M)
+            for k, c in enumerate(self.configs):
+                count = getattr(c, f"n_b_{side}")
+                taus[k, :, :count] = torch.tensor(getattr(c, f"tau_b_{kind}_init")[:count])
+            setattr(self, f"isp_tau_b_{kind}_{side}_vec", nn.Parameter(taus + torch.log(-torch.expm1(-taus))))
+            setattr(self, f"log_tau_b_{kind}_{side}_gain", nn.Parameter(torch.zeros(self.K)))
 
     def _init_masks(self) -> None:
         cfgs, K = self.configs, self.K
@@ -227,10 +278,13 @@ class SRNNCell(RNNCell):
             for k, c in enumerate(cfgs):
                 mask[k, :, :getattr(c, f"n_a_{side}")] = 1.0
             self.register_buffer(f"sfa_{side}_mask", mask)
-            self.register_buffer(f"std_{side}_mask",
-                                 torch.tensor([float(getattr(c, f"n_b_{side}") > 0) for c in cfgs]).reshape(K, 1))
-        # Fully determined by the configs, so not part of the state_dict.
-        self.register_buffer("std_zero_floor_mask", flag("std_zero_floor").reshape(K, 1, 1), persistent=False)
+            self.register_buffer(f"sfa_{side}_count", torch.tensor([
+                max(1, getattr(c, f"n_a_{side}")) for c in cfgs]).reshape(K, 1))
+            M = self._max[f"n_b_{side}"]
+            mask = torch.zeros(K, 1, max(M, 1))
+            for k, c in enumerate(cfgs):
+                mask[k, :, :getattr(c, f"n_b_{side}")] = 1.0
+            self.register_buffer(f"std_{side}_mask", mask)
         self.register_buffer("readout_ids", torch.tensor([self.READOUTS[c.readout] for c in cfgs]))
 
     # -- linked parameters ----------------------------------------------------
@@ -250,7 +304,7 @@ class SRNNCell(RNNCell):
         W_raw = self.echo_flags * self.W_raw.detach() + (1.0 - self.echo_flags) * self.W_raw
         signs = self.dales_signs.unsqueeze(1)
         W = (self.dales_mask * signs * F.softplus(W_raw) + (1.0 - self.dales_mask) * W_raw) * self.sparsity_masks
-        return self.W_raw_gain.view(self.K, 1, 1) * W
+        return self.log_W_raw_gain.exp().view(self.K, 1, 1) * W
 
     def hoist(self) -> Tensor:
         return self._effective_W()
@@ -258,43 +312,35 @@ class SRNNCell(RNNCell):
     def skip_mask(self) -> Tensor:
         return self.skip_flags
 
-    def _tau_global(self) -> Tensor:
-        return F.softplus(self.isp_tau_global)
-
     def _tau_d(self) -> Tensor:
         gain = torch.exp(self.log_tau_d_gain).view(self.K, 1)
-        return self._tau_global().unsqueeze(-1) * gain * F.softplus(self._linked(self.isp_tau_d_vec))
+        return gain * F.softplus(self._linked(self.isp_tau_d_vec))
 
     def _tau_a(self, side: str) -> Tensor:
         gain = torch.exp(getattr(self, f"log_tau_a_{side}_gain")).view(self.K, 1, 1)
         vec = self._linked(getattr(self, f"isp_tau_a_{side}_vec"))
-        return self._tau_global().reshape(self.K, 1, 1) * gain * F.softplus(vec)
+        return gain * F.softplus(vec)
 
     def _tau_b(self, side: str, kind: str) -> Tensor:
-        gain = torch.exp(getattr(self, f"log_tau_b_{kind}_{side}_gain")).view(self.K, 1)
+        gain = torch.exp(getattr(self, f"log_tau_b_{kind}_{side}_gain")).view(self.K, 1, 1)
         vec = self._linked(getattr(self, f"isp_tau_b_{kind}_{side}_vec"))
-        return self._tau_global().unsqueeze(-1) * gain * F.softplus(vec)
+        return gain * F.softplus(vec)
 
     def _a_0(self) -> Tensor:
         return self._linked(self.a_0_vec) + self.a_0_scalar.view(self.K, 1)
 
     def _c(self, side: str) -> Tensor:
-        gain = torch.exp(getattr(self, f"log_c_{side}_gain")).view(self.K, 1, 1)
+        gain = torch.exp(getattr(self, f"log_c_{side}_gain")).view(self.K, 1)
         return gain * F.softplus(self._linked(getattr(self, f"isp_c_{side}_vec")))
-
-    def _c_0(self, side: str) -> Tensor:
-        vec = self._linked(getattr(self, f"c_0_{side}_vec"))
-        return vec + getattr(self, f"c_0_{side}_scalar").view(self.K, 1, 1)
 
     def effective_params(self) -> dict[str, Tensor]:
         """Post-transform values: what actually enters the equations."""
-        out = {"W": self._effective_W(), "tau_global": self._tau_global(),
+        out = {"W": self._effective_W(),
                "tau_d": self._tau_d(), "a_0": self._a_0()}
         for side in ("E", "I"):
             if self._max[f"n_a_{side}"] > 0:
                 out[f"tau_a_{side}"] = self._tau_a(side)
                 out[f"c_{side}"] = self._c(side)
-                out[f"c_0_{side}"] = self._c_0(side)
             if self._max[f"n_b_{side}"] > 0:
                 out[f"tau_b_rec_{side}"] = self._tau_b(side, "rec")
                 out[f"tau_b_rel_{side}"] = self._tau_b(side, "rel")
@@ -311,22 +357,21 @@ class SRNNCell(RNNCell):
             a_E = state[:, :, idx:idx + n_E * A_E].reshape(K, B, n_E, A_E)
             idx += n_E * A_E
         else:
-            a_E = torch.zeros(K, B, n_E, 1, device=state.device)
+            a_E = torch.zeros(K, B, n_E, 1, device=state.device, dtype=state.dtype)
         if A_I > 0:
             a_I = state[:, :, idx:idx + n_I * A_I].reshape(K, B, n_I, A_I)
             idx += n_I * A_I
         else:
-            a_I = torch.zeros(K, B, n_I, 1, device=state.device)
-        if self._max["n_b_E"] > 0:
-            b_E = state[:, :, idx:idx + n_E]
-            idx += n_E
-        else:
-            b_E = torch.ones(K, B, n_E, device=state.device)
-        if self._max["n_b_I"] > 0:
-            b_I = state[:, :, idx:idx + n_I]
-            idx += n_I
-        else:
-            b_I = torch.ones(K, B, n_I, device=state.device)
+            a_I = torch.zeros(K, B, n_I, 1, device=state.device, dtype=state.dtype)
+        bs = {}
+        for side, n in (("E", n_E), ("I", n_I)):
+            M = self._max[f"n_b_{side}"]
+            if M:
+                bs[side] = state[:, :, idx:idx + n * M].reshape(K, B, n, M)
+                idx += n * M
+            else:
+                bs[side] = state.new_ones(K, B, n, 1)
+        b_E, b_I = bs["E"], bs["I"]
         x = state[:, :, idx:idx + N]
         return a_E, a_I, b_E, b_I, x
 
@@ -337,19 +382,20 @@ class SRNNCell(RNNCell):
         if self._max["n_a_I"] > 0:
             parts.append(a_I.flatten(start_dim=2))
         if self._max["n_b_E"] > 0:
-            parts.append(b_E)
+            parts.append(b_E.flatten(start_dim=2))
         if self._max["n_b_I"] > 0:
-            parts.append(b_I)
+            parts.append(b_I.flatten(start_dim=2))
         parts.append(x)
         return torch.cat(parts, dim=-1)
 
     def init_state(self, batch_size: int, device: torch.device | None = None) -> Tensor:
         """Adaptation at rest (a = 0), synapses fully available (b = 1), x = 0.1 * randn."""
         device = self.W_raw.device if device is None else device
-        state = torch.zeros(self.K, batch_size, self.state_size, device=device)
+        state = torch.zeros(self.K, batch_size, self.state_size, device=device, dtype=self.W_raw.dtype)
         a_E, a_I, b_E, b_I, x = self.unpack_state(state)
         return self.pack_state(a_E, a_I, torch.ones_like(b_E), torch.ones_like(b_I),
-                               0.1 * torch.randn_like(x))
+                               torch.stack([0.1 * self._randn(c.init_seed + 49979687, (batch_size, self.N))
+                                            for c in self.configs]).to(x))
 
     # -- dynamics -------------------------------------------------------------
 
@@ -357,31 +403,20 @@ class SRNNCell(RNNCell):
         """``u = W_in x`` for every variant: ``(K, B, N)``."""
         if inputs.dim() == 2:
             inputs = inputs.unsqueeze(0).expand(self.K, -1, -1)
-        K, B, D = inputs.shape
         W_in = self.W_in if self.W_in_mask is None else self.W_in * self.W_in_mask
         W_in = self.W_in_gain.view(self.K, 1, 1) * W_in
-        W_in = W_in.unsqueeze(1).expand(K, B, self.N, D).reshape(K * B, self.N, D)
-        return torch.bmm(W_in, inputs.reshape(K * B, D, 1)).squeeze(-1).reshape(K, B, self.N)
+        return torch.bmm(inputs, W_in.transpose(1, 2))
 
     def _recurrent_drive(self, br: Tensor, W_eff: Tensor) -> Tensor:
-        """``W br`` for every variant and batch row: ``(K, B, N)``."""
-        K, B, N = br.shape
-        W = W_eff.unsqueeze(1).expand(K, B, N, N).reshape(K * B, N, N)
-        return torch.bmm(W, br.reshape(K * B, N, 1)).squeeze(-1).reshape(K, B, N)
+        return torch.bmm(br, W_eff.transpose(1, 2))
 
     def _b_full(self, b_E: Tensor, b_I: Tensor) -> Tensor:
-        """``(K, B, N)`` synaptic gain: optionally rescaled to [0, 1], ones where STD is off."""
-        flag = self.std_zero_floor_mask
-        used = {}
+        """Presynaptic product; padded/disabled factors are exactly one."""
+        used = []
         for side, b in (("E", b_E), ("I", b_I)):
-            if self._max[f"n_b_{side}"] > 0:
-                tau_rec = self._tau_b(side, "rec").unsqueeze(1)
-                tau_rel = self._tau_b(side, "rel").unsqueeze(1)
-                b_min = tau_rel / (tau_rec + tau_rel)      # asymptote of b at r = 1
-                b = b * (1.0 - flag) + ((b - b_min) / (1.0 - b_min)) * flag
             mask = getattr(self, f"std_{side}_mask").unsqueeze(1)
-            used[side] = b * mask + (1.0 - mask)
-        return torch.cat([used["E"], used["I"]], dim=-1)
+            used.append((b * mask + (1.0 - mask)).prod(-1))
+        return torch.cat(used, dim=-1)
 
     def _drive(self, x, a_E, a_I, b_E, b_I, W_eff: Optional[Tensor]):
         """Firing rate and synaptic output from the state.
@@ -391,12 +426,12 @@ class SRNNCell(RNNCell):
         n_E = self.n_E
         x_eff = x.clone()
         if self._max["n_a_E"] > 0:
-            contrib = ((self._c("E") * self.sfa_E_mask).unsqueeze(1) * a_E).sum(-1)
+            contrib = (self._c("E") / self.sfa_E_count).unsqueeze(1) * (self.sfa_E_mask.unsqueeze(1) * a_E).sum(-1)
             x_eff = torch.cat([x[:, :, :n_E] - contrib, x_eff[:, :, n_E:]], dim=-1)
         if self._max["n_a_I"] > 0:
-            contrib = ((self._c("I") * self.sfa_I_mask).unsqueeze(1) * a_I).sum(-1)
+            contrib = (self._c("I") / self.sfa_I_count).unsqueeze(1) * (self.sfa_I_mask.unsqueeze(1) * a_I).sum(-1)
             x_eff = torch.cat([x_eff[:, :, :n_E], x_eff[:, :, n_E:] - contrib], dim=-1)
-        r = piecewise_sigmoid(x_eff - self._a_0().unsqueeze(1))
+        r = piecewise_sigmoid(x_eff - self._a_0().unsqueeze(1), self.S_a)
         b_full = self._b_full(b_E, b_I)
         Wbr = None if W_eff is None else self._recurrent_drive(b_full * r, W_eff)
         return x_eff, r, b_full, Wbr
@@ -413,7 +448,7 @@ class SRNNCell(RNNCell):
         for side, a in (("E", a_E), ("I", a_I)):
             if self._max[f"n_a_{side}"] > 0:
                 alpha = (dt / self._tau_a(side)).unsqueeze(1)
-                target = self._c_0(side).unsqueeze(1) + self._split(r, side).unsqueeze(-1)
+                target = self._split(r, side).unsqueeze(-1)
                 mask = getattr(self, f"sfa_{side}_mask").unsqueeze(1)
                 a_new[side] = a * (1.0 - mask) + ((a + alpha * target) / (1.0 + alpha)) * mask
         b_new = {"E": b_E, "I": b_I}
@@ -421,7 +456,7 @@ class SRNNCell(RNNCell):
             if self._max[f"n_b_{side}"] > 0:
                 tau_rec = self._tau_b(side, "rec").unsqueeze(1)
                 tau_rel = self._tau_b(side, "rel").unsqueeze(1)
-                r_side = self._split(r, side)
+                r_side = self._split(r, side).unsqueeze(-1)
                 updated = ((b + dt / tau_rec) / (1.0 + dt * (1.0 / tau_rec + r_side / tau_rel))).clamp(0.0, 1.0)
                 mask = getattr(self, f"std_{side}_mask").unsqueeze(1)
                 b_new[side] = b * (1.0 - mask) + updated * mask
@@ -434,28 +469,22 @@ class SRNNCell(RNNCell):
         da = {"E": torch.zeros_like(a_E), "I": torch.zeros_like(a_I)}
         for side, a in (("E", a_E), ("I", a_I)):
             if self._max[f"n_a_{side}"] > 0:
-                target = self._c_0(side).unsqueeze(1) + self._split(r, side).unsqueeze(-1)
+                target = self._split(r, side).unsqueeze(-1)
                 da[side] = ((-a + target) / self._tau_a(side).unsqueeze(1)) * getattr(self, f"sfa_{side}_mask").unsqueeze(1)
         db = {"E": torch.zeros_like(b_E), "I": torch.zeros_like(b_I)}
         for side, b in (("E", b_E), ("I", b_I)):
             if self._max[f"n_b_{side}"] > 0:
                 tau_rec = self._tau_b(side, "rec").unsqueeze(1)
                 tau_rel = self._tau_b(side, "rel").unsqueeze(1)
-                db[side] = ((1.0 - b) / tau_rec - self._split(r, side) * b / tau_rel) * getattr(self, f"std_{side}_mask").unsqueeze(1)
+                db[side] = ((1.0 - b) / tau_rec - self._split(r, side).unsqueeze(-1) * b / tau_rel) * getattr(self, f"std_{side}_mask").unsqueeze(1)
         return (dx, da["E"], da["I"], db["E"], db["I"]), r, b_full
 
     def _step_explicit_family(self, step, dt, x, a_E, a_I, b_E, b_I, u, W_eff):
-        first = {}
-
         def f(y):
-            derivs, r, b_full = self._rhs(*y, u, W_eff)
-            first.setdefault("r", r)
-            first.setdefault("b_full", b_full)
-            return derivs
-
+            return self._rhs(*y, u, W_eff)[0]
         x, a_E, a_I, b_E, b_I = step(f, (x, a_E, a_I, b_E, b_I), dt)
-        # r and b_full evaluated at the pre-step state feed the readout.
-        return x, a_E, a_I, b_E.clamp(0.0, 1.0), b_I.clamp(0.0, 1.0), first["r"], first["b_full"]
+        # Do not clip: this is the same deterministic update as MATLAB.
+        return x, a_E, a_I, b_E, b_I, None, None
 
     def forward(self, inputs: Tensor, state: Tensor, W_eff: Optional[Tensor] = None):
         """One step of ``h`` seconds for every variant.
@@ -477,8 +506,9 @@ class SRNNCell(RNNCell):
             if self.solver == "semi_implicit":
                 x, a_E, a_I, b_E, b_I, r, b_full = self._step_semi_implicit(dt, x, a_E, a_I, b_E, b_I, u, W_eff)
             else:
-                step = euler_step if self.solver == "explicit" else rk4_step
+                step = {"explicit": euler_step, "rk4": rk4_step, "sra1": sra1_step}[self.solver]
                 x, a_E, a_I, b_E, b_I, r, b_full = self._step_explicit_family(step, dt, x, a_E, a_I, b_E, b_I, u, W_eff)
+        _, r, b_full, _ = self._drive(x, a_E, a_I, b_E, b_I, None)
         is_synaptic = (self.readout_ids == 0).float().reshape(self.K, 1, 1)
         is_rate = (self.readout_ids == 1).float().reshape(self.K, 1, 1)
         is_dendritic = (self.readout_ids == 2).float().reshape(self.K, 1, 1)

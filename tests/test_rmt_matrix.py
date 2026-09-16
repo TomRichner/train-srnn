@@ -38,7 +38,7 @@ def test_export_round_trip_with_dales():
 
 def test_export_without_dales_keeps_mask():
     rmt, _ = _build()
-    ex = rmt.export_for_srnn(dales=False)
+    ex = rmt.export_for_srnn(dales=False, dales_init=False)
     assert np.allclose(ex["sparsity_mask"].numpy(), rmt.S.astype(np.float32))
     assert torch.equal(ex["W_init"], torch.tensor(rmt.W, dtype=torch.float32))
 

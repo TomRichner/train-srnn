@@ -62,14 +62,14 @@ non-input neurons, `hoist()` for per-pass constants, and
 `constrain_parameters()`.
 
 `SRNNCell` runs K variants at once. Every parameter has a leading K axis
-and the state of variant k is `[a_E | a_I | b_E | b_I | x]`, zero-padded to
-the widest variant:
+and the state of variant k is `[a_E | a_I | b_E | b_I | x]`, padded to
+the widest variant, with zero SFA and unit STD neutral contributions:
 
 | block | shape | meaning |
 |---|---|---|
-| `a_E` | `(n_E, n_a_E)` | SFA variables per excitatory neuron and timescale |
-| `a_I` | `(n_I, n_a_I)` | same for inhibitory neurons |
-| `b_E`, `b_I` | `(n_E,)`, `(n_I,)` | available synaptic resource |
+| `a_E` | `(n_E, n_a_E_max)` | SFA variables per excitatory neuron and timescale |
+| `a_I` | `(n_I, n_a_I_max)` | same for inhibitory neurons |
+| `b_E`, `b_I` | `(n_E, n_b_E_max)`, `(n_I, n_b_I_max)` | available resource per STD timescale |
 | `x` | `(N,)` | dendritic potential |
 
 Ablations are multiplicative masks (`dales_mask`, `sfa_E_mask`,
@@ -87,7 +87,7 @@ from `ode.py`.
 
 `SequenceModel` wraps a cell: neuron partition (input / interneuron /
 output groups, the readout reads the output group), a `TrainableIC` that
-burn-in overwrites with the unforced fixed point, `apply_readout` with the
+burn-in overwrites with the state after a finite unforced simulation, `apply_readout` with the
 per-variant residual skip, and two loops:
 
 - `unroll(x_seg, state, alpha_seg=None, y_prev=None, hoisted=None, cell=None)`
@@ -131,14 +131,15 @@ windowed trainer and a per-reader `(B, T, C)` schedule for the ring.
 $SRNN_RESULTS_DIR/<task>/<run_name>/
   .hydra/config.yaml        resolved config
   init.pt  epoch_NNN.pt  last.pt
-  training_history.csv      epoch, variant, train/valid loss and metric, lr
+  training_history.csv      epoch, optimizer_step, variant, train/valid loss and metric, lr
   test_history.csv          epoch, tag, variant, test loss and metric
   progress.json             for the cloud upload watcher
 ```
 
 Checkpoints hold the model, optimizer, and scheduler state, the resolved
 config, and `variant_names`, so `scripts/_runs.py:rebuild_model` can
-reconstruct any run for analysis.
+reconstruct compatible runs for analysis. SRNN version 2 rejects legacy model
+states; historical runs must be analyzed at their recorded source revision.
 
 ## Analysis (`scripts`)
 
@@ -149,3 +150,14 @@ Benettin Lyapunov exponents, and a PDF report. `plot_adaptation_seeds.py`
 makes the paired-seed figure; `simulate_srnn.py` runs variants open loop
 under a step stimulus; the `grad_*` scripts probe gradient scale and
 direction consistency.
+
+## MATLAB-aligned experiment tools
+
+`run_matlab_aligned.py` composes typed configuration and launches an isolated
+worker for all condition/seed variants. It retains the ring trainer and
+records source/data hashes, effective parameters, finite checks, and memory.
+`--profile` executes one full epoch with the same scheduler configuration,
+then evaluation and checkpoint reload. `summarize_matlab_aligned.py` requires
+the complete validation grid, including optimizer step zero, and produces
+paired learning curves and statistical summaries. See
+[the protocol](matlab_alignment.md).

@@ -59,3 +59,17 @@ def test_expand_is_variant_major_and_pairs_seeds():
     assert [v.seed for v in plain] == [9, 9]
     with pytest.raises(ValueError):
         V.expand(["srnn-seed3"], [1], BASE, 0)
+
+
+@pytest.mark.parametrize("condition,a,b", [("sfa1-std1", 1, 1), ("sfa3-std2", 3, 2)])
+def test_manuscript_condition_counts(condition, a, b):
+    v = V.make_variant(f"srnn-{condition}-skip-no-dales", BASE, 2)
+    assert (v.n_a_E, v.n_a_I, v.n_b_E, v.n_b_I) == (a, a, b, b)
+    assert v.skip and not v.dales
+
+
+@pytest.mark.parametrize("tokens", ["sfa1-std1-sfa3-std2", "sfa1-std1-no-adapt",
+                                    "sfa3-std2-sfa-only", "sfa1-std1-std-only"])
+def test_conflicting_manuscript_conditions_rejected(tokens):
+    with pytest.raises(ValueError):
+        V.make_variant(f"srnn-{tokens}", BASE, 0)

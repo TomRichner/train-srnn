@@ -17,7 +17,8 @@ def _run(tmp_path: Path, *overrides: str):
     cfg = compose_config(["task=synthetic", "model=srnn", "model.num_units=16",
                           "model.variants=[srnn-skip,srnn-no-adapt]", "epochs=2",
                           "checkpoint_interval=1", "device=cpu", "compile.enabled=false",
-                          "burn_in=0.5", f"output_dir={tmp_path}", *overrides])
+                          "burn_in=0.5", "task.train_trace_max_len=101", "task.window_len=40", "task.seq_len=40",
+                          "task.bptt_len=20", f"output_dir={tmp_path}", *overrides])
     torch.manual_seed(cfg.seed)
     task = build_task(cfg)
     data = task.load(None)
@@ -37,7 +38,8 @@ def test_fit_writes_run_dir(tmp_path, trainer, closed_loop):
     assert EXPECTED <= {p.name for p in tmp_path.iterdir()}
     history = (tmp_path / "training_history.csv").read_text().splitlines()
     assert history[0].startswith("epoch,variant,train_loss")
-    assert len(history) == 1 + 2 * 2                      # header + 2 epochs x K=2
+    assert len(history) == 1 + 3 * 2                      # header + initialization and 2 epochs x K=2
+    assert history[1].split(",")[-2] == "0"
     assert "srnn-skip" in history[1] and "srnn-no-adapt" in history[2]
 
 

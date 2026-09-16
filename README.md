@@ -6,10 +6,11 @@ through time on long dynamical traces. The repository asks one question:
 **does biologically motivated adaptation on multiple timescales help a
 recurrent network learn a dynamical system?**
 
-On next-step prediction of a simulated running cheetah (17 kinematic
-channels at 100 Hz), the answer is yes. Networks with adaptation reach a
-lower test loss than the same networks with adaptation removed, for every
-one of five paired seeds.
+**The figure and numbers below are historical version-1 results.** On
+next-step prediction of a simulated running cheetah (17 kinematic channels
+at 100 Hz), that earlier model favored adaptation in five paired seeds.
+They do not establish the outcome of the current MATLAB-aligned
+three-condition experiment.
 
 ![Test loss vs epoch, adaptation vs none, five paired seeds](docs/results/adaptation_vs_no_adaptation_test_loss.svg)
 
@@ -23,32 +24,35 @@ Details and the statistical test are in
 
 ## The model
 
-`SRNNCell` integrates, for each of N rate neurons, a dendritic potential
-x, up to three spike-frequency-adaptation variables a per neuron with
-learnable time constants from 0.25 s to 4 s, and a synaptic-depression
-variable b. The recurrent weight is a sparse random matrix with a
-controlled spectral radius (Harris et al. 2023) that obeys Dale's law:
-excitatory columns positive, inhibitory columns negative. Positive
-parameters are stored in inverse-softplus space so any optimizer keeps
-them positive, and the default solver is a linearly implicit Euler step
-that is stable at the 10 ms time step of the data. The complete
-specification, every parameter and its transform, is in
-[docs/model.md](docs/model.md).
+`SRNNCell` version 2 follows the deterministic E/I specialization of the
+manuscript's MATLAB model. Defaults are 500 neurons, three SFA timescales
+spanning 0.25–10 s, two multiplicative STD timescales, and deterministic SRA1
+with four internal steps per observation. SFA uses a total budget divided
+by the active timescale count; both mechanisms are driven by raw rate.
+Initialization matches the MATLAB preset statistics and heterogeneous SFA
+ladder. There is no Wiener noise or facilitation.
+
+The primary comparison is `srnn-no-adapt`, `srnn-sfa1-std1`, and
+`srnn-sfa3-std2`, paired across seeds. Skip connections and optional Dale
+enforcement during optimization remain available. Read the
+[model specification](docs/model.md) and
+[MATLAB-aligned experiment protocol](docs/matlab_alignment.md).
+Older checkpoints require their recorded historical source revision.
 
 Every ablation is a variant of the same cell, and K variants run side by
 side in one cell with a leading K axis, so an ablation study is one batched
 forward pass rather than K training runs. Variants are named by tokens:
 
 ```
-srnn                          full model
+srnn                          full version-2 model (SFA3/STD2)
 srnn-no-adapt                 no SFA, no STD
 srnn-e-only-skip              adaptation on excitatory neurons only, residual skip
-srnn-no-dales-skip-seed3      unsigned weights, skip, recurrent seed 3
+srnn-no-dales-skip-seed3      unconstrained weight learning, skip, seed 3
 ```
 
 The grammar is in [docs/variants.md](docs/variants.md). Variants that share
-a seed share the same recurrent matrix, so comparisons across variants are
-paired on connectivity.
+a seed share recurrent/input/readout initialization and neuronal parameter
+draws, while their learned parameters remain independent.
 
 ## What is here
 
@@ -96,6 +100,15 @@ expect the UCI files at the paths used by Hasani et al.'s
 `download_datasets.sh`, under `$SRNN_HOME/data/<task>/`.
 
 ## Training
+
+The manuscript comparison has a dedicated runner:
+
+```bash
+python scripts/run_matlab_aligned.py --profile --seeds 3
+python scripts/run_matlab_aligned.py --seeds 3
+```
+
+General training examples:
 
 ```bash
 # adaptation vs none, five paired seeds, in one batched run
@@ -146,6 +159,7 @@ python scripts/postprocess.py myrun --task cheetah100             # download + p
 
 ## Documentation
 
+- [docs/matlab_alignment.md](docs/matlab_alignment.md): three-condition protocol, parity, profiling, and reporting.
 - [docs/model.md](docs/model.md): the equations, parameters, transforms, solvers.
 - [docs/variants.md](docs/variants.md): the variant-name grammar.
 - [docs/architecture.md](docs/architecture.md): how the code fits together, tensor shapes, state layout.

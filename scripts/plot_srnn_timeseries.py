@@ -155,12 +155,12 @@ def replay(model, inputs: torch.Tensor, plot_step: int):
         state = model.ic(1)  # (K, 1, state_dim)
     else:
         warnings.warn(
-            "Model has no TrainableIC (trainable_ic=False). Using zeros — "
+            "Model has no TrainableIC (trainable_ic=False). Using the cell initial state — "
             "consider running with a more negative --t-start to allow longer "
             "zero-input warm-up.",
             stacklevel=2,
         )
-        state = torch.zeros(K, 1, cell.state_size, device=device)
+        state = cell.init_state(1, device=device)
 
     state = state.to(device)
     T_total = inputs.shape[0]
@@ -242,10 +242,16 @@ def benettin_replay(
     if hasattr(model, "ic"):
         state_fid = model.ic(1).to(device)
     else:
-        state_fid = torch.zeros(K, 1, state_size, device=device)
+        state_fid = cell.init_state(1, device=device)
 
+    # Padded coordinates are not dynamical variables and must not enter the norm.
+    a_e, a_i, b_e, b_i, x = cell.unpack_state(torch.ones_like(state_fid))
+    active = cell.pack_state(a_e * cell.sfa_E_mask.unsqueeze(1),
+                             a_i * cell.sfa_I_mask.unsqueeze(1),
+                             b_e * cell.std_E_mask.unsqueeze(1),
+                             b_i * cell.std_I_mask.unsqueeze(1), x)
     g = torch.Generator(device="cpu").manual_seed(seed)
-    d_unit = torch.randn(K, 1, state_size, generator=g).to(device)
+    d_unit = torch.randn(K, 1, state_size, generator=g).to(state_fid) * active
     d_unit = d_unit / d_unit.flatten(1).norm(dim=-1).clamp_min(1e-30).view(K, 1, 1)
 
     T_total = inputs.shape[0]
@@ -262,14 +268,6 @@ def benettin_replay(
     while t + lya_M <= T_total:
         # Build perturbed state from current fiducial
         state_pert = state_fid + d_unit * d0
-        # Clamp b_E, b_I components into [0, 1] (matches MATLAB min/max range)
-        a_E, a_I, b_E, b_I, x = cell.unpack_state(state_pert)
-        if cell.max_n_b_E > 0:
-            b_E = b_E.clamp(0.0, 1.0)
-        if cell.max_n_b_I > 0:
-            b_I = b_I.clamp(0.0, 1.0)
-        state_pert = cell.pack_state(a_E, a_I, b_E, b_I, x)
-
         # Roll fiducial AND perturbed forward by lya_M steps using the same inputs
         for s in range(lya_M):
             u_t = inputs[t + s : t + s + 1]
@@ -277,7 +275,7 @@ def benettin_replay(
             _, state_pert = cell(u_t, state_pert)
         t += lya_M
 
-        delta = state_pert - state_fid
+        delta = (state_pert - state_fid) * active
         d_k = delta.flatten(1).norm(dim=-1).clamp_min(1e-30)  # (K,)
         log_ratio = torch.log(d_k / d0)
         local_lya = log_ratio / tau_lya
@@ -366,25 +364,25 @@ def render_variant(
 
     plot_lines(axes[0], t_seconds, u, n_E, "u(t)\n(post-W_in)")
     plot_lines(axes[1], t_seconds, x, n_E, "x(t)\ndendritic")
-    plot_lines(axes[2], t_seconds, br, n_E, "b·r(t)\nsynaptic out", ylim_range=(-0.05, 1.05))
+    plot_lines(axes[2], t_seconds, br, n_E, "r(t) Π b_m(t)\nsynaptic out", ylim_range=(-0.05, 1.05))
 
-    # a_sum: only over the variant's actual n_a_E timescales
+    # Mean SFA state: only over the variant's actual n_a_E timescales
     n_a_E_k = cfg_k.n_a_E
     n_a_I_k = cfg_k.n_a_I
     if n_a_E_k > 0 or n_a_I_k > 0:
         a_E = bufs["a_E"][:, k, :, :n_a_E_k] if n_a_E_k > 0 else None
         a_I = bufs["a_I"][:, k, :, :n_a_I_k] if n_a_I_k > 0 else None
-        a_sum_E = a_E.sum(axis=-1) if a_E is not None else np.zeros((len(t_seconds), n_E))
-        a_sum_I = a_I.sum(axis=-1) if a_I is not None else np.zeros((len(t_seconds), n_I))
+        a_sum_E = a_E.mean(axis=-1) if a_E is not None else np.zeros((len(t_seconds), n_E))
+        a_sum_I = a_I.mean(axis=-1) if a_I is not None else np.zeros((len(t_seconds), n_I))
         a_sum = np.concatenate([a_sum_E, a_sum_I], axis=-1)
-        plot_lines(axes[3], t_seconds, a_sum, n_E, "Σ a(t)\nSFA")
+        plot_lines(axes[3], t_seconds, a_sum, n_E, "mean a(t)\nSFA")
     else:
-        axes[3].set_ylabel("Σ a(t)\n(inactive)", fontsize=10)
+        axes[3].set_ylabel("mean a(t)\n(inactive)", fontsize=10)
         axes[3].text(0.5, 0.5, "no SFA in this variant",
                      transform=axes[3].transAxes, ha="center", va="center",
                      color="0.5")
 
-    plot_lines(axes[4], t_seconds, b_full, n_E, "b(t)\nSTD",
+    plot_lines(axes[4], t_seconds, b_full, n_E, "Π b_m(t)\nSTD gain",
                ylim_range=(-0.05, 1.1))
 
     lle_text = ""

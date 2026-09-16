@@ -131,21 +131,23 @@ class RMTMatrix:
         self.W = self.level_of_chaos * (self.S * (AD + M))
         return self.W
 
-    def export_for_srnn(self, dales: bool = True) -> dict:
+    def export_for_srnn(self, dales: bool = True, dales_init: bool = True) -> dict:
         """Tensors for ``SRNNCell``: ``W_init``, ``sparsity_mask`` (N, N), ``dales_sign`` (N,).
 
         With ``dales`` the magnitude |W| is stored in inverse-softplus space and
         the column sign separately, so the effective weight is
         ``sign * softplus(W_init) * mask``; entries whose sampled sign disagrees
-        with their column are flipped. Without it ``W_init`` is W itself.
+        with their column are flipped. Without enforcement ``W_init`` stores signed weights directly.
+        ``dales_init`` independently projects the initial matrix onto column signs.
         """
         self._assert_built()
         dales_sign = torch.ones(self.n)
         dales_sign[self.n_E:] = -1.0
+        initial = np.abs(self.W) * dales_sign.numpy()[None, :] if dales_init else self.W
         if dales:
-            W_init = torch.tensor(_softplus_inv_np(np.maximum(np.abs(self.W), 1e-7)), dtype=torch.float32)
+            W_init = torch.tensor(_softplus_inv_np(np.maximum(np.abs(initial), 1e-7)), dtype=torch.float32)
         else:
-            W_init = torch.tensor(self.W, dtype=torch.float32)
+            W_init = torch.tensor(initial, dtype=torch.float32)
         return {"W_init": W_init, "sparsity_mask": torch.tensor(self.S, dtype=torch.float32),
                 "dales_sign": dales_sign, "n_E": self.n_E, "dales": dales}
 

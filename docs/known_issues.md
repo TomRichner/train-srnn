@@ -8,9 +8,10 @@ suggested fix. Paths are relative to the repo root.
 `echo=True` variants (`srnn-echo`, `srnn-e-only-echo`, ...) were meant to be
 reservoirs: recurrent matrix and all intrinsic dynamics fixed, only `W_in` and
 the readout trained. `SRNNCell._effective_W` (`train_srnn/models/srnn_cell.py`)
-detaches `W_raw` for echo variants and nothing else. `W_raw_gain`, `W_in_gain`,
-`isp_tau_global`, every `log_*_gain`, `a_0_scalar`, `c_0_*_scalar` and, for
-`per_neuron=True`, every `*_vec` still train.
+detaches `W_raw` for echo variants and nothing else. `log_W_raw_gain`, `W_in_gain`,
+every intrinsic `log_*_gain`, `a_0_scalar` and, for `per_neuron=True`,
+every `*_vec` still train. Version 2 removed `tau_global` and the SFA-state
+offsets `c_0`; their removal does not change this remaining echo limitation.
 
 Impact: "echo" results are frozen-structure, trainable-gain, trainable-timescale
 hybrids, not classical reservoirs. Do not cite them against ESN literature
@@ -112,18 +113,19 @@ device across the epoch, and call `.tolist()` once per epoch.
 ## 7. Mixed `softplus` / `exp` parameterisation of positive scalars
 
 In `SRNNCell` every positive quantity is
-`tau_global * exp(log_*_gain) * softplus(isp_*_vec)` (`_tau_d`, `_tau_a`,
-`_tau_b`, `_c`; `tau_global` is itself `softplus(isp_tau_global)`). Per-neuron
+`exp(log_*_gain) * softplus(isp_*_vec)` (`_tau_d`, `_tau_a`,
+`_tau_b`, `_c`). Version 2 removed the redundant global time multiplier. Per-neuron
 bases use inverse-softplus (`isp_`), per-variant gains use true log (`log_`).
-Softplus is near-linear around the small init values (`tau_d` 0.1 s, `c` 0.05),
-which makes Adam steps roughly additive in seconds; the gain is centred on 1
+Softplus approaches a linear transform for large raw parameters and an
+exponential transform for negative raw parameters; initialization includes
+`tau_d=0.1` s and a total SFA budget `c=0.5`. The gain is centred on 1
 and explores log-space symmetrically. Both are conventions, not requirements.
 
 Impact: raw-parameter plots mix two scales and every conversion to effective
 values (`scripts/postprocess.py`, `docs/equations.md`) must spell out which
 transform applies. Not a correctness problem.
 
-Fix (not planned): all-`exp` so the three factors add in log-space. Changes the
+Fix (not planned): all-`exp` so the two factors add in log-space. Changes the
 optimisation geometry and invalidates checkpoints, so only with a fresh
 comparison family.
 
@@ -142,25 +144,13 @@ Fix: replace the dataset copy with `gcloud storage rsync`, which makes that
 step free when nothing changed; optionally split into `--skip-git` and
 `--skip-data` with `--skip-refresh` as the alias for both.
 
-## 9. `a_0` and `c_0_E` / `c_0_I` share an exact flat direction
+## 9. Resolved in version 2: redundant SFA offsets
 
-In `SRNNCell._drive` the rate is `r = f(x - sum_j c_j a_j - a_0)` and each SFA
-channel relaxes to `c_0_j + r`. Substituting `a_j -> a_j - c_0_j` removes `c_0`
-from the dynamics and leaves the threshold `theta = a_0 + sum_j c_j c_0_j`, so
-the loss depends on the two parameters only through `theta_E` and `theta_I`.
-The direction is exactly flat (verified to 3e-16 on a float64 rollout), so
-Adam does not drift along it. With `per_neuron=False` the three scalars
-`a_0_scalar`, `c_0_E_scalar`, `c_0_I_scalar` carry two degrees of freedom;
-with `per_neuron=True` the whole `c_0_*_vec` (about 3N entries) is redundant.
-
-Impact: interpretive only. `a_0`, `c_0_E`, `c_0_I` are not individually
-meaningful; `scripts/postprocess.py:plot_offsets_evolution` plots the raw
-three and should plot `theta_E`, `theta_I` instead or as well.
-
-Fix: `freeze_params=[c_0_E]` gives an identifiable parameterisation with no
-lost expressiveness (`FREEZE_GROUPS` covers it; `c_0_E_vec` starts at zero).
-Do not pin `a_0`: no-adapt variants have no `c_0` and would lose their only
-threshold. Changing this breaks comparability with existing runs.
+The old `a_0` / `c_0_E` / `c_0_I` flat direction is removed. SFA states now
+relax toward the raw firing rate, without an additive state offset. The rate
+uses the threshold `a_0` and the normalized total adaptation budget
+`c / K * sum(a_k)`. Parameter reports show `a_0` and total `c`; historical
+checkpoints require their recorded original code revision.
 
 ## 10. CTGRU decay factor uses `ln tau` in place of `tau`
 
@@ -178,24 +168,20 @@ decay schedule. Results match upstream, which is the point of the baseline.
 Fix: if a corrected CTGRU is wanted, add a config flag selecting
 `exp(-dt / tau)` and keep the default at upstream behaviour.
 
-## 11. `RMTMatrix.export_for_srnn(dales=True)` flips a few sampled signs
+## 11. Dale projection changes rare sampled recurrent-weight signs
 
-`RMTMatrix.build` samples `W = mu + sigma * randn` per column type, so a small
-fraction of entries have the opposite sign from their column: measured 24, 22
-and 17 of ~30000 nonzeros at N=300 (seeds 1 to 3; 0.06 to 0.08%), 3 of 7427 at
-N=150. The export stores `inv_softplus(|W|)` and a per-column `dales_sign`, so
-`SRNNCell._effective_W` reconstructs `sign * |W|`, i.e. those entries change
-sign relative to the sampled matrix (max entry change 0.15).
-`tests/test_rmt_matrix.py::test_export_round_trip_with_dales` asserts the
-Dale-compliant reconstruction, not equality with `W`. `dales=False` exports the
-signed matrix unchanged.
+`RMTMatrix.build` samples a Gaussian per presynaptic population, so rare
+entries can disagree with that population's sign. The default
+`export_for_srnn(..., dales_init=True)` projects both enforced and unenforced
+training variants to `sign * abs(W)`. They now share the same initial effective
+matrix; the previous between-condition initialization discrepancy is resolved.
+The `dales` argument independently controls sign enforcement during training.
 
-Impact: the Dale and no-Dale variants of one seed start from matrices that
-differ in ~0.07% of entries, and the spectral radius reported by `RMTMatrix`
-is that of the sampled `W`, not the initial effective matrix.
-
-Fix: sample with the sign constraint (clip the Gaussian at zero, or resample
-disagreeing entries), or document that the Dale init is `sign * |W|`.
+Remaining limitation: the spectral radius reported directly by `RMTMatrix`
+is for the sampled matrix, before projection. Use `cell._effective_W()` for
+spectral properties of the initialized trained model. MATLAB parity imports
+the exact unprojected matrix separately, rather than claiming projection is
+numerically identical to the MATLAB draw.
 
 ## 12. Legacy gradient-hook linking masks (audited)
 
@@ -220,23 +206,25 @@ The current code applies the masks in the forward pass (`SRNNCell._linked`,
 `_effective_W`), so the failure mode cannot recur; `tests/test_linked_params.py`
 checks the gradients with and without checkpointing. Checkpoints from the old
 cell carry `cell._*_vec_mask` buffers and lack `cell.per_neuron_mask`, so a
-strict `load_state_dict` (the `init_ckpt` path) rejects them; reading their
-state dicts directly, as `scripts/postprocess.py` does, still works.
+strict `load_state_dict` (the `init_ckpt` path) rejects them. Version 2 also
+checks an explicit model-version buffer; reconstruct or postprocess historical
+runs using their recorded original code revision.
 
 ## 13. With `burn_in=0` the initial condition starts synapses fully depressed
 
-`TrainableIC` initialises the state to zeros, and `cell.init_state` (which
-sets `b = 1`) is only used inside `compute_burn_in`. With `burn_in=0` every
-window therefore starts at `b = 0` and `x = 0`; under `std_zero_floor` the
-synaptic gain is then negative, `-b_min / (1 - b_min)`, until `b` recovers
-over a few `tau_b_rec`. Production runs use the default `burn_in=10`, which
-overwrites the IC with the settled unforced state, so they are unaffected.
-Fix: seed `TrainableIC` from `cell.init_state` (a = 0, b = 1, x = 0) rather
-than zeros.
+`TrainableIC` initializes the state to zeros, and `cell.init_state` (which
+sets `b = 1`) is used inside `compute_burn_in`. With `burn_in=0`, training
+therefore starts at `b = 0` and `x = 0`. Version 2 uses the product of STD
+states directly, so synaptic output starts at zero and recovers; the former
+negative-gain issue from `std_zero_floor` is resolved because that transform
+was removed. Production runs retain `burn_in=10`, which overwrites the IC
+with the settled unforced state.
 
-## 14. Readout timing differs between output modes
+Possible fix: seed `TrainableIC` from `cell.init_state` (a = 0, b = 1,
+seeded dendritic draws) rather than zeros. This would change no-burn-in runs.
 
-The `synaptic` and `rate` outputs use `r` and `b_full` evaluated at the
-state entering the last sub-step, while `dendritic` returns the post-update
-`x`. The one-sub-step offset is documented in `docs/model.md`; it matters
-only when comparing readout modes at the same step.
+## 14. Resolved in version 2: readout timing
+
+All readout modes now use the completed integration step. Synaptic and rate
+outputs are recomputed from the updated state, matching the timing of the
+dendritic output. The former last-substep offset no longer applies.

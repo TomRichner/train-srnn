@@ -260,38 +260,49 @@ class CTGRUModelConfig(ModelConfig):
 
 @dataclass
 class RMTConfig:
-    """Random recurrent connectivity (Harris et al. 2023)."""
-    density: float = 1.0 / 3.0
+    """MATLAB mu7 reference connectivity, indexed by presynaptic population."""
+    density: float = 0.2
     level_of_chaos: float = 1.0
+    mu_E_relative: float = 7.0
+    mu_I_relative: float = -7.0
+    sigma_E_relative: float = 1.5
+    sigma_I_relative: float = 1.5
+    F_tracks_network: bool = False
+    F_ref_n: int = 500
+    F_ref_indegree: int = 100
+    dales_init: bool = True
 
 
 @dataclass
 class SRNNModelConfig(ModelConfig):
-    """Shared settings for every SRNN variant in the batch.
-
-    Variant names (``model.variants``) toggle the flags below per network; see
-    train_srnn/models/variants.py for the grammar. Per-variant flags listed
-    here are the base values that the name tokens modify.
-    """
+    """MATLAB-aligned deterministic model; variants alter counts and training flags."""
     name: str = "srnn"; type: str = "srnn"
+    num_units: int = 500
+    model_version: int = 2
     variants: list[str] = field(default_factory=lambda: ["srnn"])
-    variant_seeds: Optional[list[int]] = None   # cross variants with recurrent-matrix seeds
+    variant_seeds: Optional[list[int]] = None
     dales: bool = True
-    n_a_E: int = 3                    # SFA timescales on E neurons (0 = off)
+    n_a_E: int = 3
     n_a_I: int = 3
-    n_b_E: int = 1                    # STD on E neurons (0/1)
-    n_b_I: int = 1
+    n_b_E: int = 2
+    n_b_I: int = 2
     per_neuron: bool = False
-    echo: bool = False                # frozen recurrent weights (reservoir)
-    skip: bool = False                # y = readout(state) + x; autoregressive tasks only
-    solver: str = "semi_implicit"     # semi_implicit | explicit | rk4
+    echo: bool = False
+    skip: bool = False
+    solver: str = "sra1"
     h: float = II("task.h")
-    ode_unfolds: int = II("task.ode_unfolds")
+    ode_unfolds: int = 4
     readout: str = "synaptic"
-    tau_global_init: float = 1.0
-    tau_a_lo_init: float = 0.25       # fastest SFA timescale (s)
-    tau_a_hi_init: float = 4.0        # slowest SFA timescale (s)
-    std_zero_floor: bool = True       # rescale STD state so synaptic gain reaches 0 at saturation
+    S_a: float = 0.8
+    a_0_mean_init: float = 0.2
+    a_0_std_init: float = 0.1
+    tau_d_init: float = 0.1
+    c_init: float = 0.5
+    tau_a_lo_init: float = 0.25
+    tau_a_hi_init: float = 10.0
+    tau_a_spread: float = 0.25
+    tau_b_rec_init: list[float] = field(default_factory=lambda: [2.0, 4.0])
+    tau_b_rel_init: list[float] = field(default_factory=lambda: [0.25, 0.5])
     rmt: RMTConfig = field(default_factory=RMTConfig)
 
 

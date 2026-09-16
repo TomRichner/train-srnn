@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import fields
+import math
 from typing import Optional
 
 import torch
@@ -28,21 +29,26 @@ def _dataclass_from_cfg(model_cfg: DictConfig, dc_cls):
 
 
 def _srnn_config(cfg: DictConfig, variant: V.SRNNVariant) -> SRNNConfig:
-    m = cfg.model
-    return SRNNConfig(
-        num_units=m.num_units, dales=variant.dales,
-        n_a_E=variant.n_a_E, n_a_I=variant.n_a_I,
-        n_b_E=variant.n_b_E, n_b_I=variant.n_b_I,
-        per_neuron=variant.per_neuron, echo=variant.echo, skip=variant.skip,
-        solver=m.solver, h=m.h, ode_unfolds=m.ode_unfolds, readout=m.readout,
-        tau_global_init=m.tau_global_init, tau_a_lo_init=m.tau_a_lo_init,
-        tau_a_hi_init=m.tau_a_hi_init, std_zero_floor=m.std_zero_floor,
-    )
+    if cfg.model.model_version != SRNNCell.MODEL_VERSION:
+        raise ValueError("SRNN model_version must be 2; use the historical commit for old checkpoints")
+    cell_cfg = _dataclass_from_cfg(cfg.model, SRNNConfig)
+    for key in V.FLAGS:
+        setattr(cell_cfg, key, getattr(variant, key))
+    cell_cfg.init_seed = variant.seed
+    return cell_cfg
 
 
 def _rmt(cfg: DictConfig, seed: int) -> RMTMatrix:
-    rmt = RMTMatrix(n=cfg.model.num_units, density=cfg.model.rmt.density,
-                    seed=seed, level_of_chaos=cfg.model.rmt.level_of_chaos)
+    m = cfg.model.rmt
+    n = cfg.model.num_units if m.F_tracks_network else m.F_ref_n
+    alpha = round(m.density * n) / n if m.F_tracks_network else m.F_ref_indegree / n
+    if not 0 < alpha <= 1:
+        raise ValueError("Reference connection probability must be in (0, 1]")
+    scale = 1 / math.sqrt(n * alpha * (2 - alpha))
+    rmt = RMTMatrix(n=cfg.model.num_units, density=m.density, seed=seed,
+                    level_of_chaos=m.level_of_chaos,
+                    mu_E_tilde=m.mu_E_relative * scale, mu_I_tilde=m.mu_I_relative * scale,
+                    sigma_E_tilde=m.sigma_E_relative * scale, sigma_I_tilde=m.sigma_I_relative * scale)
     rmt.build()
     return rmt
 
@@ -87,7 +93,7 @@ def build_cell(cfg: DictConfig, W_in_mask: Optional[torch.Tensor] = None,
         for v in resolved:
             if v.seed not in rmt_cache:
                 rmt_cache[v.seed] = _rmt(cfg, v.seed)
-        exports = [rmt_cache[v.seed].export_for_srnn(dales=c.dales) for c, v in zip(configs, resolved)]
+        exports = [rmt_cache[v.seed].export_for_srnn(dales=c.dales, dales_init=cfg.model.rmt.dales_init) for c, v in zip(configs, resolved)]
         cell = SRNNCell(configs, input_size, exports, W_in_mask=W_in_mask)
         cell.variant_names = [v.name for v in resolved]
         return cell

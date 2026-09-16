@@ -13,7 +13,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 
 HISTORY_HEADER = ["epoch", "variant", "train_loss", "train_metric", "valid_loss",
-                  "valid_metric", "lr", "timestamp"]
+                  "valid_metric", "lr", "optimizer_step", "timestamp"]
 TEST_HEADER = ["epoch", "tag", "variant", "test_loss", "test_metric", "timestamp"]
 
 
@@ -34,14 +34,14 @@ def _append_rows(path: Path, header: list[str], rows: list[list]) -> None:
 def append_history(run_dir: Path, epoch: int, names: Sequence[str],
                    train_loss: Sequence[float], train_metric: Sequence[float],
                    valid_loss: Sequence[float] | None, valid_metric: Sequence[float] | None,
-                   lr: float) -> None:
+                   lr: float, optimizer_step: int | None = None) -> None:
     """One row per network in ``training_history.csv``."""
     ts = _timestamp()
     nan = float("nan")
     rows = [[epoch, name, f"{train_loss[k]:.6f}", f"{train_metric[k]:.6f}",
              f"{(valid_loss[k] if valid_loss is not None else nan):.6f}",
              f"{(valid_metric[k] if valid_metric is not None else nan):.6f}",
-             f"{lr:.8f}", ts]
+             f"{lr:.8f}", optimizer_step, ts]
             for k, name in enumerate(names)]
     _append_rows(Path(run_dir) / "training_history.csv", HISTORY_HEADER, rows)
 
@@ -72,6 +72,7 @@ def save_checkpoint(run_dir: Path, tag: str, model: torch.nn.Module,
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save({
         "epoch": epoch,
+        "model_version": getattr(model.cell, "MODEL_VERSION", None),
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict() if optimizer else None,
         "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,

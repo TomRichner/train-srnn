@@ -11,7 +11,7 @@ N, FS, T = 64, 200.0, 6.0
 
 def _simulate(solver: str):
     torch.manual_seed(0)
-    cfgs = [SRNNConfig(num_units=N, solver=solver, h=1.0 / FS, n_a_E=3, n_a_I=0, n_b_E=1, n_b_I=0),
+    cfgs = [SRNNConfig(num_units=N, solver=solver, h=1.0 / FS, n_a_E=3, n_a_I=3, n_b_E=2, n_b_I=2),
             SRNNConfig(num_units=N, solver=solver, h=1.0 / FS, n_a_E=0, n_a_I=0, n_b_E=0, n_b_I=0)]
     rmt = RMTMatrix(n=N, f=0.5, indegree=20, seed=7)
     rmt.build()
@@ -30,7 +30,7 @@ def _simulate(solver: str):
 
 
 def test_bounded_and_adapting():
-    r, b, a, u = _simulate("semi_implicit")
+    r, b, a, u = _simulate("sra1")
     assert np.isfinite(r).all() and np.isfinite(b).all()
     assert r.min() >= 0 and r.max() <= 1 and b.min() >= 0 and b.max() <= 1
     # Variant 1 has no adaptation: its a_E stays at zero and b_full stays at one.
@@ -43,7 +43,7 @@ def test_bounded_and_adapting():
 
 
 def test_solvers_agree():
-    r_si, *_ = _simulate("semi_implicit")
+    r_si, *_ = _simulate("sra1")
     r_rk, *_ = _simulate("rk4")
     assert np.corrcoef(r_si.ravel(), r_rk.ravel())[0, 1] > 0.95
     assert np.abs(r_si - r_rk).mean() < 0.02

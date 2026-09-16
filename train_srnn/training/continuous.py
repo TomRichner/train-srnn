@@ -16,6 +16,9 @@ import time
 from collections import defaultdict
 
 import torch
+import torch.utils.checkpoint
+
+from train_srnn.models.sequence_model import Unrolled
 
 from train_srnn.training.closed_loop import (init_channel_phases, sample_continuous_alpha,
                                              sample_per_reader_jitter, summarize_alpha)
@@ -164,6 +167,34 @@ class ContinuousTrainer(Trainer):
             if self.model.K is None:
                 self.y_prev = self.y_prev[0]
 
+    def _unroll_chunk(self, x, alpha, hoisted):
+        """Recompute segments during backward without changing BPTT boundaries."""
+        if not self.cfg.grad_checkpoint:
+            return self.model.unroll(x, self.state, alpha_seg=alpha, y_prev=self.y_prev,
+                                     hoisted=hoisted, cell=self.cell)
+        length = int(self.cfg.grad_checkpoint_segment_len or x.shape[1])
+        if length < 1:
+            raise ValueError("grad_checkpoint_segment_len must be positive")
+        state, previous = self.state, self.y_prev
+        outputs = []
+
+        def segment(inputs, initial, schedule, prior, weights):
+            result = self.model.unroll(inputs, initial, alpha_seg=schedule,
+                                       y_prev=prior, hoisted=weights, cell=self.cell)
+            values = result.hidden if schedule is None else result.y
+            return values, result.state, result.y_prev
+
+        for start in range(0, x.shape[1], length):
+            end = min(start + length, x.shape[1])
+            schedule = None if alpha is None else alpha[:, start:end, :]
+            values, state, previous = torch.utils.checkpoint.checkpoint(
+                segment, x[:, start:end], state, schedule, previous, hoisted,
+                use_reentrant=False)
+            outputs.append(values)
+        values = torch.cat(outputs, dim=-2)
+        return Unrolled(hidden=values if alpha is None else None,
+                        y=None if alpha is None else values, state=state, y_prev=previous)
+
     def train_epoch(self, epoch: int) -> EpochStats:
         cfg, timer = self.cfg, self.timer
         if self.state is None:
@@ -197,12 +228,10 @@ class ContinuousTrainer(Trainer):
                 n_alpha += 1
             with timer.section("forward"), self.autocast():
                 hoisted = self.cell.hoist()
+                res = self._unroll_chunk(x, alpha, hoisted)
                 if alpha is None:
-                    res = self.model.unroll(x, self.state, hoisted=hoisted, cell=self.cell)
                     logits = self.model.apply_readout(res.hidden, x)
                 else:
-                    res = self.model.unroll(x, self.state, alpha_seg=alpha, y_prev=self.y_prev,
-                                            hoisted=hoisted, cell=self.cell)
                     logits = res.y
                     self.y_prev = res.y_prev
                 self.state = res.state

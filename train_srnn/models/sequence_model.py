@@ -95,7 +95,10 @@ class SequenceModel(nn.Module):
             self.readout_weight = nn.Parameter(torch.empty(self._K, output_size, readout_size))
             self.readout_bias = nn.Parameter(torch.zeros(self._K, 1, output_size))
             for k in range(self._K):
-                nn.init.kaiming_uniform_(self.readout_weight[k], a=math.sqrt(5))
+                generator = None
+                if hasattr(cell, "configs"):
+                    generator = torch.Generator().manual_seed(cell.configs[k].init_seed + 67867967)
+                nn.init.kaiming_uniform_(self.readout_weight[k], a=math.sqrt(5), generator=generator)
             self.readout = None
             self.W_out_gain = nn.Parameter(torch.ones(self._K))
         else:

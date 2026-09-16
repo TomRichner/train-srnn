@@ -541,15 +541,14 @@ def plot_weight_evolution(run_dir: Path, snaps):
 # =============================================================================
 
 def effective_taus(ms, k):
-    tau_global = F.softplus(ms["cell.isp_tau_global"])[k].item()
-    out = {"tau_global": tau_global}
+    out = {}
 
     def eff(vec_key, gain_key):
         if vec_key not in ms:
             return None
         gain = torch.exp(ms[gain_key])[k].item()
         vec = F.softplus(ms[vec_key])[k].numpy()
-        return tau_global * gain * vec
+        return gain * vec
 
     out["tau_d"] = eff("cell.isp_tau_d_vec", "cell.log_tau_d_gain")
     out["tau_a_E"] = eff("cell.isp_tau_a_E_vec", "cell.log_tau_a_E_gain")
@@ -564,7 +563,7 @@ def effective_taus(ms, k):
 def effective_W(ms, k):
     """Reproduce SRNNCell._effective_W for variant k."""
     W_raw = ms["cell.W_raw"][k]
-    gain = ms["cell.W_raw_gain"][k].item()
+    gain = ms["cell.log_W_raw_gain"][k].exp().item()
     dales_mask = ms["cell.dales_mask"][k].item()
     dales_signs = ms["cell.dales_signs"][k]
     sparsity = ms["cell.sparsity_masks"][k]
@@ -578,7 +577,7 @@ def effective_W(ms, k):
 def effective_W_in(ms, k):
     W_in = ms["cell.W_in"][k]
     gain = ms["cell.W_in_gain"][k].item()
-    mask = ms["cell.W_in_mask"]                     # (1, N, 1) shared across variants
+    mask = ms.get("cell.W_in_mask", torch.ones(1, W_in.shape[0], 1))                     # (1, N, 1) shared across variants
     return (gain * W_in * mask.squeeze(0)).numpy()
 
 
@@ -594,24 +593,9 @@ def effective_a_0(ms, k):
     return (ms["cell.a_0_vec"][k] + ms["cell.a_0_scalar"][k]).numpy()
 
 
-def effective_c_0(ms, k, side):
-    vec_key = f"cell.c_0_{side}_vec"; sc_key = f"cell.c_0_{side}_scalar"
-    if vec_key not in ms:
-        return None
-    return (ms[vec_key][k] + ms[sc_key][k]).numpy()
-
-
 def is_per_neuron(ms, k) -> bool:
-    """True iff variant k trains its ``*_vec`` tensors per neuron.
-
-    Current checkpoints carry ``cell.per_neuron_mask``; older ones only the
-    gradient-hook mask buffers, of which ``_isp_tau_d_vec_mask`` exists for
-    every variant.
-    """
-    m = ms.get("cell.per_neuron_mask")
-    if m is None:
-        m = ms.get("cell._isp_tau_d_vec_mask")
-    return bool(m is not None and float(m[k].reshape(-1)[0]) > 0.5)
+    """True iff variant k trains its per-neuron parameter tensors."""
+    return bool(ms["cell.per_neuron_mask"][k].item() > 0.5)
 
 
 def effective_W_out(ms, k):
@@ -619,24 +603,18 @@ def effective_W_out(ms, k):
     return (ms["readout_weight"][k] * ms["W_out_gain"][k]).numpy()
 
 
-def active_js(ms, k, side: str) -> list[int]:
-    """Indices of the active SFA timescales for variant k on the given side.
-
-    Returns [] when the side is inactive or the mask is the degenerate
-    placeholder buffer (size <= 1) registered at srnn_cell.py:1067.
-    """
-    m = ms.get(f"cell.sfa_{side}_mask")
+def active_js(ms, k, side: str, mechanism: str = "sfa") -> list[int]:
+    """Active SFA or STD timescale indices, excluding padded components."""
+    m = ms.get(f"cell.{mechanism}_{side}_mask")
     if m is None:
         return []
     v = m[k, 0, :].numpy()
-    if v.size <= 1:
-        return []
     return [int(j) for j in np.where(v != 0)[0]]
 
 
 def is_tau_active(ms, k, key):
     """Whether the given effective tau drives the loss for variant k."""
-    if key in ("tau_global", "tau_d"):
+    if key == "tau_d":
         return True
     if key == "tau_a_E":
         m = ms.get("cell.sfa_E_mask"); return bool(m is not None and m[k].any().item())
@@ -662,72 +640,31 @@ def plot_tau_evolution(out_dir: Path, run_label: str, snaps, k, name):
     last_ms = snaps[-1][2]
     per_neuron = is_per_neuron(last_ms, k)
 
-    # Which j-slots to draw per key. With per_neuron=False every *_vec tensor
-    # is frozen by its gradient mask (srnn_cell.py:1027), so the population
-    # std is 0 and the only real variation is ACROSS timescales — plot those
-    # as separate lines instead of averaging them into one meaningless number.
-    js = {"tau_a_E": active_js(last_ms, k, "E"),
-          "tau_a_I": active_js(last_ms, k, "I")}
-
-    series: dict[str, list[float]] = {}
-    for (_, _, ms) in snaps:
-        tau = effective_taus(ms, k)
-        for key, arr in tau.items():
-            if key == "tau_global":
-                series.setdefault(key, []).append(arr)
-                continue
-            if not per_neuron:
-                if arr.ndim > 1 and js.get(key):
-                    for j in js[key]:
-                        series.setdefault(f"{key}|j={j}", []).append(arr[:, j].mean())
-                else:
-                    series.setdefault(f"{key}|", []).append(arr.mean())
-            else:
-                a = arr.flatten() if arr.ndim > 1 else arr
-                series.setdefault(key + "_mean", []).append(a.mean())
-                series.setdefault(key + "_std", []).append(a.std())
-
-    if per_neuron:
-        keys_present = sorted({s.replace("_mean", "").replace("_std", "")
-                               for s in series if s != "tau_global"})
-    else:
-        keys_present = sorted({s.split("|")[0] for s in series if s != "tau_global"})
-    n = len(keys_present) + 1
-    cols = 3; rows = (n + cols - 1) // cols
-    fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 3 * rows), squeeze=False)
-    flat = axes.flatten()
-    flat[0].plot(xs, series["tau_global"], "o-", lw=1.5, ms=4)
-    flat[0].set_title("tau_global"); flat[0].set_xlabel("epoch"); flat[0].set_ylabel("seconds"); flat[0].grid(alpha=0.3)
-    for i, key in enumerate(keys_present, start=1):
-        ax = flat[i]
-        if per_neuron:
-            m = np.array(series[key + "_mean"]); s = np.array(series[key + "_std"])
-            ax.plot(xs, m, "o-", lw=1.5, ms=4, color="C0", label="mean")
-            ax.fill_between(xs, m - s, m + s, alpha=0.2, color="C0", label="±std")
-        else:
-            for c, sk in enumerate(sorted(s for s in series if s.startswith(key + "|"))):
-                lbl = sk.split("|")[1] or None
-                ax.plot(xs, np.array(series[sk]), "o-", lw=1.5, ms=4,
-                        color=f"C{c}", label=lbl)
-            ax.set_yscale("log")
-        active = is_tau_active(last_ms, k, key)
-        title = f"effective {key}" + ("" if active else "  (masked — tau_global only)")
-        ax.set_title(title); ax.set_xlabel("epoch"); ax.set_ylabel("seconds"); ax.grid(alpha=0.3)
-        if not active:
-            _grey_overlay(ax)
-        if per_neuron:
-            if i == 1:
-                ax.legend(fontsize=8)
-        elif len(js.get(key, [])) > 1:
-            ax.legend(fontsize=8)
-    for j in range(len(keys_present) + 1, len(flat)):
-        flat[j].axis("off")
-    mode = "per-neuron mean ±std" if per_neuron else "per-timescale (log y)"
-    fig.suptitle(f"{run_label} — effective time constants ({name}) — {mode}",
-                 fontsize=11)
+    taus = effective_taus(last_ms, k)
+    keys = [key for key in taus if is_tau_active(last_ms, k, key)]
+    fig, axes = plt.subplots((len(keys) + 2) // 3, 3, figsize=(12, 3 * ((len(keys) + 2) // 3)), squeeze=False)
+    for ax, key in zip(axes.flat, keys):
+        mechanism = "sfa" if key.startswith("tau_a_") else "std"
+        indices = active_js(last_ms, k, key[-1], mechanism) if taus[key].ndim == 2 else [None]
+        for color, j in enumerate(indices):
+            samples = [effective_taus(ms, k)[key] for _, _, ms in snaps]
+            samples = [arr if j is None else arr[:, j] for arr in samples]
+            means = np.array([arr.mean() for arr in samples])
+            spreads = np.array([arr.std() for arr in samples])
+            label = "neurons" if j is None else f"timescale {j + 1}"
+            ax.plot(xs, means, "o-", ms=4, color=f"C{color}", label=label)
+            # Fixed initialization heterogeneity remains under shared learning.
+            ax.fill_between(xs, means - spreads, means + spreads, alpha=.18, color=f"C{color}")
+        ax.set_yscale("log")
+        ax.set_title(f"effective {key}")
+        ax.set_xlabel("epoch"); ax.set_ylabel("seconds"); ax.grid(alpha=.3)
+        ax.legend(fontsize=8)
+    for ax in list(axes.flat)[len(keys):]:
+        ax.axis("off")
+    mode = "per-neuron learning" if per_neuron else "shared learning"
+    fig.suptitle(f"{run_label} — time constants ({name}) — {mode}; neuron mean ±std", fontsize=11)
     plt.tight_layout()
-    out = out_dir / "tau_evolution.png"
-    plt.savefig(out, dpi=120); plt.close(fig)
+    plt.savefig(out_dir / "tau_evolution.png", dpi=120); plt.close(fig)
     print(f"    wrote {name}/tau_evolution.png")
 
 
@@ -795,28 +732,12 @@ def _offset_series(snaps, k, getter, js):
 
 
 def plot_offsets_evolution(out_dir: Path, run_label: str, snaps, k, name):
-    """SFA offsets c_0_E / c_0_I and the activation threshold a_0.
-
-    These are additive companions to the multiplicative gains: a_0 shifts the
-    input to the nonlinearity (r = phi(x - a_0 - c*sum(a))) and is the only
-    per-neuron DC term in the cell -- there is no input bias, cell.W_in being a
-    bare matrix. Under per_neuron=False the *_vec halves are frozen and only
-    the scalars move, so these draw as lines; c_0 additionally has all its j
-    slots degenerate because its init is uniform.
-    """
+    """Activation threshold, including retained initialization heterogeneity."""
     xs = x_axis(snaps)
     last_ms = snaps[-1][2]
     per_neuron = is_per_neuron(last_ms, k)
 
     panels = []
-    for side in ("E", "I"):
-        js = active_js(last_ms, k, side)
-        if not js:
-            continue
-        lines, sds = _offset_series(
-            snaps, k, lambda ms, s=side: effective_c_0(ms, k, s), js)
-        if lines:
-            panels.append((f"c_0_{side} (SFA offset)", lines, sds))
     panels.append(("a_0 (threshold)", *_offset_series(
         snaps, k, lambda ms: effective_a_0(ms, k), None)))
 
@@ -828,16 +749,15 @@ def plot_offsets_evolution(out_dir: Path, run_label: str, snaps, k, name):
         for c, (lbl, ys) in enumerate(sorted(lines.items())):
             ys = np.asarray(ys)
             ax.plot(xs, ys, "o-", color=f"C{c}", ms=3, label=lbl or None)
-            if per_neuron:
-                s = np.asarray(sds[lbl])
-                ax.fill_between(xs, ys - s, ys + s, alpha=0.18,
-                                color=f"C{c}", lw=0)
+            s = np.asarray(sds[lbl])
+            ax.fill_between(xs, ys - s, ys + s, alpha=0.18,
+                            color=f"C{c}", lw=0)
         ax.axhline(0, color="k", lw=0.5)
         ax.set_title(title); ax.set_xlabel("epoch"); ax.grid(alpha=0.3)
         if len(lines) > 1:
             ax.legend(fontsize=8)
     mode = "mean ±std" if per_neuron else "scalar-driven (vec frozen)"
-    fig.suptitle(f"{run_label} — offsets and threshold ({name}) — {mode}",
+    fig.suptitle(f"{run_label} — activation threshold ({name}) — {mode}",
                  fontsize=11)
     plt.tight_layout()
     out = out_dir / "offsets_evolution.png"
@@ -906,7 +826,6 @@ def write_param_table(out_dir: Path, run_label: str, snaps, k, name):
         rows.append((label, f"{m0:+.5g}", f"{m1:+.5g}", f"{s0:.4g}", f"{s1:.4g}", str(n0)))
 
     t0 = effective_taus(init_ms, k); t1 = effective_taus(last_ms, k)
-    rows.append(("tau_global (s)", f"{t0['tau_global']:+.5g}", f"{t1['tau_global']:+.5g}", "—", "—", "scalar"))
 
     # Per-timescale tau_a_E / tau_a_I (rest of taus collapsed)
     for key in ("tau_d", "tau_a_E", "tau_a_I", "tau_b_rec_E", "tau_b_rel_E", "tau_b_rec_I", "tau_b_rel_I"):
@@ -918,6 +837,9 @@ def write_param_table(out_dir: Path, run_label: str, snaps, k, name):
         elif key == "tau_a_I":
             for j in active_js(last_ms, k, "I"):
                 add(f"tau_a_I[j={j}] (s)", t0[key][:, j], t1[key][:, j])
+        elif key.startswith("tau_b_"):
+            for j in active_js(last_ms, k, key[-1], "std"):
+                add(f"{key}[m={j}] (s)", t0[key][:, j], t1[key][:, j])
         else:
             add(f"{key} (s)", t0[key], t1[key])
 
@@ -936,19 +858,14 @@ def write_param_table(out_dir: Path, run_label: str, snaps, k, name):
     Win0 = effective_W_in(init_ms, k); Win1 = effective_W_in(last_ms, k)
     add("W_in_eff (input neurons)", Win0[Win0 != 0], Win1[Win1 != 0])
 
-    # SFA couplings + offsets, split per-timescale (active only)
+    # One total SFA budget per neuron (active populations only)
     for side in ("E", "I"):
         active = active_js(last_ms, k, side)
         if not active:
             continue
         c0 = effective_c(init_ms, k, side); c1 = effective_c(last_ms, k, side)
         if c0 is not None:
-            for j in active:
-                add(f"c_{side}[j={j}] (SFA coupling)", c0[:, j], c1[:, j])
-        c0_0 = effective_c_0(init_ms, k, side); c0_1 = effective_c_0(last_ms, k, side)
-        if c0_0 is not None:
-            for j in active:
-                add(f"c_0_{side}[j={j}] (SFA offset)", c0_0[:, j], c0_1[:, j])
+            add(f"c_{side} (total SFA budget)", c0, c1)
 
     # Threshold a_0
     add("a_0 (threshold)", effective_a_0(init_ms, k), effective_a_0(last_ms, k))
