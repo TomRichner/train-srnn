@@ -157,6 +157,17 @@ bash cloud/submit.sh <vm> myrun2 cheetah100 srnn 1 "epochs=200"    # re-dispatch
 python scripts/postprocess.py myrun --task cheetah100             # download + plots + report
 ```
 
+## Detailed run reports
+
+```bash
+uv run python scripts/report_srnn.py "$SRNN_HOME/cache/myrun" --pdf
+```
+
+For version-2 SRNN checkpoints, this generates learning curves, weight and
+time-constant evolution, and initial/final parameter tables. Aggregates and
+CSV tables cover every network; detailed pages default to one seed per
+condition. See [docs/reporting.md](docs/reporting.md) for inputs and options.
+
 ## Documentation
 
 - [docs/matlab_alignment.md](docs/matlab_alignment.md): three-condition protocol, parity, profiling, and reporting.
