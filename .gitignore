@@ -22,4 +22,5 @@ id_ed25519*
 deploy_key*
 .codex/
 CLAUDE.md
+AGENTS.md
 docs/plans/

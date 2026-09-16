@@ -150,6 +150,7 @@ python scripts/postprocess.py myrun --task cheetah100             # download + p
 - [docs/variants.md](docs/variants.md): the variant-name grammar.
 - [docs/architecture.md](docs/architecture.md): how the code fits together, tensor shapes, state layout.
 - [docs/cloud.md](docs/cloud.md): the GCE dispatch pipeline.
+- [docs/regression_baseline_20ep.md](docs/regression_baseline_20ep.md): the 20-epoch GPU regression baseline and reproduction procedure.
 - [docs/known_issues.md](docs/known_issues.md): open limitations.
 - [docs/math/std_asymptote.md](docs/math/std_asymptote.md): why synaptic depression bottoms out at about 0.2.
 
