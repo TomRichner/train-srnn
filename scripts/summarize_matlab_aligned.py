@@ -85,16 +85,16 @@ def main():
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(7.2, 4.5))
+    fig, ax = plt.subplots(figsize=(5, 3))
     scores = {}
-    for condition, color in zip(CONDITIONS, ('#555555', '#0072B2', '#D55E00')):
+    for condition, color in zip(CONDITIONS, ('#555555', '#0072B2', '#DAA520')):
         values = arrays[condition]
         scores[condition] = np.trapezoid(np.log(values), x=steps, axis=1) / 2000 if hasattr(np, 'trapezoid') else np.trapz(np.log(values), x=steps, axis=1) / 2000
         for curve in values:
             ax.plot(steps, curve, color=color, alpha=.22, lw=.8)
         ax.plot(steps, values.mean(axis=0), color=color, lw=2, label=LABELS[condition])
     ax.set(xlabel='Optimizer step', ylabel='Validation mean squared error', yscale='log')
-    ax.legend(frameon=False)
+    ax.legend(frameon=False, fontsize=7.5, loc='lower left')
     fig.tight_layout()
     fig.savefig(run / 'matlab_aligned_learning.svg')
     fig.savefig(run / 'matlab_aligned_learning.png', dpi=300)
