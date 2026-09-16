@@ -25,17 +25,26 @@ shift 5
 CLEANUP="keep"
 SKIP_REFRESH=0
 BRANCH="main"
+COMMIT=""
 EXTRA_ARGS=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --cleanup=*)    CLEANUP="${1#--cleanup=}"; shift ;;
         --cleanup)      CLEANUP="${2:?--cleanup needs a value}"; shift 2 ;;
         --skip-refresh) SKIP_REFRESH=1; shift ;;
+        --commit=*) COMMIT="${1#--commit=}"; shift ;;
+        --commit) COMMIT="${2:?--commit needs a value}"; shift 2 ;;
         --branch=*)     BRANCH="${1#--branch=}"; shift ;;
         --branch)       BRANCH="${2:?--branch needs a value}"; shift 2 ;;
         *)              EXTRA_ARGS="$EXTRA_ARGS $1"; shift ;;
     esac
 done
+if [ -n "$COMMIT" ] && [[ ! "$COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "FATAL: --commit must be a full 40-character Git SHA" >&2
+    exit 1
+fi
+COMMIT=$(printf '%s' "$COMMIT" | tr 'A-F' 'a-f')
+
 case "$CLEANUP" in
     delete|stop|keep) ;;
     *) echo "FATAL: --cleanup must be delete|stop|keep, got '$CLEANUP'" >&2; exit 1 ;;
@@ -69,7 +78,7 @@ echo "$EXTRA_ARGS" > "$TRAIN_ARGS_FILE"
 echo "Updating metadata on $VM_NAME ($VM_ZONE)..."
 gcloud compute instances add-metadata "$VM_NAME" \
     --zone="$VM_ZONE" --project="$GCP_PROJECT" \
-    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,cleanup=$CLEANUP,skip-refresh=$SKIP_REFRESH,branch=$BRANCH,repo-url=$REPO_URL" \
+    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,cleanup=$CLEANUP,skip-refresh=$SKIP_REFRESH,branch=$BRANCH,expected-commit=$COMMIT,repo-url=$REPO_URL" \
     --metadata-from-file="train-args=$TRAIN_ARGS_FILE,startup-script=$SCRIPT_DIR/startup_gpu.sh" --quiet
 rm -f "$TRAIN_ARGS_FILE"
 

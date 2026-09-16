@@ -55,7 +55,7 @@ launches with the caller's args only.
 ### `launch_run_gpu.sh` (local, first launch)
 
 ```
-cloud/launch_run_gpu.sh [--cleanup=delete|stop|keep] [--branch=<name>] \
+cloud/launch_run_gpu.sh [--cleanup=delete|stop|keep] [--branch=<name>] [--commit=<full-sha>] \
     <run_name> <task> <model> <seed> [hydra args...]
 ```
 
@@ -82,6 +82,32 @@ One VM per run. Steps:
    `startup-script=cloud/startup_gpu.sh` and `train-args` from file.
 7. Return immediately. For `stop`/`keep` it prints the matching
    `submit.sh` and `stop_vm.sh`/`start_vm.sh` lines.
+
+### Pinning a run and measuring GPU memory
+
+Both `launch_run_gpu.sh` (before positional arguments) and `submit.sh`
+(after positional arguments) accept `--commit=<full-40-character-sha>`.
+The startup script fetches and checks out that immutable commit, then
+asserts the checkout matches before training. With `--skip-refresh`, it
+asserts that the existing checkout already matches. Omitting this option
+preserves branch-based dispatch.
+
+Each run output directory, and its usual GCS results prefix, contains:
+
+- `runtime_provenance.json`: source commit, Python/PyTorch/CUDA/cuDNN,
+  GPU and driver information, and SHA-256 hashes of staged dataset NPZ
+  files and `manifest.json`.
+- `gpu_memory_samples.csv`: whole-device used/total memory in MiB and GPU
+  utilization sampled every second throughout training and evaluation.
+- `gpu_memory_summary.json`: per-device observed peak, memory fraction,
+  and sample count, finalized before the cleanup upload. Sampling can miss
+  sub-second peaks; an empty `devices` mapping means no valid measurement.
+
+For a capacity preflight, use a unique run name, `--cleanup=keep`, and the
+same model, readers, sequence length, checkpoint settings, compilation,
+and scheduler as the manuscript run, with only the epoch count shortened.
+Inspect finite losses, successful exit status, and GPU memory before
+submitting the longer fresh run under another name.
 
 ### `startup_gpu.sh` (runs on the VM at every boot)
 

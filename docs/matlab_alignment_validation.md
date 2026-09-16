@@ -65,17 +65,22 @@ Dataset hashes match the existing local cheetah100 dataset. Both profiles and
 the CUDA comparison log are mirrored under
 `/Users/tom/Desktop/local_data/srnn/cache/matlab-alignment-20260916`.
 
-## Running experiment
+## Cancelled pilot and replacement experiment
 
-The durable pipeline was launched at 2026-09-16 05:24 UTC. Its atomic status
-file is `/opt/srnn-work/results-matlab-v2-20260916/pipeline-20260916/pipeline_status.json`
-on the retained VM. The current fresh pilot run is
-`matlab-v2-20260916-052434-bce3a7-pilot-s3` under the `cheetah100` results directory.
-It executes 2,000 optimizer steps for all nine condition/seed combinations.
-The pipeline then summarizes the pilot, measures and confirms the largest
-whole-seed batch satisfying the conservative 80% memory bound, and starts a
-fresh final 2,000-step experiment at that count. Any failed stage halts it.
+The first durable pipeline was cancelled at the user's request after six
+completed epochs (120 optimizer steps). The saved `epoch_004.pt` contains
+five completed epochs (100 steps). No capacity search or final training was
+started. The pipeline status and pilot `CANCELLED.json` record cancellation.
+The pilot directory `matlab-v2-20260916-052434-bce3a7-pilot-s3` and pipeline
+records are mirrored under the local cache alongside the parity artifacts.
+The old VM was stopped after preserving these artifacts.
 
-Pilot and final scientific results are pending; model parity does not establish
-an advantage for adaptation. The manuscript and its figure links have not been
-edited by this implementation.
+The user approved a fresh VM through the repository cloud scripts, with
+**eight paired seeds for each of three conditions, 100 epochs** (24 networks,
+2,000 optimizer steps). A one-epoch preflight at that exact batch size will
+check memory and execution; the manuscript run starts from fresh initialization,
+not from the preflight checkpoint. The earlier maximum-capacity search and
+100-epoch pilot are superseded by this fixed eight-seed design.
+
+Scientific results remain pending. The manuscript and its figure links have
+not been edited by this implementation.

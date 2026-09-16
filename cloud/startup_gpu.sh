@@ -22,6 +22,7 @@ case "$CLEANUP" in
 esac
 SKIP_REFRESH=$(curl -sf -H "$META_HEADER" "$META_URL/skip-refresh" || echo "0")
 BRANCH=$(curl -sf -H "$META_HEADER" "$META_URL/branch" || echo "main")
+EXPECTED_COMMIT=$(curl -sf -H "$META_HEADER" "$META_URL/expected-commit" || echo "")
 REPO_URL=$(curl -sf -H "$META_HEADER" "$META_URL/repo-url" || echo "git@github.com:TomRichner/train-srnn.git")
 
 # Per-run log path so re-dispatches don't accumulate into one file.
@@ -43,6 +44,7 @@ else
 fi
 mkdir -p "$SRNN_HOME"
 WATCHER_PID=""
+GPU_SAMPLER_PID=""
 
 echo "Run: $RUN_NAME | Experiment: $EXPERIMENT | Model: $MODEL | Seed: $SEED"
 echo "Cleanup: $CLEANUP | Skip-refresh: $SKIP_REFRESH | Branch: $BRANCH | Workdir: $WORKDIR | SRNN_HOME: $SRNN_HOME"
@@ -60,6 +62,13 @@ cleanup() {
     if [ -n "$WATCHER_PID" ]; then
         kill "$WATCHER_PID" 2>/dev/null || true
         wait "$WATCHER_PID" 2>/dev/null || true
+    fi
+
+    # Stop sampling and flush a summary before uploading artifacts.
+    if [ -n "$GPU_SAMPLER_PID" ]; then
+        kill "$GPU_SAMPLER_PID" 2>/dev/null || true
+        wait "$GPU_SAMPLER_PID" 2>/dev/null || true
+        python3 "$WORKDIR/cloud/run_telemetry.py" summarize --output "$RUN_OUTPUT" || true
     fi
 
     # Upload final results (only this run's output dir; per-run scoping
@@ -171,6 +180,13 @@ SSHEOF
         fi
     fi
 
+    # Resolve the immutable revision while the deploy key is still available.
+    if [ -n "$EXPECTED_COMMIT" ]; then
+        ( cd "$WORKDIR" \
+            && git fetch --depth 1 origin "$EXPECTED_COMMIT" \
+            && git checkout --detach FETCH_HEAD )
+    fi
+
     # Scrub deploy key from disk
     if [ -n "${DEPLOY_KEY:-}" ]; then rm -f "$DEPLOY_KEY" "$SSH_DIR/config"; fi
 fi
@@ -179,6 +195,10 @@ cd "$WORKDIR"
 GIT_COMMIT=$(git rev-parse --short HEAD)
 GIT_COMMIT_FULL=$(git rev-parse HEAD)
 echo "Git commit: $GIT_COMMIT  (full: $GIT_COMMIT_FULL)"
+if [ -n "$EXPECTED_COMMIT" ] && [ "$GIT_COMMIT_FULL" != "$EXPECTED_COMMIT" ]; then
+    echo "FATAL: checked-out commit $GIT_COMMIT_FULL differs from expected $EXPECTED_COMMIT"
+    exit 1
+fi
 
 # Capture start time (used by cleanup for duration and metadata)
 START_TIME=$(date +%s)
@@ -232,13 +252,17 @@ echo "=== Training start $(date -Iseconds) ==="
 # ${paths.results_dir}/${task.name}/${run_name}.
 RUN_OUTPUT="$SRNN_HOME/results/$EXPERIMENT/${RUN_NAME}_seed${SEED}"
 mkdir -p "$RUN_OUTPUT"
+python3 "$WORKDIR/cloud/run_telemetry.py" provenance --output "$RUN_OUTPUT" \
+    --data-dir "$DATA_DIR" --commit "$GIT_COMMIT_FULL"
+python3 "$WORKDIR/cloud/run_telemetry.py" sample --output "$RUN_OUTPUT" &
+GPU_SAMPLER_PID=$!
 
 # Add parent dir to PYTHONPATH so `train_srnn` package is importable
 export PYTHONPATH="$WORKDIR:${PYTHONPATH:-}"
 export PYTHONUNBUFFERED=1   # flush logs in real time (stdout is piped via tee)
 
 # Background upload watcher: polls progress.json and uploads periodically
-EPOCHS=$(echo "$TRAIN_ARGS" | sed -n 's/.*epochs=\([0-9]*\).*/\1/p')
+EPOCHS=$(printf '%s\n' "$TRAIN_ARGS" | tr ' ' '\n' | sed -n 's/^epochs=\([0-9]*\)$/\1/p' | tail -1)
 EPOCHS=${EPOCHS:-200}
 if [ "$EPOCHS" -gt 50 ]; then
     UPLOAD_INTERVAL=$(( EPOCHS / 10 ))

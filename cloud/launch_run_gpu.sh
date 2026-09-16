@@ -8,15 +8,24 @@ source "$SCRIPT_DIR/config.gpu.env"
 
 CLEANUP="delete"
 BRANCH="main"
+COMMIT=""
 while [[ "${1:-}" == --* ]]; do
     case "$1" in
         --cleanup=*) CLEANUP="${1#--cleanup=}"; shift ;;
         --cleanup)   CLEANUP="${2:?--cleanup needs a value}"; shift 2 ;;
+        --commit=*) COMMIT="${1#--commit=}"; shift ;;
+        --commit) COMMIT="${2:?--commit needs a value}"; shift 2 ;;
         --branch=*)  BRANCH="${1#--branch=}"; shift ;;
         --branch)    BRANCH="${2:?--branch needs a value}"; shift 2 ;;
         *) echo "FATAL: unknown flag '$1'" >&2; exit 1 ;;
     esac
 done
+if [ -n "$COMMIT" ] && [[ ! "$COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "FATAL: --commit must be a full 40-character Git SHA" >&2
+    exit 1
+fi
+COMMIT=$(printf '%s' "$COMMIT" | tr 'A-F' 'a-f')
+
 case "$CLEANUP" in
     delete|stop|keep) ;;
     *) echo "FATAL: --cleanup must be delete|stop|keep, got '$CLEANUP'" >&2; exit 1 ;;
@@ -81,7 +90,7 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size="$BOOT_DISK_SIZE" \
     --boot-disk-type="$BOOT_DISK_TYPE" \
     --scopes=cloud-platform \
-    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,cleanup=$CLEANUP,skip-refresh=0,branch=$BRANCH,repo-url=$REPO_URL,install-nvidia-driver=True" \
+    --metadata="run-name=$RUN_NAME,experiment=$EXPERIMENT,model=$MODEL,seed=$SEED,bucket=$GCP_BUCKET,cleanup=$CLEANUP,skip-refresh=0,branch=$BRANCH,expected-commit=$COMMIT,repo-url=$REPO_URL,install-nvidia-driver=True" \
     --metadata-from-file="startup-script=$SCRIPT_DIR/startup_gpu.sh,train-args=$TRAIN_ARGS_FILE" \
     $SCHEDULING_ARGS \
     --quiet
