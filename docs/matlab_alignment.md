@@ -1,13 +1,14 @@
 # MATLAB-aligned three-condition experiment
 
 This protocol compares no adaptation, one SFA/one STD timescale, and three
-SFA/two STD timescales. The current approved manuscript experiment uses eight
-paired seeds per condition (24 networks), 100 epochs and 2,000 optimizer steps,
-on a fresh VM deployed through the repository cloud scripts. A one-epoch
-preflight checks the exact batch size before fresh manuscript initialization.
+SFA/two STD timescales. The current approved manuscript experiment uses 15
+paired seeds per condition (45 networks), 100 epochs and 2,000 optimizer steps,
+on a fresh VM deployed through the repository cloud scripts. An eight-seed
+one-epoch preflight passed; the user then selected 15 seeds for the manuscript run.
+This is a fixed user-selected count, not a measured maximum-capacity count.
 The previous 100-epoch three-seed pilot was cancelled at the user's request;
-its maximum-capacity search and automatic final-run pipeline will not run. It supersedes earlier proposed 15-seed protocols,
-epoch resets, and final-test-only evaluation. Historical regression results
+its maximum-capacity search and automatic final-run pipeline will not run.
+The current protocol preserves ring-state carry and periodic test evaluation. Historical regression results
 and checkpoints remain historical references, not expected numerical outputs
 of the revised equations.
 
@@ -34,13 +35,13 @@ the completed state.
 
 Use the existing environment. Set `SRNN_HOME` to the external data/results
 root. Each command creates a fresh output directory and refuses collisions.
-The current run uses eight seeds, 500 neurons, Dale enforcement, and no skip.
+The current run uses 15 seeds, 500 neurons, Dale enforcement, and no skip.
 The standalone runner remains available for local or manually managed execution:
 
 ```bash
 python scripts/run_matlab_aligned.py --dry-run
-python scripts/run_matlab_aligned.py --profile --seeds 8
-python scripts/run_matlab_aligned.py --seeds 8
+python scripts/run_matlab_aligned.py --profile --seeds 15
+python scripts/run_matlab_aligned.py --seeds 15
 python scripts/summarize_matlab_aligned.py "$SRNN_HOME/results/cheetah100/<run>"
 ```
 
@@ -65,7 +66,7 @@ Adam at 0.0005, no decay, FP32, and per-variant gradient clipping at one.
 Validation at initialization and every 100 steps is required by the summary.
 
 The optional capacity-sizing utility increases whole seed counts with all
-three conditions in one cell; it is not part of the approved eight-seed run. Keep model size, precision, readers, chunk length, and solver fixed.
+three conditions in one cell; it is not part of the approved 15-seed run. Keep model size, precision, readers, chunk length, and solver fixed.
 Select the largest tested count whose whole-device sampled usage is below
 80% of VRAM, with successful compilation, training, evaluation and checkpoint
 reload. GPU samples are one second apart and may miss transient peaks;

@@ -75,12 +75,35 @@ The pilot directory `matlab-v2-20260916-052434-bce3a7-pilot-s3` and pipeline
 records are mirrored under the local cache alongside the parity artifacts.
 The old VM was stopped after preserving these artifacts.
 
-The user approved a fresh VM through the repository cloud scripts, with
-**eight paired seeds for each of three conditions, 100 epochs** (24 networks,
-2,000 optimizer steps). A one-epoch preflight at that exact batch size will
-check memory and execution; the manuscript run starts from fresh initialization,
-not from the preflight checkpoint. The earlier maximum-capacity search and
-100-epoch pilot are superseded by this fixed eight-seed design.
+The user approved a fresh VM through the repository cloud scripts. The
+initial eight-seed/three-condition one-epoch preflight completed successfully:
+24 finite model states and training/validation losses after 20 optimizer steps,
+a loadable saved checkpoint, finite test losses, and GCS `run_metadata.json`
+with exit code zero. Whole-device sampled peak was 6,268 / 23,034 MiB (27.21%).
+Its source is pinned to `8e2ce4cc7cbb5534447375a4f49ede4f18880308`; dataset
+hashes match the validated dataset. Python 3.10.12, PyTorch 2.9.1+cu129,
+CUDA 12.9 and NVIDIA driver 580.178.04 were recorded. This one-epoch preflight
+uses the standard trainer's short-run warmup cap (four steps); the manuscript
+run uses the approved 60-step warmup. The preflight is not a scientific result.
 
-Scientific results remain pending. The manuscript and its figure links have
-not been edited by this implementation.
+The user subsequently selected **15 paired seeds per condition, 100 epochs**
+(45 networks, 2,000 optimizer steps). This fixed count supersedes the earlier
+eight-seed plan and maximum-capacity search. The manuscript run is
+`m5-15s-100e-0916`, submitted through `cloud/submit.sh` on the fresh L4 VM
+`m5-8s-preflight-0916-srnn-cheetah100-seed1` in `us-central1-b`. The VM name
+reflects its initial preflight; the manuscript run actually uses seeds 1–15.
+It starts from fresh initialization (`init_ckpt=null`), with no skip connection,
+Dale enforcement, FP32, 500 neurons, SRA1 with four internal substeps, 24 ring
+readers, 250-sample chunks and five-sample gradient-checkpoint segments.
+The deployed commit remains pinned to `8e2ce4c`.
+
+Cloud artifacts:
+
+- Preflight: `gs://liquidneuralnets-experiments/results-pytorch/m5-8s-preflight-0916/srnn/cheetah100/seed1/`.
+- Manuscript: `gs://liquidneuralnets-experiments/results-pytorch/m5-15s-100e-0916/srnn/cheetah100/seed1/`.
+
+The outer `seed1` directory is the cloud dispatch seed; all 45 named variants
+are saved within it. The VM is configured to upload results periodically and
+stop after completion. The first epoch of the larger batch is being monitored
+for actual memory use. Scientific results remain pending. The manuscript and
+its figure links have not been edited by this implementation.
