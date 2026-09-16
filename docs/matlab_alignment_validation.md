@@ -104,6 +104,8 @@ Cloud artifacts:
 
 The outer `seed1` directory is the cloud dispatch seed; all 45 named variants
 are saved within it. The VM is configured to upload results periodically and
-stop after completion. The first epoch of the larger batch is being monitored
-for actual memory use. Scientific results remain pending. The manuscript and
+stop after completion. The first epoch completed at 2026-09-16 06:04 UTC with finite training losses
+for all 45 networks. Sampled peak through that epoch was 9,376 MiB (40.70%
+of device memory); later evaluation peaks remain to be measured. Epoch 2
+then started normally. Scientific results remain pending. The manuscript and
 its figure links have not been edited by this implementation.
