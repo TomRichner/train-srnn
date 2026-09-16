@@ -85,7 +85,7 @@ def main():
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(5, 3))
+    fig, ax = plt.subplots(figsize=(4, 3))
     scores = {}
     for condition, color in zip(CONDITIONS, ('#555555', '#0072B2', '#DAA520')):
         values = arrays[condition]
