@@ -1,6 +1,7 @@
-"""Post-run analysis: download a run from GCS, then plots and tables.
+"""Post-run analysis: download a run (Modal Volume or GCS), then plots and tables.
 
     python scripts/postprocess.py <run_name>                     # task cheetah100, seed 1
+    python scripts/postprocess.py <gce_run> --source gcs         # runs made on GCE VMs
     python scripts/postprocess.py ring2x5-100e --task cheetah100
     python scripts/postprocess.py myrun --skip-download --variants srnn-skip,srnn-no-adapt-skip
     python scripts/postprocess.py later-run --prepend-runs earlier-run   # concatenate a resumed run
@@ -35,7 +36,8 @@ import torch.nn.functional as F
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
-from _runs import cache_dir, gcloud_storage, read_bucket, variant_names as _ckpt_names  # noqa: E402
+from _runs import (cache_dir, download_from_volume, gcloud_storage, read_bucket,  # noqa: E402
+                   results_volume, variant_names as _ckpt_names)
 
 DEFAULT_TMP = cache_dir()
 
@@ -53,7 +55,20 @@ def ensure_local_run(args) -> Path:
         print(f"[download] --skip-download set, using {local} as-is")
         return local
 
-    remote_prefix = f"{args.bucket}/results-pytorch/{args.run_name}/srnn/{args.task}/seed{args.seed}"
+    run_path = f"results-pytorch/{args.run_name}/srnn/{args.task}/seed{args.seed}"
+    if args.source == "modal":
+        print(f"[download] enumerating srnn-results:/{run_path}/")
+        try:
+            new, skipped = download_from_volume(results_volume(), run_path, local)
+        except FileNotFoundError as exc:
+            sys.exit(f"ERROR: nothing at {exc}. Wrong run_name/task/seed, or a GCE run "
+                     "(pass --source gcs)?")
+        print(f"[download] done: {new} new, {skipped} cached, total {new+skipped} files")
+        _require_run_files(local)
+        return local
+
+    bucket = args.bucket or read_bucket()
+    remote_prefix = f"{bucket}/{run_path}"
     print(f"[download] enumerating {remote_prefix}/*")
     res = gcloud_storage("ls", f"{remote_prefix}/")
     if res.returncode != 0:
@@ -81,12 +96,14 @@ def ensure_local_run(args) -> Path:
         new += 1
     print(f"[download] done: {new} new, {skipped} cached, total {new+skipped} files")
 
-    # Sanity checks
-    must_have = ["last.pt", "training_history.csv"]
-    for fn in must_have:
+    _require_run_files(local)
+    return local
+
+
+def _require_run_files(local: Path) -> None:
+    for fn in ("last.pt", "training_history.csv"):
         if not (local / fn).exists():
             sys.exit(f"ERROR: required file {fn} missing from {local}. Run incomplete?")
-    return local
 
 
 # =============================================================================
@@ -1070,12 +1087,15 @@ def _resolve_replay_checkpoints(run_dir: Path, spec: str) -> list[Path]:
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("run_name", help="GCS run name (top-level folder under results-pytorch/)")
+    p.add_argument("run_name", help="run name (top-level folder under results-pytorch/)")
     p.add_argument("--task", default="cheetah100", help="task name (default: cheetah100)")
     p.add_argument("--seed", type=int, default=1, help="seed (default: 1)")
-    p.add_argument("--bucket", default=read_bucket(), help="GCS bucket (default: cloud/config.gpu.env)")
+    p.add_argument("--source", choices=["modal", "gcs"], default="modal",
+                   help="where the run lives: the srnn-results Modal Volume (default) or GCS")
+    p.add_argument("--bucket", default=None,
+                   help="GCS bucket for --source gcs (default: cloud/config.gpu.env)")
     p.add_argument("--tmp-dir", default=str(DEFAULT_TMP), help=f"local destination root (default: {DEFAULT_TMP})")
-    p.add_argument("--skip-download", action="store_true", help="skip GCS download; use existing local files only")
+    p.add_argument("--skip-download", action="store_true", help="skip the download; use existing local files only")
     p.add_argument("--variants", default=None, help="comma-separated variant names to render per-variant (default: all)")
     p.add_argument("--no-report", action="store_true", help="skip the consolidated PDF report")
     p.add_argument("--skip-replay", action="store_true",

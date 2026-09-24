@@ -1,4 +1,4 @@
-"""Helpers shared by the analysis scripts: run caches, GCS, rebuilding models from checkpoints."""
+"""Helpers shared by the analysis scripts: run caches, GCS and Modal, rebuilding models from checkpoints."""
 from __future__ import annotations
 
 import shutil
@@ -31,6 +31,50 @@ def gcloud_storage(*args: str, capture: bool = True) -> subprocess.CompletedProc
     if not shutil.which("gcloud"):
         sys.exit("ERROR: gcloud not found in PATH. Install the Google Cloud SDK.")
     return subprocess.run(["gcloud", "storage", *args], capture_output=capture, text=True, check=False)
+
+
+RESULTS_VOLUME = "srnn-results"   # must match cloud/modal_run.py
+
+
+def results_volume():
+    """The Modal Volume that Modal runs write to (``cloud/modal_app.py``)."""
+    try:
+        import modal
+    except ImportError:
+        sys.exit("ERROR: the modal package is missing; run `uv sync` (it is in the dev group).")
+    return modal.Volume.from_name(RESULTS_VOLUME)
+
+
+def download_from_volume(volume, prefix: str, local: Path) -> tuple[int, int]:
+    """Copy every file under ``prefix`` into ``local``, keeping subdirectories.
+
+    Files already present and non-empty are skipped. Returns ``(new, skipped)``;
+    a missing prefix raises ``FileNotFoundError``.
+    """
+    try:
+        entries = volume.listdir(prefix, recursive=True)
+    except Exception as exc:  # modal.exception.NotFoundError
+        raise FileNotFoundError(f"{RESULTS_VOLUME}:/{prefix}") from exc
+    new = skipped = 0
+    for entry in entries:
+        if entry.type.name != "FILE":
+            continue
+        rel = entry.path[len(prefix):].lstrip("/")
+        dest = local / rel
+        if dest.exists() and dest.stat().st_size > 0:
+            skipped += 1
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(dest.name + ".part")
+        with tmp.open("wb") as stream:
+            for chunk in volume.read_file(entry.path):
+                stream.write(chunk)
+        tmp.replace(dest)
+        print(f"[download] {rel}")
+        new += 1
+    if new + skipped == 0:
+        raise FileNotFoundError(f"{RESULTS_VOLUME}:/{prefix} holds no files")
+    return new, skipped
 
 
 def variant_names(ckpt: dict) -> list[str]:

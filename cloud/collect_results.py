@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect and aggregate results from GCS.
+"""Collect and aggregate results from the srnn-results Modal Volume or GCS.
 
 For each seed, reads ``training_history.csv`` (per-epoch valid metrics) and
 ``test_history.csv`` (test metrics at checkpoint epochs). For each variant
@@ -10,7 +10,8 @@ Works for both single-model runs (no ``variant`` column) and batched ablation
 runs (one row per variant per epoch / checkpoint).
 
 Usage:
-    python3 cloud/collect_results.py <run_name>
+    uv run python cloud/collect_results.py <run_name>                  # Modal runs
+    python3 cloud/collect_results.py <run_name> --source gcs           # GCE runs
     python3 cloud/collect_results.py <run_name> --seeds 5 --csv out.csv
 """
 
@@ -60,6 +61,36 @@ def gcs_cat(path):
         return result.stdout
     except subprocess.CalledProcessError:
         return None
+
+
+_VOLUME = None
+
+
+def _results_volume():
+    global _VOLUME
+    if _VOLUME is None:
+        import modal
+        _VOLUME = modal.Volume.from_name("srnn-results")  # cloud/modal_run.py RESULTS_VOLUME
+    return _VOLUME
+
+
+def modal_ls(path):
+    """List a directory on the srnn-results Volume (paths relative to its root)."""
+    try:
+        return [e.path.rstrip("/") for e in _results_volume().listdir(path)]
+    except Exception:  # modal.exception.NotFoundError
+        return []
+
+
+def modal_cat(path):
+    """Read a text file from the srnn-results Volume, or None if it is missing."""
+    try:
+        return b"".join(_results_volume().read_file(path)).decode()
+    except Exception:  # FileNotFoundError / NotFoundError
+        return None
+
+
+BACKENDS = {"gcs": (gcs_ls, gcs_cat), "modal": (modal_ls, modal_cat)}
 
 
 def _parse_csv(text):
@@ -117,7 +148,7 @@ def _pick_best(train_rows, test_rows, higher_is_better):
     return result
 
 
-def collect(run_name, bucket, seeds=5, models=None, experiments=None):
+def collect(run_name, bucket, seeds=5, models=None, experiments=None, source="gcs"):
     """Collect per-seed results for a run.
 
     Returns (results, timing) where:
@@ -125,28 +156,29 @@ def collect(run_name, bucket, seeds=5, models=None, experiments=None):
           best_epoch, valid_metric, test_loss, test_metric
       timing: dict of (model, exp, seed) -> run_metadata dict
     """
-    base = f"{bucket}/results-pytorch/{run_name}"
+    ls, cat = BACKENDS[source]
+    base = f"results-pytorch/{run_name}" if source == "modal" else f"{bucket}/results-pytorch/{run_name}"
     results = []
     timing = {}
 
-    model_dirs = models or [os.path.basename(p) for p in gcs_ls(base)]
+    model_dirs = models or [os.path.basename(p) for p in ls(base)]
 
     for model in model_dirs:
-        exp_dirs = experiments or [os.path.basename(p) for p in gcs_ls(f"{base}/{model}")]
+        exp_dirs = experiments or [os.path.basename(p) for p in ls(f"{base}/{model}")]
         for exp in exp_dirs:
             higher_is_better = exp in HIGHER_IS_BETTER
             for seed in range(1, seeds + 1):
                 seed_path = f"{base}/{model}/{exp}/seed{seed}"
 
-                meta_content = gcs_cat(f"{seed_path}/run_metadata.json")
+                meta_content = cat(f"{seed_path}/run_metadata.json")
                 if meta_content:
                     try:
                         timing[(model, exp, seed)] = json.loads(meta_content)
                     except json.JSONDecodeError:
                         pass
 
-                train_content = gcs_cat(f"{seed_path}/training_history.csv")
-                test_content = gcs_cat(f"{seed_path}/test_history.csv")
+                train_content = cat(f"{seed_path}/training_history.csv")
+                test_content = cat(f"{seed_path}/test_history.csv")
                 if not train_content or not test_content:
                     continue
 
@@ -266,17 +298,20 @@ def print_table(results, experiments, models):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Collect experiment results from GCS")
+    parser = argparse.ArgumentParser(description="Collect experiment results from Modal or GCS")
     parser.add_argument("run_name", help="Run name")
-    parser.add_argument("--bucket", default=_default_bucket(), help="GCS bucket (default: cloud/config.gpu.env)")
+    parser.add_argument("--source", choices=sorted(BACKENDS), default="modal",
+                        help="srnn-results Modal Volume (default) or GCS")
+    parser.add_argument("--bucket", default=None, help="GCS bucket (default: cloud/config.gpu.env)")
     parser.add_argument("--seeds", type=int, default=5)
     parser.add_argument("--models", nargs="+", default=None)
     parser.add_argument("--experiments", nargs="+", default=None)
     parser.add_argument("--csv", default=None, help="Output CSV path")
     args = parser.parse_args()
 
+    bucket = (args.bucket or _default_bucket()) if args.source == "gcs" else None
     results, timing = collect(
-        args.run_name, args.bucket, args.seeds, args.models, args.experiments,
+        args.run_name, bucket, args.seeds, args.models, args.experiments, args.source,
     )
 
     if not results:

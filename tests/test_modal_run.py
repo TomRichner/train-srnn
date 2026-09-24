@@ -164,3 +164,38 @@ def test_modal_app_function_settings():
                                                            modal_run.DATA_MOUNT}
     assert set(modal_app.IMAGES) == {"default", "reference"}
 
+
+
+class _FakeVolume:
+    """listdir/read_file stand-in for modal.Volume."""
+
+    def __init__(self, files):
+        self.files = files
+
+    def listdir(self, prefix, recursive=False):
+        from types import SimpleNamespace as NS
+        entries = [NS(path=p, type=NS(name="FILE")) for p in self.files if p.startswith(prefix + "/")]
+        if not entries:
+            raise RuntimeError("NotFoundError")
+        return [NS(path=prefix + "/.hydra", type=NS(name="DIRECTORY")), *entries]
+
+    def read_file(self, path):
+        data = self.files[path]
+        yield data[:2]
+        yield data[2:]
+
+
+def test_download_from_volume_keeps_subdirs_and_skips_cached(tmp_path):
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from _runs import download_from_volume
+
+    prefix = "results-pytorch/r/srnn/t/seed1"
+    vol = _FakeVolume({f"{prefix}/last.pt": b"weights", f"{prefix}/.hydra/config.yaml": b"a: 1",
+                       "results-pytorch/r/srnn/t/seed10/last.pt": b"other seed"})
+    assert download_from_volume(vol, prefix, tmp_path) == (2, 0)
+    assert (tmp_path / "last.pt").read_bytes() == b"weights"
+    assert (tmp_path / ".hydra" / "config.yaml").read_bytes() == b"a: 1"
+    assert not list(tmp_path.rglob("*.part"))
+    assert download_from_volume(vol, prefix, tmp_path) == (0, 2)
+    with pytest.raises(FileNotFoundError):
+        download_from_volume(vol, "results-pytorch/missing", tmp_path)
