@@ -71,7 +71,8 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def provenance(output: Path, data_dir: Path, commit: str) -> None:
+def provenance(output: Path, data_dir: Path, commit: str, extra: dict | None = None) -> dict:
+    """Write ``runtime_provenance.json``; ``extra`` adds launcher-specific keys (e.g. Modal)."""
     import torch
 
     hashes = {}
@@ -87,7 +88,37 @@ def provenance(output: Path, data_dir: Path, commit: str) -> None:
                  for index in range(torch.cuda.device_count())],
         "nvidia_smi": query_gpu("index,uuid,name,driver_version,memory.total").strip(),
     }
+    report.update(extra or {})
     (output / "runtime_provenance.json").write_text(json.dumps(report, indent=2) + "\n")
+    return report
+
+
+def utc_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def write_run_metadata(output: Path, *, run_name: str, experiment: str, model: str, seed: int,
+                       exit_code: int, vm_name: str, hardware: str, start_time: str,
+                       duration_seconds: float, commit: str, train_args: str,
+                       extra: dict | None = None) -> dict:
+    """Write ``run_metadata.json`` with the fields ``startup_gpu.sh`` records on GCE.
+
+    A nonzero ``exit_code`` adds ``failed_at`` and ``error: true``.
+    """
+    meta = {
+        "run_name": run_name, "experiment": experiment, "model": model, "seed": int(seed),
+        "exit_code": int(exit_code), "vm_name": vm_name, "hardware": hardware,
+        "start_time": start_time, "completed": utc_now(),
+        "duration_seconds": int(round(duration_seconds)), "commit": commit,
+        "train_args": train_args,
+    }
+    meta.update(extra or {})
+    if exit_code != 0:
+        meta["failed_at"] = meta["completed"]
+        meta["error"] = True
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "run_metadata.json").write_text(json.dumps(meta, indent=2) + "\n")
+    return meta
 
 
 def main() -> None:

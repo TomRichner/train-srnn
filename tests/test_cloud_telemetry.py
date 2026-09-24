@@ -85,3 +85,17 @@ def test_dataset_hash_streams_larger_than_one_chunk(tmp_path):
     path = tmp_path / "train.npz"
     path.write_bytes(payload)
     assert telemetry.file_sha256(path) == hashlib.sha256(payload).hexdigest()
+
+
+def test_run_metadata_matches_gce_fields_and_marks_failure(tmp_path):
+    common = dict(run_name="r", experiment="cheetah100", model="srnn", seed="2",
+                  vm_name="fc-1", hardware="modal-L4", start_time="2026-01-01T00:00:00Z",
+                  duration_seconds=12.4, commit="a" * 40, train_args="epochs=3")
+    ok = telemetry.write_run_metadata(tmp_path, exit_code=0, extra={"platform": "modal"}, **common)
+    assert json.loads((tmp_path / "run_metadata.json").read_text()) == ok
+    assert {"run_name", "experiment", "model", "seed", "exit_code", "vm_name", "hardware",
+            "start_time", "completed", "duration_seconds", "commit", "train_args"} <= set(ok)
+    assert ok["seed"] == 2 and ok["duration_seconds"] == 12 and ok["platform"] == "modal"
+    assert "error" not in ok and "failed_at" not in ok
+    failed = telemetry.write_run_metadata(tmp_path, exit_code=3, **common)
+    assert failed["error"] is True and failed["failed_at"] == failed["completed"]
