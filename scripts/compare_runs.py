@@ -4,8 +4,9 @@
 
 Used for the GPU regression checks in docs/regression_baseline_20ep.md. Reports:
 
-- config keys that differ, ignoring where a run was written (``output_dir``,
-  ``run_name``, ``paths``) and the ``device``/``init_ckpt`` plumbing;
+- config keys that differ, ignoring where a run was written or read from
+  (``output_dir``, ``run_name``, ``paths``, ``task.data_dir``) and the
+  ``device``/``init_ckpt`` plumbing;
 - per numeric column of ``training_history.csv`` and ``test_history.csv``, the
   maximum absolute and relative difference over matching rows (the CSVs round to
   six decimals, so differences below about 1e-6 are not resolved);
@@ -27,7 +28,7 @@ from pathlib import Path
 
 import torch
 
-IGNORED_CONFIG = {"output_dir", "run_name", "paths", "device", "init_ckpt"}
+IGNORED_CONFIG = {"output_dir", "run_name", "paths", "device", "init_ckpt", "task.data_dir"}
 KEYS = {"training_history.csv": ("epoch", "variant"),
         "test_history.csv": ("epoch", "tag", "variant")}
 
@@ -41,9 +42,13 @@ def _flatten(value, prefix=""):
     return {prefix: value}
 
 
+def _ignored(key: str) -> bool:
+    return key in IGNORED_CONFIG or key.split(".")[0] in IGNORED_CONFIG
+
+
 def config_diff(ref: dict, cand: dict) -> dict:
-    a = {k: v for k, v in _flatten(ref).items() if k.split(".")[0] not in IGNORED_CONFIG}
-    b = {k: v for k, v in _flatten(cand).items() if k.split(".")[0] not in IGNORED_CONFIG}
+    a = {k: v for k, v in _flatten(ref).items() if not _ignored(k)}
+    b = {k: v for k, v in _flatten(cand).items() if not _ignored(k)}
     return {k: [a.get(k), b.get(k)] for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k)}
 
 

@@ -16,7 +16,7 @@ def _run(path, loss, weight, output_dir):
     (path / "test_history.csv").write_text(
         "epoch,tag,variant,test_loss,timestamp\n0,last,srnn,0.5,2026-01-01T00:00:00Z\n")
     config = {"lr": 0.001, "output_dir": output_dir, "paths": {"results": output_dir},
-              "model": {"num_units": 300}}
+              "model": {"num_units": 300}, "task": {"data_dir": output_dir, "h": 0.01}}
     for name in ("init.pt", "last.pt"):
         torch.save({"model_state_dict": {"w": torch.tensor([1.0, weight])}, "config": config},
                    path / name)
