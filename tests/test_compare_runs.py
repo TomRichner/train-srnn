@@ -40,3 +40,31 @@ def test_compare_flags_missing_rows(tmp_path):
     with (tmp_path / "b" / "training_history.csv").open("a") as f:
         f.write("1,srnn,0.2,0.001,2026-01-01T00:00:00Z\n")
     assert compare_runs.has_errors(compare_runs.compare(tmp_path / "a", tmp_path / "b"))
+
+
+def test_max_epoch_compares_a_truncated_run(tmp_path):
+    _run(tmp_path / "long", 0.25, 2.0, "/a")
+    _run(tmp_path / "short", 0.25, 2.0, "/b")
+    with (tmp_path / "long" / "training_history.csv").open("a") as f:
+        f.write("5,srnn,0.2,0.001,2026-01-01T00:00:00Z\n")
+    with (tmp_path / "short" / "test_history.csv").open("a") as f:
+        f.write("0,epoch_000,srnn,0.5,2026-01-01T00:00:00Z\n")
+    with (tmp_path / "long" / "test_history.csv").open("a") as f:
+        f.write("0,epoch_000,srnn,0.5,2026-01-01T00:00:00Z\n")
+    for run in ("long", "short"):
+        torch.save(torch.load(tmp_path / run / "last.pt"), tmp_path / run / "epoch_000.pt")
+    torch.save(torch.load(tmp_path / "long" / "last.pt"), tmp_path / "long" / "epoch_005.pt")
+    (tmp_path / "long" / "last.pt").unlink()
+    report = compare_runs.compare(tmp_path / "long", tmp_path / "short", max_epoch=0)
+    assert not compare_runs.has_errors(report)
+    assert set(report["checkpoints"]) == {"init.pt", "epoch_000.pt"}
+    assert report["training_history.csv"]["rows"] == 1
+
+
+def test_nan_in_both_runs_matches(tmp_path):
+    for run in ("a", "b"):
+        _run(tmp_path / run, "nan", 2.0, "/x")
+    assert not compare_runs.has_errors(compare_runs.compare(tmp_path / "a", tmp_path / "b"))
+    (tmp_path / "b" / "training_history.csv").write_text(
+        "epoch,variant,train_loss,lr,timestamp\n0,srnn,0.3,0.001,2026-01-01T00:00:00Z\n")
+    assert compare_runs.has_errors(compare_runs.compare(tmp_path / "a", tmp_path / "b"))

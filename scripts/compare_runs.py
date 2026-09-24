@@ -52,13 +52,18 @@ def config_diff(ref: dict, cand: dict) -> dict:
     return {k: [a.get(k), b.get(k)] for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k)}
 
 
-def _rows(path: Path, key: tuple[str, ...]) -> dict:
+def _rows(path: Path, key: tuple[str, ...], max_epoch: int | None = None) -> dict:
+    """Rows keyed by ``key``; with ``max_epoch``, only epochs up to it and no ``last`` tags."""
     with path.open() as stream:
-        return {tuple(row[k] for k in key): row for row in csv.DictReader(stream)}
+        rows = list(csv.DictReader(stream))
+    if max_epoch is not None:
+        rows = [r for r in rows if int(r["epoch"]) <= max_epoch and r.get("tag") != "last"]
+    return {tuple(row[k] for k in key): row for row in rows}
 
 
-def history_diff(ref: Path, cand: Path, key: tuple[str, ...]) -> dict:
-    a, b = _rows(ref, key), _rows(cand, key)
+def history_diff(ref: Path, cand: Path, key: tuple[str, ...],
+                 max_epoch: int | None = None) -> dict:
+    a, b = _rows(ref, key, max_epoch), _rows(cand, key, max_epoch)
     if set(a) != set(b):
         return {"error": f"row keys differ: only reference {sorted(set(a) - set(b))[:5]}, "
                          f"only candidate {sorted(set(b) - set(a))[:5]}"}
@@ -68,6 +73,8 @@ def history_diff(ref: Path, cand: Path, key: tuple[str, ...]) -> dict:
         abs_max = rel_max = 0.0
         for k in a:
             x, y = float(a[k][col]), float(b[k][col])
+            if math.isnan(x) and math.isnan(y):  # e.g. train_loss of the epoch -1 row
+                continue
             if not (math.isfinite(x) and math.isfinite(y)):
                 return {"error": f"non-finite {col} at {k}"}
             abs_max = max(abs_max, abs(x - y))
@@ -98,16 +105,20 @@ def checkpoint_diff(ref: Path, cand: Path) -> dict:
             "rel_l2": math.sqrt(num / den) if den else 0.0, "tensors": len(a)}
 
 
-def compare(ref: Path, cand: Path, all_epochs: bool = False) -> dict:
-    ref_cfg = torch.load(ref / "last.pt", map_location="cpu", weights_only=False)["config"]
-    cand_cfg = torch.load(cand / "last.pt", map_location="cpu", weights_only=False)["config"]
-    report = {"reference": str(ref), "candidate": str(cand),
+def compare(ref: Path, cand: Path, all_epochs: bool = False,
+            max_epoch: int | None = None) -> dict:
+    """``max_epoch`` compares a shorter candidate against the reference's first epochs:
+    history rows and ``epoch_*.pt`` up to that epoch, without ``last.pt``."""
+    ref_cfg = torch.load(ref / "init.pt", map_location="cpu", weights_only=False)["config"]
+    cand_cfg = torch.load(cand / "init.pt", map_location="cpu", weights_only=False)["config"]
+    report = {"reference": str(ref), "candidate": str(cand), "max_epoch": max_epoch,
               "config_diff": config_diff(ref_cfg, cand_cfg)}
     for name, key in KEYS.items():
-        report[name] = history_diff(ref / name, cand / name, key)
-    names = ["init.pt", "last.pt"]
-    if all_epochs:
-        names += sorted(p.name for p in ref.glob("epoch_*.pt"))
+        report[name] = history_diff(ref / name, cand / name, key, max_epoch)
+    names = ["init.pt"] if max_epoch is not None else ["init.pt", "last.pt"]
+    if all_epochs or max_epoch is not None:
+        names += sorted(p.name for p in ref.glob("epoch_*.pt")
+                        if max_epoch is None or int(p.stem.split("_")[1]) <= max_epoch)
     report["checkpoints"] = {n: checkpoint_diff(ref / n, cand / n) if (cand / n).exists()
                              else {"error": "missing in candidate"} for n in names}
     return report
@@ -124,9 +135,12 @@ def main() -> None:
     parser.add_argument("reference", type=Path)
     parser.add_argument("candidate", type=Path)
     parser.add_argument("--all-epochs", action="store_true", help="also compare every epoch_*.pt")
+    parser.add_argument("--max-epoch", type=int,
+                        help="compare only epochs <= this (a shorter candidate run); implies "
+                             "the epoch checkpoints and skips last.pt")
     parser.add_argument("--json", type=Path, help="write the full report here")
     args = parser.parse_args()
-    report = compare(args.reference, args.candidate, args.all_epochs)
+    report = compare(args.reference, args.candidate, args.all_epochs, args.max_epoch)
     if args.json:
         args.json.write_text(json.dumps(report, indent=2) + "\n")
     print(f"config differences: {report['config_diff'] or 'none'}")
