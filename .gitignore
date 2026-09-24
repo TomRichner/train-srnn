@@ -17,6 +17,8 @@ tmp/
 *.npz
 
 # Keys
+.env
+.env.*
 *.pem
 id_ed25519*
 deploy_key*
