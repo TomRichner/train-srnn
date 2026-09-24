@@ -155,3 +155,35 @@ and `matlab_aligned_summary.json` are stored in
 `/Users/tom/Desktop/local_data/srnn/cache/m5-15s-100e-0916/`.
 Reproduce the analysis with `scripts/summarize_matlab_aligned.py <run-directory>`.
 
+
+## Modal reproduction of the first 15 epochs (2026-09-24)
+
+`m5-repro-15e-ref-20260924` reran the manuscript configuration on a Modal L4
+([modal.md](modal.md)) with `--commit=8e2ce4c… --image reference` (Python 3.10,
+PyTorch 2.9.1+cu129, as on the VM), identical arguments except `epochs=15`, and
+matching dataset hashes. With 15 epochs the warmup cap still allows the full
+60-step warmup, so both runs follow the same learning-rate schedule through
+epoch 14. Epochs took 118–121 s, against 117 s on the VM.
+
+Mean test MSE per condition (15 seeds) at the checkpoints the two runs share:
+
+| Epoch | Condition | VM (`m5-15s-100e-0916`) | Modal | Max per-seed abs diff |
+|---:|---|---:|---:|---:|
+| 4 | No adaptation | 1.0073 | 1.0073 | 0.0000 |
+| 4 | SFA1 / STD1 | 0.7859 | 0.7859 | 0.0004 |
+| 4 | SFA3 / STD2 | 0.8990 | 0.8990 | 0.0000 |
+| 9 | No adaptation | 0.9975 | 0.9975 | 0.0000 |
+| 9 | SFA1 / STD1 | 0.4456 | 0.4456 | 0.0006 |
+| 9 | SFA3 / STD2 | 0.8153 | 0.8153 | 0.0000 |
+| 14 | No adaptation | 0.9692 | 0.9692 | 0.0000 |
+| 14 | SFA1 / STD1 | 0.2422 | 0.2423 | 0.0003 |
+| 14 | SFA3 / STD2 | 0.6459 | 0.6466 | 0.0108 |
+
+At every shared checkpoint, both runs order the conditions the same way in all
+15 paired seeds: SFA1/STD1 below SFA3/STD2, and SFA3/STD2 below no adaptation.
+The same two networks rise between epochs 9 and 14 in both runs (no adaptation
+seed 2, SFA3/STD2 seed 13). Weights are not bitwise equal: the burned-in initial
+condition already differs by a relative L2 of 2.3e-7, and weight differences
+grow to 2.6e-5 by epoch 14, as expected from GPU round-off in 45 recurrent
+networks trained through 250-step chunks. `scripts/compare_runs.py --max-epoch 14`
+reproduces the checkpoint and history comparison.

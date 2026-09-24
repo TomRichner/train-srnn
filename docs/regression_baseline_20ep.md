@@ -84,3 +84,28 @@ The final epoch also had the lowest validation loss. Verification confirmed
 20 consecutive training epochs, 22 test records (initial, each epoch, and
 final), 22 checkpoints (initial, each epoch, and final), finite history
 metrics, and finite floating-point tensors in the final model state.
+
+## Modal reproduction (2026-09-24)
+
+The reference was rerun on Modal L4 GPUs (see [modal.md](modal.md)) with
+`--commit=5e92be7…` and the same arguments, under new run names in the
+`srnn-results` Volume. The `reference` image reproduces the VM environment
+(Python 3.10, PyTorch 2.9.1+cu129); the `default` image uses `uv.lock`
+(Python 3.12, PyTorch 2.14.0+cu130). Dataset hashes match. Comparisons use
+`scripts/compare_runs.py --all-epochs`:
+
+| Comparison | Final-state max abs diff | Relative L2 | History max abs diff |
+|---|---:|---:|---:|
+| GCE vs Modal `reference`, run A | 3.81e-6 | 1.81e-8 | 1e-6 |
+| GCE vs Modal `reference`, run B | 3.58e-6 | 1.81e-8 | 1e-6 |
+| Modal run A vs run B (repeat spread) | 3.34e-6 | 1.80e-8 | 1e-6 |
+| GCE vs Modal `default` | 3.46e-6 | 1.81e-8 | 1e-6 |
+
+Initial states are bitwise identical, and the largest difference is always
+in `cell.W_raw`. History differences sit at the CSVs' six-decimal rounding.
+The GCE–Modal difference equals the Modal repeat-run spread, and the PyTorch
+2.14 image stays within it, so neither the platform nor the dependency upgrade
+changes this model's numerics beyond GPU run-to-run variation. Runtimes were
+966 and 1,013 s (`reference`) and 725 s (`default`), against 839 s on the VM.
+Run names: `regression-modal-ref-a-20260924`, `regression-modal-ref-b-20260924`
+and `regression-modal-default-20260924`.
