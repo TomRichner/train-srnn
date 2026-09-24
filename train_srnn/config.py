@@ -339,7 +339,8 @@ class TrainConfig:
     device: str = "auto"              # auto | cpu | cuda | mps
     amp: str = "fp32"                 # fp32 | bf16
     freeze_params: list[str] = field(default_factory=list)   # SRNN params pinned at init
-    init_ckpt: Optional[str] = None   # local path or gs:// URL to resume from
+    init_ckpt: Optional[str] = None   # warm start: weights/optimizer/schedule from this path or gs:// URL
+    resume: bool = False              # continue output_dir from its newest resumable checkpoint
     early_exit_after_init: bool = False
     profile: bool = False             # per-phase timing in the continuous trainer
 

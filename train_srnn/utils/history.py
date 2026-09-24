@@ -66,10 +66,17 @@ def write_progress(run_dir: Path, epoch: int, total_epochs: int) -> None:
 
 def save_checkpoint(run_dir: Path, tag: str, model: torch.nn.Module,
                     optimizer: torch.optim.Optimizer | None, scheduler,
-                    epoch: int, cfg: DictConfig) -> Path:
-    """``<run_dir>/<tag>.pt`` with everything needed to resume or to rebuild the model."""
+                    epoch: int, cfg: DictConfig, trainer_state: dict | None = None) -> Path:
+    """``<run_dir>/<tag>.pt`` with everything needed to resume or to rebuild the model.
+
+    ``trainer_state`` (from ``Trainer.trainer_state``) makes the checkpoint resumable:
+    the next epoch, optimizer-step count, every RNG stream and any carried state.
+    The file is written to a temporary name and renamed, so a crash never leaves a
+    truncated checkpoint behind.
+    """
     path = Path(run_dir) / f"{tag}.pt"
     path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
     torch.save({
         "epoch": epoch,
         "model_version": getattr(model.cell, "MODEL_VERSION", None),
@@ -80,8 +87,48 @@ def save_checkpoint(run_dir: Path, tag: str, model: torch.nn.Module,
         "variant_names": model.variant_names,
         "torch_rng_state": torch.random.get_rng_state(),
         "numpy_rng_state": np.random.get_state(),
-    }, path)
+        "trainer_state": trainer_state,
+    }, tmp)
+    os.replace(tmp, path)
     return path
+
+
+def _epoch_of(path: Path) -> int:
+    return int(path.stem.split("_", 1)[1])
+
+
+def resumable_checkpoints(run_dir: Path) -> list[Path]:
+    """Candidate checkpoints to resume from, newest first: ``epoch_*.pt`` then ``init.pt``."""
+    run_dir = Path(run_dir)
+    epochs = sorted(run_dir.glob("epoch_[0-9]*.pt"), key=_epoch_of, reverse=True)
+    init = [run_dir / "init.pt"] if (run_dir / "init.pt").exists() else []
+    return epochs + init
+
+
+def truncate_histories(run_dir: Path, last_epoch: int) -> None:
+    """Drop history rows written after the checkpoint a run resumes from.
+
+    ``training_history.csv`` keeps epochs ``<= last_epoch`` (the ``-1`` initial
+    validation row always stays); ``test_history.csv`` keeps the ``init`` row and
+    rows with epoch ``<= last_epoch``, but never a ``last`` row.
+    """
+    for name, keep in (
+        ("training_history.csv", lambda r: int(r["epoch"]) <= last_epoch),
+        ("test_history.csv",
+         lambda r: r["tag"] == "init" or (r["tag"] != "last" and int(r["epoch"]) <= last_epoch)),
+    ):
+        path = Path(run_dir) / name
+        if not path.exists():
+            continue
+        with open(path, newline="") as f:
+            reader = csv.DictReader(f)
+            header, rows = reader.fieldnames, [r for r in reader if keep(r)]
+        tmp = path.with_name(f".{name}.tmp")
+        with open(tmp, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=header)
+            writer.writeheader()
+            writer.writerows(rows)
+        os.replace(tmp, path)
 
 
 def load_checkpoint(path: str | Path, model: torch.nn.Module | None = None,

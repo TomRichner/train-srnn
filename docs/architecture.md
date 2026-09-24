@@ -107,7 +107,8 @@ for a slice; single-network cells drop the K axis.
 from `steps_per_epoch()`, the K-network loss (sum of K losses for backward,
 per-network values for logging), `optimizer_step()` with per-variant
 gradient clipping followed by `constrain_parameters()`, windowed evaluation,
-burn-in, checkpoints, the history CSVs, resume, and `fit()`.
+burn-in, checkpoints, the history CSVs, warm start (`init_ckpt`), resume
+(`resume=true`), and `fit()`.
 
 - `WindowedTrainer`: shuffled mini-batches of augmented windows, state
   reset from the IC per batch. Validation every epoch, checkpoint and test
@@ -138,7 +139,20 @@ $SRNN_RESULTS_DIR/<task>/<run_name>/
 
 Checkpoints hold the model, optimizer, and scheduler state, the resolved
 config, and `variant_names`, so `scripts/_runs.py:rebuild_model` can
-reconstruct compatible runs for analysis. SRNN version 2 rejects legacy model
+reconstruct compatible runs for analysis. They also hold `trainer_state`:
+the next epoch, the optimizer-step count, every RNG stream (trainer, closed-loop
+generator, torch CPU/CUDA, numpy), and the ring trainer's carried hidden state,
+reader positions and closed-loop feedback. Checkpoints are written atomically
+and last in each epoch's I/O, after its history and test rows.
+
+`resume=true` continues `output_dir` from its newest resumable checkpoint
+(`epoch_*.pt`, else `init.pt`): it restores all of the above, drops history rows
+written after that checkpoint, skips burn-in and the initial evaluation, and
+continues at the next epoch. On CPU the result is bitwise identical to an
+uninterrupted run (`tests/test_resume.py`). On an empty directory it starts
+fresh, and on a directory holding `last.pt` it does nothing, so it is safe to
+pass on every launch. `init_ckpt` is different: a warm start that loads weights,
+optimizer and schedule into a new run from epoch 0. SRNN version 2 rejects legacy model
 states; historical runs must be analyzed at their recorded source revision.
 
 ## Analysis (`scripts`)

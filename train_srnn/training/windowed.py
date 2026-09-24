@@ -66,8 +66,9 @@ class WindowedTrainer(Trainer):
         valid = self.evaluate("valid")
         if epoch % self.log_interval == 0:
             self.log_epoch(epoch, train, valid)
+        self.record(epoch, train, valid)
         if epoch % self.checkpoint_interval == 0:
             tag = f"epoch_{epoch:03d}"
-            self.checkpoint(epoch, tag)
             self.test(epoch, tag)
-        self.record(epoch, train, valid)
+            # Last, so a resumable checkpoint implies this epoch's history rows exist.
+            self.checkpoint(epoch, tag)

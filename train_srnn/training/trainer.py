@@ -27,7 +27,8 @@ from train_srnn.data.task import Dataset, Task
 from train_srnn.models.sequence_model import SequenceModel
 from train_srnn.utils.grad_clip import clip_grad_norm_per_variant
 from train_srnn.utils.history import (append_history, append_test_history, load_checkpoint,
-                                      save_checkpoint, write_progress)
+                                      resumable_checkpoints, save_checkpoint,
+                                      truncate_histories, write_progress)
 from train_srnn.utils.lr_schedule import WarmupHoldCosineSchedule
 from train_srnn.utils.trainable_ic import compute_burn_in
 
@@ -180,8 +181,72 @@ class Trainer(ABC):
                                     self.cfg.burn_in, self.device)
         self.model.ic.ic.data.copy_(state)
 
-    def checkpoint(self, epoch: int, tag: str) -> None:
-        save_checkpoint(self.run_dir, tag, self.model, self.optimizer, self.scheduler, epoch, self.cfg)
+    def checkpoint(self, epoch: int, tag: str, next_epoch: Optional[int] = None) -> None:
+        """Save ``<tag>.pt``; ``next_epoch`` defaults to 0 for init, all epochs for last, else epoch + 1."""
+        if next_epoch is None:
+            next_epoch = 0 if tag == "init" else self.cfg.epochs if tag == "last" else epoch + 1
+        save_checkpoint(self.run_dir, tag, self.model, self.optimizer, self.scheduler, epoch,
+                        self.cfg, trainer_state=self.trainer_state(next_epoch))
+
+    # -- resumable state ------------------------------------------------------
+
+    def trainer_state(self, next_epoch: int) -> dict:
+        """Everything besides model/optimizer/scheduler that an exact continuation needs."""
+        return {
+            "next_epoch": int(next_epoch),
+            "optimizer_steps": self.optimizer_steps,
+            "rng": self.rng.get_state(),
+            "cl_gen": self.cl_gen.get_state() if self.cl_gen is not None else None,
+            "torch_cpu_rng": torch.get_rng_state(),
+            "torch_cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_initialized() else None,
+            "numpy_rng": np.random.get_state(),
+            "extra": self.extra_state(),
+        }
+
+    def load_trainer_state(self, state: dict) -> int:
+        """Restore ``trainer_state``; returns the epoch to continue from."""
+        self.optimizer_steps = int(state["optimizer_steps"])
+        self.rng.set_state(state["rng"])
+        if self.cl_gen is not None and state["cl_gen"] is not None:
+            self.cl_gen.set_state(state["cl_gen"].cpu())
+        torch.set_rng_state(state["torch_cpu_rng"].cpu())
+        if state["torch_cuda_rng"] is not None and torch.cuda.is_available():
+            torch.cuda.set_rng_state_all([s.cpu() for s in state["torch_cuda_rng"]])
+        np.random.set_state(state["numpy_rng"])
+        self.load_extra_state(state["extra"])
+        return int(state["next_epoch"])
+
+    def extra_state(self) -> dict:
+        """Subclass state carried across epochs (e.g. the ring trainer's hidden state)."""
+        return {}
+
+    def load_extra_state(self, extra: dict) -> None:
+        pass
+
+    def resume_from_run_dir(self) -> Optional[int]:
+        """Continue this run directory from its newest resumable checkpoint.
+
+        Returns the epoch to continue from, or None when there is nothing to resume
+        (the run then starts fresh). History rows written after that checkpoint are
+        dropped, since the checkpoint is written last in each epoch's I/O.
+        """
+        for path in resumable_checkpoints(self.run_dir):
+            ckpt = torch.load(path, map_location=self.device, weights_only=False)
+            state = ckpt.get("trainer_state")
+            if state is None:
+                log.warning("Skipping %s: it has no trainer_state (older checkpoint format)", path.name)
+                continue
+            self.model.load_state_dict(ckpt["model_state_dict"])
+            self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+            self.scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+            start = self.load_trainer_state(state)
+            if self.cfg.burn_in > 0 and self.cfg.freeze_ic_after_burnin:
+                self.model.ic.ic.requires_grad_(False)
+            truncate_histories(self.run_dir, start - 1)
+            log.info("Resumed %s from %s: continuing at epoch %d (optimizer step %d)",
+                     self.run_dir, path.name, start, self.optimizer_steps)
+            return start
+        return None
 
     def test(self, epoch: int, tag: str) -> EpochStats:
         stats = self.evaluate("test")
@@ -234,30 +299,39 @@ class Trainer(ABC):
 
     def fit(self) -> None:
         cfg = self.cfg
-        if cfg.init_ckpt:
-            self.resume(cfg.init_ckpt)
-        if cfg.burn_in > 0:
-            self.refresh_ic()
-            if cfg.freeze_ic_after_burnin:
-                self.model.ic.ic.requires_grad_(False)
-                log.info("Initial condition frozen after burn-in")
-        initial_valid = self.evaluate("valid")
-        self.record(-1, EpochStats([float("nan")] * self.K, [float("nan")] * self.K), initial_valid)
-        self.checkpoint(0, "init")
-        self.test(0, "init")
-        if cfg.early_exit_after_init:
-            self.checkpoint(0, "last")
-            log.info("early_exit_after_init: wrote init.pt and last.pt to %s", self.run_dir)
+        if cfg.resume and cfg.init_ckpt:
+            raise ValueError("resume=true continues output_dir; it cannot be combined with init_ckpt")
+        if cfg.resume and (self.run_dir / "last.pt").exists():
+            log.info("resume: %s already holds last.pt; the run is complete", self.run_dir)
             return
+        start = self.resume_from_run_dir() if cfg.resume else None
+        if start is None:
+            if cfg.init_ckpt:
+                self.resume(cfg.init_ckpt)
+            if cfg.burn_in > 0:
+                self.refresh_ic()
+                if cfg.freeze_ic_after_burnin:
+                    self.model.ic.ic.requires_grad_(False)
+                    log.info("Initial condition frozen after burn-in")
+            initial_valid = self.evaluate("valid")
+            self.record(-1, EpochStats([float("nan")] * self.K, [float("nan")] * self.K),
+                        initial_valid)
+            self.test(0, "init")
+            self.checkpoint(0, "init")
+            if cfg.early_exit_after_init:
+                self.checkpoint(0, "last")
+                log.info("early_exit_after_init: wrote init.pt and last.pt to %s", self.run_dir)
+                return
+            start = 0
         self.model.train()
-        for epoch in range(cfg.epochs):
+        for epoch in range(start, cfg.epochs):
             if (cfg.burn_in_every > 0 and epoch > 0 and epoch % cfg.burn_in_every == 0
                     and cfg.burn_in > 0 and self.rebuild_ic_each_epoch):
                 self.refresh_ic()
             self.run_epoch_and_log(epoch)
         last = cfg.epochs - 1
-        self.checkpoint(last, "last")
         self.test(last, "last")
+        self.checkpoint(last, "last")
 
     #: Whether periodic burn-in makes sense (windowed runs restart from the IC
     #: every batch; the ring trainer never resets its state).

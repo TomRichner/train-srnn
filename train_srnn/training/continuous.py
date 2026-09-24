@@ -137,6 +137,16 @@ class ContinuousTrainer(Trainer):
                  self.T, self.B, self.chunk_len, self.steps_per_epoch(),
                  self.checkpoint_interval, self.log_interval, self.K)
 
+    def extra_state(self) -> dict:
+        """Carried hidden state, reader positions and closed-loop feedback; None before epoch 0."""
+        return {"state": self.state, "positions": self.positions, "y_prev": self.y_prev}
+
+    def load_extra_state(self, extra: dict) -> None:
+        def on_device(t):
+            return None if t is None else t.to(self.device)
+        self.state, self.y_prev = on_device(extra["state"]), on_device(extra["y_prev"])
+        self.positions = on_device(extra["positions"])
+
     def steps_per_epoch(self) -> int:
         T = int(self.data.train_trace.shape[0])
         B, chunk = int(self.cfg.task.batch_size), int(self.cfg.task.bptt_chunk_len or 250)
@@ -268,8 +278,9 @@ class ContinuousTrainer(Trainer):
         with self.timer.section("io_log"):
             self.record(epoch, train, valid)
         tag = f"epoch_{epoch:03d}"
-        with self.timer.section("checkpoint_save"):
-            self.checkpoint(epoch, tag)
         with self.timer.section("test_eval"):
             self.test(epoch, tag)
+        # Last, so a resumable checkpoint implies this epoch's history rows exist.
+        with self.timer.section("checkpoint_save"):
+            self.checkpoint(epoch, tag)
         self.timer.report(log, label=f"epoch {epoch}")
