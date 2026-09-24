@@ -71,8 +71,9 @@ draws, while their learned parameters remain independent.
   kept as baselines; `synthetic` is a data-free smoke task.
 - `train_srnn/config.py`: every task and model as a typed dataclass
   registered with Hydra, so a misspelled key fails at startup.
-- `cloud/`: one-command dispatch of a run to a GCE L4 VM that stages the
-  data, trains, uploads to GCS, and stops or deletes itself
+- `cloud/`: one-command dispatch of a run to a Modal GPU
+  ([docs/modal.md](docs/modal.md)), or to a GCE L4 VM that stages the data,
+  trains, uploads to GCS, and stops or deletes itself
   ([docs/cloud.md](docs/cloud.md)).
 - `scripts/`: post-run analysis (learning curves, parameter evolution,
   forward replay with Lyapunov exponents, gradient probes), all reading a
@@ -150,11 +151,21 @@ deliberately with `tests/golden/make_golden.py`.
 
 ## Cloud runs
 
+On Modal (one-time setup and data staging in [docs/modal.md](docs/modal.md)):
+
+```bash
+uv run modal run --detach cloud/modal_app.py --run-name myrun --task cheetah100 \
+    --args "model.variants=[srnn,srnn-no-adapt] epochs=100"
+uv run python scripts/postprocess.py myrun --task cheetah100     # download + plots + report
+```
+
+On a GCE VM:
+
 ```bash
 bash cloud/launch_run_gpu.sh --cleanup=keep myrun cheetah100 srnn 1 \
     "model.variants=[srnn,srnn-no-adapt] epochs=100"
 bash cloud/submit.sh <vm> myrun2 cheetah100 srnn 1 "epochs=200"    # re-dispatch to a kept VM
-python scripts/postprocess.py myrun --task cheetah100             # download + plots + report
+python scripts/postprocess.py myrun --task cheetah100 --source gcs
 ```
 
 ## Detailed run reports
@@ -174,6 +185,7 @@ condition. See [docs/reporting.md](docs/reporting.md) for inputs and options.
 - [docs/model.md](docs/model.md): the equations, parameters, transforms, solvers.
 - [docs/variants.md](docs/variants.md): the variant-name grammar.
 - [docs/architecture.md](docs/architecture.md): how the code fits together, tensor shapes, state layout.
+- [docs/modal.md](docs/modal.md): Modal dispatch, Volumes, images, and debugging.
 - [docs/cloud.md](docs/cloud.md): the GCE dispatch pipeline.
 - [docs/regression_baseline_20ep.md](docs/regression_baseline_20ep.md): the 20-epoch GPU regression baseline and reproduction procedure.
 - [docs/known_issues.md](docs/known_issues.md): open limitations.

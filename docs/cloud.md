@@ -6,6 +6,10 @@ pipeline: a VM-native startup script triggered by `gcloud compute instances
 create` (first launch) or by `add-metadata` + `start`/`reset` (re-dispatch).
 The laptop is never tethered to the run; it can sleep.
 
+New runs normally go to Modal instead ([modal.md](modal.md)), which writes
+the same artifacts in the same `results-pytorch/` layout to a Modal Volume.
+This pipeline remains for GCE and for reproducing earlier runs.
+
 Everything in `config.gpu.env` (project, bucket, zone, deploy-key repo URL)
 is the author's own GCP setup. Anyone else must point these at their own
 project and bucket before any script here will work.

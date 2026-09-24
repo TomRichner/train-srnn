@@ -228,3 +228,25 @@ seeded dendritic draws) rather than zeros. This would change no-burn-in runs.
 All readout modes now use the completed integration step. Synaptic and rate
 outputs are recomputed from the updated state, matching the timing of the
 dendritic output. The former last-substep offset no longer applies.
+
+## 15. `init_ckpt` warm-starts; it does not resume a run
+
+`Trainer.resume` (`train_srnn/training/trainer.py`) restores the model,
+optimizer and scheduler state from `init_ckpt`. `fit` then still loops
+`range(cfg.epochs)` from epoch 0, reruns burn-in (overwriting the frozen initial
+condition), rewrites `init.pt` and appends duplicate history rows. The
+checkpoint's RNG states are saved but never restored. The ring trainer's reader
+state (`state`, `positions`, `y_prev` in `train_srnn/training/continuous.py`) is
+not checkpointed at all, so a restarted run's readers begin again at their
+initial phase offsets.
+
+Impact: an interrupted run cannot continue where it stopped. On Modal, where
+GPU functions can be preempted, a preempted run has to be relaunched from the
+start (`docs/modal.md`). A long run continued with `init_ckpt` also overruns its
+learning-rate schedule.
+
+Fix: checkpoint the epoch counter, carried recurrent and reader state, and every
+RNG stream. Give `fit` a resume path that starts at the next epoch and skips
+burn-in and `init.pt`. Test that an interrupted-and-resumed CPU run equals an
+uninterrupted one bitwise, with the golden files unchanged. Then enable Modal
+retries with automatic resume from the latest `epoch_*.pt`.
