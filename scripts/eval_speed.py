@@ -5,17 +5,18 @@
         [--checkpoint last.pt] [--device cuda] [--out <run_dir>/speed_eval]
 
 For each test trace (a ``timewarp.py`` npz holding ``obs`` and a per-sample ``rate``;
-a plain trace counts as rate 1), the checkpoint's networks run once, continuously,
-from their frozen initial condition over the whole trace in teacher-forcing mode, and
-each sample's squared prediction error is recorded. Traces are z-scored with the
+a plain trace counts as rate 1), the checkpoint's networks predict every sample one
+step ahead in teacher-forcing mode, and each squared error is recorded. The trace is
+cut into segments of ``--segment-len`` scored samples, run in parallel; each starts
+from the frozen initial condition ``--warmup-s`` seconds earlier, and that lead-in is
+not scored. Traces are z-scored with the
 statistics of the run's own training trace, exactly as ``TraceTask.load`` does, read
-from ``<data-root>/<task.dataset>``. The first ``--warmup-s`` seconds are excluded.
-
+from ``<data-root>/<task.dataset>``. 
 Errors are summarized overall and in bins of ``log2 rate``, next to the persistence
 baseline (predict the current sample) in the same bins, because faster segments have
-larger sample-to-sample changes and would otherwise dominate a plain MSE. This is a
-continuous evaluation, so its numbers differ slightly from the trainer's windowed
-test loss, which restarts every window from the initial condition.
+larger sample-to-sample changes and would otherwise dominate a plain MSE. Segments and
+lead-in differ from the trainer's windows (1,500 samples, readout after its BPTT
+lead-in), so the numbers differ slightly from the trainer's test loss.
 
 Writes ``speed_eval.json`` (summaries) and ``speed_eval_<test>.npz`` (per-sample
 errors, ``(K, T)`` float32) to ``--out``.
@@ -53,24 +54,43 @@ def train_stats(cfg, data_root: Path) -> tuple[np.ndarray, np.ndarray]:
 
 
 @torch.no_grad()
-def sample_errors(model, x: torch.Tensor, chunk: int = 1000) -> torch.Tensor:
-    """Squared error per network and sample, ``(K, T-1)``, from one continuous pass."""
-    inputs, targets = x[None, :-1], x[None, 1:]
-    state = model.initial_state(1)
+def sample_errors(model, x: torch.Tensor, warmup: int, seg_len: int = 1000,
+                  chunk: int = 500) -> torch.Tensor:
+    """Squared error per network for predictions ``warmup .. T-2``, ``(K, T-1-warmup)``.
+
+    The trace is cut into segments of ``seg_len`` scored predictions, evaluated in
+    parallel as one batch (a single long pass is launch-bound and far too slow). Each
+    segment starts from the initial condition ``warmup`` samples before its first
+    scored prediction, like the trainer's windowed evaluation.
+    """
+    n_pred = x.shape[0] - 1
+    starts = list(range(warmup, n_pred, seg_len))
+    length = warmup + seg_len
+    inputs = torch.zeros(len(starts), length, x.shape[1], device=x.device, dtype=x.dtype)
+    targets = torch.zeros_like(inputs)
+    valid = torch.zeros(len(starts), length, dtype=torch.bool, device=x.device)
+    for b, a in enumerate(starts):
+        lo, hi = a - warmup, min(a + seg_len, n_pred)
+        inputs[b, :hi - lo] = x[lo:hi]
+        targets[b, :hi - lo] = x[lo + 1:hi + 1]
+        valid[b, warmup:hi - lo] = True
+    state = model.initial_state(len(starts))
     hoisted = model.cell.hoist()
     errors = []
-    for t0 in range(0, inputs.shape[1], chunk):
+    for t0 in range(0, length, chunk):
         seg = inputs[:, t0:t0 + chunk]
         res = model.unroll(seg, state, hoisted=hoisted)
         state = res.state
         pred = model.apply_readout(res.hidden, seg)
-        pred = pred if pred.dim() == 4 else pred[None]          # (K, 1, T, O)
-        errors.append(((pred[:, 0] - targets[:, t0:t0 + chunk]) ** 2).mean(-1))
-    return torch.cat(errors, dim=1)
+        pred = pred if pred.dim() == 4 else pred[None]          # (K, B, T, O)
+        errors.append(((pred - targets[None, :, t0:t0 + chunk]) ** 2).mean(-1))
+    err = torch.cat(errors, dim=2)                                # (K, B, length)
+    return err[:, valid]                                          # segments in order
 
 
 def summarize(err: np.ndarray, persistence: np.ndarray, rate: np.ndarray, warmup: int) -> dict:
-    err, persistence, lr = err[:, warmup:], persistence[warmup:], np.log2(rate[1:][warmup:])
+    """``err`` already starts at prediction ``warmup``; trim the others to match."""
+    persistence, lr = persistence[warmup:], np.log2(rate[1:][warmup:])
     bins = np.digitize(lr, BIN_EDGES) - 1
     per_bin = []
     for b in range(len(BIN_EDGES) - 1):
@@ -92,7 +112,9 @@ def main() -> None:
     p.add_argument("--tests", nargs="+", required=True, help="npz paths relative to --data-root")
     p.add_argument("--checkpoint", default="last.pt")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    p.add_argument("--warmup-s", type=float, default=5.0)
+    p.add_argument("--warmup-s", type=float, default=5.0,
+                   help="unscored lead-in from the initial condition before each segment")
+    p.add_argument("--segment-len", type=int, default=1000, help="scored samples per segment")
     p.add_argument("--out", type=Path, default=None)
     args = p.parse_args()
     out = args.out or args.run_dir / "speed_eval"
@@ -114,10 +136,10 @@ def main() -> None:
         name = f"{path.parent.name}/{path.stem}"
         x = torch.tensor((obs - mu) / sd, device=args.device)
         t0 = time.time()
-        err = sample_errors(model, x).cpu().numpy().astype(np.float32)
+        warmup = int(round(args.warmup_s * cfg.task.sample_rate_hz))
+        err = sample_errors(model, x, warmup, args.segment_len).cpu().numpy().astype(np.float32)
         xn = x.cpu().numpy()
         persistence = ((xn[1:] - xn[:-1]) ** 2).mean(axis=1)
-        warmup = int(round(args.warmup_s * cfg.task.sample_rate_hz))
         report["tests"][name] = summarize(err, persistence, rate, warmup)
         np.savez_compressed(out / f"speed_eval_{path.parent.name}__{path.stem}.npz",
                             err=err, rate=rate.astype(np.float32), persistence=persistence)

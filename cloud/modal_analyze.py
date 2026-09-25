@@ -22,9 +22,11 @@ import modal_app as base  # noqa: E402  (images and Volumes)
 import modal_run  # noqa: E402
 
 app = modal.App("train-srnn-analyze")
+# The container re-imports this file, which imports modal_app for the shared definitions.
+image = base.default_image.add_local_file(HERE / "modal_app.py", "/root/modal_app.py")
 
 
-@app.function(image=base.default_image, gpu=base.DEFAULT_GPU, timeout=6 * 3600, retries=0,
+@app.function(image=image, gpu=base.DEFAULT_GPU, timeout=6 * 3600, retries=0,
               volumes=base.FUNCTION_OPTIONS["volumes"])
 def analyze(spec: dict, code_tgz: bytes) -> dict:
     return modal_run.run_script(spec, code_tgz, commit_volume=base.results_volume.commit)
