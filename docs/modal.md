@@ -173,6 +173,13 @@ memory use.
   older than `resume=true` (for example `--commit=5e92be7…`) cannot resume: a
   second delivery then writes `redelivery_<time>.json` and stops without touching
   the existing files.
+- **When is a run done?** Every attempt writes `run_metadata.json` as it exits, so
+  a preempted attempt leaves one with `error: true` while the next attempt is still
+  training. A run is finished when `last.pt` exists and `run_metadata.json` shows
+  `exit_code` 0; `attempts.jsonl` lists every container that worked on it. This
+  happened for real on 2026-09-25: `tw30-warpslow-20260925` was preempted in epoch
+  16 after 65 minutes, redelivered at once, resumed from `epoch_014.pt` in a new
+  container and completed.
 - **Timeout:** 24 hours, Modal's maximum. The 15-seed manuscript run took about
   4 hours. A run killed at the timeout may skip `run_metadata.json`; continue it
   with `--resume`.
