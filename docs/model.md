@@ -91,7 +91,22 @@ second endpoint draw, matching MATLAB. These are heterogeneous ladders;
 nominal values alone do not describe each realized neuron.
 
 STD recovery/release pairs are 2/0.25 s and 4/0.5 s. M=1 uses the first
-pair and M=2 uses both. STD strengths are not matched across M=1 and M=2.
+pair and M=2 uses both. By default STD strengths are not matched across M=1
+and M=2: with both pairs at rho = tau_rel/tau_rec = 0.125, the steady-state
+product is `(1 + r/rho)^-2`, the square of one factor.
+
+Optional per-variant matching at the reference rate `r0 = model.std_match_rate`
+(default 0.25, the occupied median rate of FractionalReservoir's decision note
+`docs/notes/STD_strength_matching_2026-09-13.md`), via tokens in
+[variants.md](variants.md): `std-scale` multiplies the presynaptic recurrent
+weights of the M-timescale variant by `theta_1(r0)/theta_M(r0)` (MATLAB's route
+scale; the synaptic readout is unscaled, as in MATLAB's `plot_data`);
+`std-usage` lengthens its release times to a common usage ratio with
+`(1 + r0/rho_u)^M = 1 + r0/rho_1`; `std-strong` instead shortens the single
+release time so one factor equals the two-pair product; and `std-geo` replaces
+the product by the geometric mean `(prod_m b_m)^(1/M)`, which equals one factor
+at every constant rate when all pairs share rho (the analog of SFA's `c/K`
+normalization). `w-matched` starts the recurrent gain at `1/(1 + r0/rho_1)`.
 
 ## Connectivity, input, and readout
 

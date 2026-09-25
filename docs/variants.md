@@ -15,6 +15,11 @@ shape, solver, observation step, and internal substep count.
 | `sfa-only` | STD off on both populations |
 | `std-only` | SFA off on both populations |
 | `e-only` | SFA and STD off on inhibitory neurons |
+| `std-scale` | STD strength match: multiply the multi-timescale presynaptic weights by `s = theta_1(r0)/theta_M(r0)` (3 at the defaults) |
+| `std-usage` | STD strength match: lengthen the multi-timescale release times to a common usage ratio (0.683, 1.366 s at the defaults) |
+| `std-geo` | STD strength match: combine the M depression factors by their geometric mean, `(prod b)^(1/M)` |
+| `std-strong` | STD strength match the other way: shorten the single release time so one factor equals the default two-pair product (0.0625 s) |
+| `w-matched` | Start the recurrent gain at the one-STD steady state `1/(1 + r0/rho)` (1/3 at the defaults); meant for `no-adapt` |
 | `no-dales` | Permit recurrent sign changes during optimization |
 | `per-neuron` | Learn neuronal parameter vectors as well as shared gains/offsets |
 | `echo` | Detach recurrent weight entries; recurrent scalar gain still learns |

@@ -303,6 +303,9 @@ class SRNNModelConfig(ModelConfig):
     tau_a_spread: float = 0.25
     tau_b_rec_init: list[float] = field(default_factory=lambda: [2.0, 4.0])
     tau_b_rel_init: list[float] = field(default_factory=lambda: [0.25, 0.5])
+    std_match: str = "none"           # none | scale | usage | geo | strong (per-variant tokens)
+    std_match_rate: float = 0.25      # reference rate for STD strength matching
+    w_matched: bool = False           # initial recurrent gain = one-STD steady state (token w-matched)
     rmt: RMTConfig = field(default_factory=RMTConfig)
 
 

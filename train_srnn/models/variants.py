@@ -29,6 +29,11 @@ TOKENS: dict[str, dict[str, Any]] = {
     "sfa-only": dict(n_b_E=0, n_b_I=0),
     "std-only": dict(n_a_E=0, n_a_I=0),
     "e-only": dict(n_a_I=0, n_b_I=0),
+    "std-scale": dict(std_match="scale"),
+    "std-usage": dict(std_match="usage"),
+    "std-geo": dict(std_match="geo"),
+    "std-strong": dict(std_match="strong"),
+    "w-matched": dict(w_matched=True),
     "no-dales": dict(dales=False),
     "per-neuron": dict(per_neuron=True),
     "echo": dict(echo=True),
@@ -44,7 +49,9 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "std-e-only": ("std-only", "e-only"),
 }
 
-FLAGS = ("dales", "n_a_E", "n_a_I", "n_b_E", "n_b_I", "per_neuron", "echo", "skip")
+FLAGS = ("dales", "n_a_E", "n_a_I", "n_b_E", "n_b_I", "per_neuron", "echo", "skip",
+         "std_match", "w_matched")
+STD_MATCH_TOKENS = ("std-scale", "std-usage", "std-geo", "std-strong")
 
 
 @dataclass(frozen=True)
@@ -60,6 +67,8 @@ class SRNNVariant:
     per_neuron: bool
     echo: bool
     skip: bool
+    std_match: str = "none"
+    w_matched: bool = False
 
     @property
     def base_name(self) -> str:
@@ -115,7 +124,9 @@ def make_variant(name: str, base: Mapping[str, Any], default_seed: int) -> SRNNV
         raise ValueError("Conflicting adaptation condition tokens")
     if {"sfa-only", "std-only"}.issubset(tokens):
         raise ValueError("Conflicting sfa-only and std-only tokens")
-    flags = {k: base[k] for k in FLAGS}
+    if len(set(STD_MATCH_TOKENS).intersection(tokens)) > 1:
+        raise ValueError("Use at most one STD matching token")
+    flags = {k: base[k] for k in FLAGS if k in base}   # newer flags default in SRNNVariant
     for tok in tokens:
         flags.update(TOKENS[tok])
     return SRNNVariant(

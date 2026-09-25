@@ -79,6 +79,11 @@ class SRNNConfig:
     tau_a_spread: float = 0.25
     tau_b_rec_init: tuple[float, ...] = (2.0, 4.0)
     tau_b_rel_init: tuple[float, ...] = (0.25, 0.5)
+    # STD strength matching between one and several depression timescales, at the
+    # reference rate std_match_rate (see docs/model.md): none | scale | usage | geo | strong.
+    std_match: str = "none"
+    std_match_rate: float = 0.25
+    w_matched: bool = False        # recurrent gain starts at the one-STD steady state
 
     @property
     def n_E(self) -> int:
@@ -92,6 +97,46 @@ class SRNNConfig:
     def state_size(self) -> int:
         return (self.n_E * self.n_a_E + self.n_I * self.n_a_I
                 + self.n_E * self.n_b_E + self.n_I * self.n_b_I + self.num_units)
+
+
+STD_MATCH = ("none", "scale", "usage", "geo", "strong")
+
+
+def _rho(c: "SRNNConfig", m: int) -> float:
+    return c.tau_b_rel_init[m] / c.tau_b_rec_init[m]
+
+
+def std_steady_single(c: "SRNNConfig") -> float:
+    """One-timescale steady-state depression ``1 / (1 + r0 / rho_1)`` at ``std_match_rate``."""
+    return 1.0 / (1.0 + c.std_match_rate / _rho(c, 0))
+
+
+def std_route_scale(c: "SRNNConfig", count: int) -> float:
+    """``theta_1(r0) / theta_M(r0)``: the weight scale that matches M timescales to one."""
+    prod = math.prod(1.0 / (1.0 + c.std_match_rate / _rho(c, m)) for m in range(count))
+    return std_steady_single(c) / prod
+
+
+def std_init_taus(c: "SRNNConfig", count: int, kind: str) -> list[float]:
+    """Initial recovery/release times of one variant's ``count`` STD timescales.
+
+    ``usage``: with M > 1, release times lengthen to a common usage ratio rho_u with
+    ``(1 + r0/rho_u)^M = 1 + r0/rho_1``. ``strong``: with M = 1, the release time
+    shortens so ``1/(1 + r0/rho_s)`` equals the product over all configured pairs.
+    Recovery times never change.
+    """
+    rec = list(c.tau_b_rec_init[:count])
+    if kind == "rec":
+        return rec
+    rel = list(c.tau_b_rel_init[:count])
+    r0 = c.std_match_rate
+    if c.std_match == "usage" and count > 1:
+        rho_u = r0 / ((1.0 + r0 / _rho(c, 0)) ** (1.0 / count) - 1.0)
+        rel = [rho_u * t for t in rec]
+    elif c.std_match == "strong" and count == 1:
+        full = math.prod(1.0 + r0 / _rho(c, m) for m in range(len(c.tau_b_rec_init)))
+        rel = [r0 / (full - 1.0) * rec[0]]
+    return rel
 
 
 # Logical parameter groups for freezing; every attribute must exist on the cell.
@@ -150,6 +195,12 @@ class SRNNCell(RNNCell):
                 raise ValueError("Provide a recovery/release value for every STD timescale")
             if any(t <= 0 for t in (*c.tau_b_rec_init, *c.tau_b_rel_init)):
                 raise ValueError("STD time constants must be positive")
+            if c.std_match not in STD_MATCH:
+                raise ValueError(f"std_match must be one of {STD_MATCH}, got {c.std_match!r}")
+            if c.std_match_rate <= 0:
+                raise ValueError("std_match_rate must be positive")
+            if c.std_match == "strong" and len(c.tau_b_rec_init) < 2:
+                raise ValueError("std_match=strong needs the multiple-timescale pairs to match")
 
         N = first.num_units
         n_E, n_I = N // 2, N - N // 2
@@ -212,7 +263,8 @@ class SRNNCell(RNNCell):
         self.W_in = nn.Parameter(torch.stack([
             0.1 * self._randn(c.init_seed + 32452843, (self.N, self.input_size))
             for c in self.configs]))
-        self.log_W_raw_gain = nn.Parameter(torch.zeros(self.K))
+        self.log_W_raw_gain = nn.Parameter(torch.tensor([
+            math.log(std_steady_single(c)) if c.w_matched else 0.0 for c in self.configs]))
         self.W_in_gain = nn.Parameter(torch.ones(self.K))
 
     @staticmethod
@@ -261,7 +313,7 @@ class SRNNCell(RNNCell):
             taus = torch.ones(self.K, n, M)
             for k, c in enumerate(self.configs):
                 count = getattr(c, f"n_b_{side}")
-                taus[k, :, :count] = torch.tensor(getattr(c, f"tau_b_{kind}_init")[:count])
+                taus[k, :, :count] = torch.tensor(std_init_taus(c, count, kind))
             setattr(self, f"isp_tau_b_{kind}_{side}_vec", nn.Parameter(taus + torch.log(-torch.expm1(-taus))))
             setattr(self, f"log_tau_b_{kind}_{side}_gain", nn.Parameter(torch.zeros(self.K)))
 
@@ -285,6 +337,16 @@ class SRNNCell(RNNCell):
             for k, c in enumerate(cfgs):
                 mask[k, :, :getattr(c, f"n_b_{side}")] = 1.0
             self.register_buffer(f"std_{side}_mask", mask)
+            counts = [getattr(c, f"n_b_{side}") for c in cfgs]
+            # Derived from the configs, so not saved: older checkpoints load unchanged.
+            self.register_buffer(f"std_{side}_exponent", torch.tensor([
+                1.0 / m if c.std_match == "geo" and m > 1 else 1.0 for c, m in zip(cfgs, counts)
+            ]).reshape(K, 1, 1), persistent=False)
+            self.register_buffer(f"std_{side}_route_scale", torch.tensor([
+                std_route_scale(c, m) if c.std_match == "scale" and m > 1 else 1.0
+                for c, m in zip(cfgs, counts)]).reshape(K, 1, 1), persistent=False)
+        self._std_geo = any(c.std_match == "geo" for c in cfgs)
+        self._std_scaled = any(c.std_match == "scale" for c in cfgs)
         self.register_buffer("readout_ids", torch.tensor([self.READOUTS[c.readout] for c in cfgs]))
 
     # -- linked parameters ----------------------------------------------------
@@ -415,8 +477,16 @@ class SRNNCell(RNNCell):
         used = []
         for side, b in (("E", b_E), ("I", b_I)):
             mask = getattr(self, f"std_{side}_mask").unsqueeze(1)
-            used.append((b * mask + (1.0 - mask)).prod(-1))
+            prod = (b * mask + (1.0 - mask)).prod(-1)
+            if self._std_geo:  # std_match=geo: geometric mean of the M factors
+                prod = prod.clamp_min(1e-12) ** getattr(self, f"std_{side}_exponent")
+            used.append(prod)
         return torch.cat(used, dim=-1)
+
+    def _route_scale(self) -> Tensor:
+        """``(K, 1, N)`` presynaptic weight scale of std_match=scale (MATLAB route scale)."""
+        return torch.cat([self.std_E_route_scale.expand(-1, -1, self.n_E),
+                          self.std_I_route_scale.expand(-1, -1, self.n_I)], dim=-1)
 
     def _drive(self, x, a_E, a_I, b_E, b_I, W_eff: Optional[Tensor]):
         """Firing rate and synaptic output from the state.
@@ -433,7 +503,10 @@ class SRNNCell(RNNCell):
             x_eff = torch.cat([x_eff[:, :, :n_E], x_eff[:, :, n_E:] - contrib], dim=-1)
         r = piecewise_sigmoid(x_eff - self._a_0().unsqueeze(1), self.S_a)
         b_full = self._b_full(b_E, b_I)
-        Wbr = None if W_eff is None else self._recurrent_drive(b_full * r, W_eff)
+        theta = b_full * r
+        if self._std_scaled:  # scales the recurrent weights only, as in MATLAB get_params
+            theta = theta * self._route_scale()
+        Wbr = None if W_eff is None else self._recurrent_drive(theta, W_eff)
         return x_eff, r, b_full, Wbr
 
     def _split(self, r: Tensor, side: str) -> Tensor:
