@@ -34,7 +34,7 @@ LABELS = {"no-adapt": "No adaptation", "sfa1-std1": "SFA1 / STD1", "sfa3-std2": 
 COLORS = {"no-adapt": "#555555", "sfa1-std1": "#0072B2", "sfa3-std2": "#DAA520",
           "sfa3-std1": "#009E73", "sfa1-std2": "#CC79A7"}
 VARIANT = re.compile(r"^srnn-(.+)-seed(\d+)$")
-TRAIN_RANGE = (0.5, 2.0)
+RATE_TICKS = ([0.4, 0.5, 0.71, 1, 1.41, 2, 2.5], ["0.4", "0.5", "0.71", "1", "1.41", "2", "2.5"])
 
 
 # -- data ---------------------------------------------------------------------
@@ -256,6 +256,7 @@ def fig_speed_bins(speeds: dict, test_name: str, out: Path) -> str | None:
         for cond, (c, r) in condition_bins(test, sp["variants"]).items():
             ax.plot(2.0 ** c, r, "-o", ms=3, color=COLORS[cond], label=LABELS[cond])
         ax.set_xscale("log", base=2)
+        ax.set_xticks(*RATE_TICKS)
         ax.set_yscale("log")
         ax.axhline(1, color="0.5", lw=0.8, ls="--")
         ax.set_title(f"trained on {label}", fontsize=9)
@@ -283,29 +284,52 @@ def fixed_speed_table(sp: dict) -> dict:
     return out
 
 
-def fig_fixed(speeds: dict, out: Path) -> str | None:
+def train_rate_range(data_root: Path, dataset: str | None) -> tuple[float, float]:
+    """Observed playback-rate range of a dataset's training split (1.0 for unwarped data)."""
+    path = data_root / dataset / "train.npz" if dataset else None
+    if path is None or not path.exists():
+        return (1.0, 1.0)
+    z = np.load(path)
+    if "rate" not in z.files:
+        return (1.0, 1.0)
+    return float(z["rate"].min()), float(z["rate"].max())
+
+
+def fig_fixed(speeds: dict, ranges: dict, persistence: dict, out: Path) -> str | None:
     panels = [(label, fixed_speed_table(sp)) for label, sp in speeds.items() if sp]
     panels = [(l, t) for l, t in panels if t]
     if not panels:
         return None
-    fig, axes = plt.subplots(1, len(panels), figsize=(4.2 * len(panels), 3.4), squeeze=False,
-                             sharey=True)
-    for ax, (label, table) in zip(axes[0], panels):
-        for cond in CONDITIONS:
-            if cond not in table:
-                continue
-            rates = sorted(table[cond])
-            ax.plot(rates, [table[cond][r][1] for r in rates], "-o", ms=3, color=COLORS[cond],
-                    label=LABELS[cond])
-        ax.axvspan(*TRAIN_RANGE, color="0.9", zorder=0)
-        ax.set_xscale("log", base=2)
-        ax.set_yscale("log")
-        ax.axhline(1, color="0.5", lw=0.8, ls="--")
-        ax.set_title(f"trained on {label}", fontsize=9)
-        ax.set_xlabel("constant playback rate r")
-        ax.grid(alpha=0.3, which="both")
-    axes[0][0].set_ylabel("MSE / persistence MSE")
-    axes[0][-1].legend(fontsize=7)
+    fig, axes = plt.subplots(2, len(panels), figsize=(4.2 * len(panels), 6.2), squeeze=False,
+                             sharex=True, sharey="row")
+    for col, (label, table) in enumerate(panels):
+        for row, (which, ylabel) in enumerate(((1, "MSE / persistence MSE"), (0, "MSE"))):
+            ax = axes[row][col]
+            for cond in CONDITIONS:
+                if cond not in table:
+                    continue
+                rates = sorted(table[cond])
+                ax.plot(rates, [table[cond][r][which] for r in rates], "-o", ms=3,
+                        color=COLORS[cond], label=LABELS[cond])
+            lo, hi = ranges.get(label, (1.0, 1.0))
+            if hi > lo:
+                ax.axvspan(lo, hi, color="0.9", zorder=0)
+            else:
+                ax.axvline(1.0, color="0.8", lw=6, zorder=0)
+            if which == 0 and persistence:
+                rates = sorted(persistence)
+                ax.plot(rates, [persistence[r] for r in rates], "k--", lw=1, label="persistence")
+            ax.set_xscale("log", base=2)
+            ax.set_xticks(*RATE_TICKS)
+            ax.set_yscale("log")
+            if which == 1:
+                ax.axhline(1, color="0.5", lw=0.8, ls="--")
+                ax.set_title(f"trained on {label}", fontsize=9)
+            ax.grid(alpha=0.3, which="both")
+            if col == 0:
+                ax.set_ylabel(ylabel)
+        axes[1][col].set_xlabel("constant playback rate r")
+    axes[1][-1].legend(fontsize=7)
     fig.tight_layout()
     fig.savefig(out / "fixed_speeds.png", dpi=130)
     plt.close(fig)
@@ -349,9 +373,10 @@ def main() -> None:
     lines += ["Runs: " + ", ".join(f"`{k}` = `{v.name if v.name != 'seed1' else v.parent.parent.parent.name}`"
                                    for k, v in runs.items()) + ".", ""]
     for k, m in meta.items():
-        lines.append(f"- `{k}`: exit {m.get('exit_code')}, {m.get('duration_seconds')} s on "
-                     f"{m.get('hardware')}, commit `{str(m.get('commit'))[:10]}`, attempts "
-                     f"{m.get('attempts', 1)}.")
+        attempts = m.get("attempts", 1)
+        last = " (last attempt)" if attempts and attempts > 1 else ""
+        lines.append(f"- `{k}`: exit {m.get('exit_code')}, {m.get('duration_seconds')} s{last} on "
+                     f"{m.get('hardware')}, commit `{str(m.get('commit'))[:10]}`, attempts {attempts}.")
     lines.append("")
     if args.notes and args.notes.exists():
         lines += [args.notes.read_text().rstrip(), ""]
@@ -425,10 +450,19 @@ def main() -> None:
     if sb:
         lines += [f"![Error relative to persistence versus local rate on the `{args.bins_test}` "
                   f"split, whose rate spans about 0.6-1.6x]({sb})", ""]
-    fx = fig_fixed(speeds, figs)
+    ranges = {k: train_rate_range(args.data_root, datasets.get(k)) for k in runs}
+    persist = {}
+    for sp in speeds.values():
+        for name, t in (sp or {}).get("tests", {}).items():
+            m = re.search(r"test_r(\d+\.\d+)$", name)
+            if m:
+                persist[float(m.group(1))] = t["persistence_mse"]
+    fx = fig_fixed(speeds, ranges, persist, figs)
     if fx:
-        lines += [f"![Constant-speed test traces; the grey band is the warped training range "
-                  f"0.5–2x, so 0.4x and 2.5x are extrapolation]({fx})", ""]
+        rng = ", ".join(f"{k} {lo:.2f}-{hi:.2f}x" for k, (lo, hi) in ranges.items())
+        lines += [f"![Constant-speed test traces, relative to persistence (top) and absolute "
+                  f"(bottom, dashed = persistence). Grey: the playback rates present in each "
+                  f"training set ({rng}); rates outside it are extrapolation]({fx})", ""]
         for label, sp in speeds.items():
             if not sp:
                 continue
@@ -442,6 +476,8 @@ def main() -> None:
                 if cond in table:
                     lines.append(f"| {LABELS[cond]} | " + " | ".join(f"{table[cond][r][1]:.3f}"
                                                                       for r in rates) + " |")
+            lines.append("| *Persistence MSE (absolute)* | " + " | ".join(
+                f"*{persist[r]:.4f}*" for r in rates) + " |")
             lines.append("")
     test_names = sorted({n for sp in speeds.values() if sp for n in sp["tests"]
                          if "fixed_speeds" not in n})
