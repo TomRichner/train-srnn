@@ -27,8 +27,10 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from report_srnn_data import collect_run
 
-COLORS = {'srnn-no-adapt': '#555555', 'srnn-sfa1-std1': '#0072B2', 'srnn-sfa3-std2': '#DAA520'}
-LABELS = {'srnn-no-adapt': 'No adaptation', 'srnn-sfa1-std1': 'SFA1 / STD1', 'srnn-sfa3-std2': 'SFA3 / STD2'}
+COLORS = {'srnn-no-adapt': '#555555', 'srnn-sfa1-std1': '#0072B2', 'srnn-sfa3-std2': '#DAA520',
+          'srnn-sfa3-std1': '#009E73', 'srnn-sfa1-std2': '#CC79A7'}
+LABELS = {'srnn-no-adapt': 'No adaptation', 'srnn-sfa1-std1': 'SFA1 / STD1', 'srnn-sfa3-std2': 'SFA3 / STD2',
+          'srnn-sfa3-std1': 'SFA3 / STD1', 'srnn-sfa1-std2': 'SFA1 / STD2'}
 MARKER = '<!-- srnn-report:v2 -->'
 
 
