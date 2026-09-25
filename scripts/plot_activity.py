@@ -87,7 +87,9 @@ def main() -> None:
         ckpt = torch.load(args.run_dir / f"{tag}.pt", map_location="cpu", weights_only=False)
         model, cfg, names = rebuild_model(ckpt, device=args.device)
         ks = [i for i, n in enumerate(names) if n.endswith(f"-seed{args.seed}")]
-        conds = [condition(names[k]) for k in ks]
+        conds = [condition(names[k]).replace("-no-dales", "") for k in ks]
+        palette = plt.get_cmap("tab10")
+        colors = {c: COLORS.get(c, palette(i % 10)) for i, c in enumerate(conds)}
         mu, sd = train_stats(cfg, args.data_root)
         with np.load(args.data_root / args.test) as z:
             obs = z["obs"].astype(np.float32)
@@ -102,14 +104,14 @@ def main() -> None:
         target = seg[1:][keep]
 
         rows = ["prediction", "r", "prod(b)", "SFA (c/K)Σa", "x"]
-        fig, axes = plt.subplots(len(rows), len(ks), figsize=(3.3 * len(ks), 11), sharex=True,
+        fig, axes = plt.subplots(len(rows), len(ks), figsize=(3.0 * len(ks), 11), sharex=True,
                                  squeeze=False)
         n = args.n_show
         for j, (k, cond) in enumerate(zip(ks, conds)):
             ax = axes[0][j]
             for ci, ls in zip(CHANNELS, ("-", "--")):
                 ax.plot(t, target[:, ci], color="k", lw=0.8, ls=ls)
-                ax.plot(t, rec["pred"][j][keep][:, ci], color=COLORS.get(cond, "C0"), lw=1, ls=ls)
+                ax.plot(t, rec["pred"][j][keep][:, ci], color=colors[cond], lw=1, ls=ls)
             mse = float(((rec["pred"][j][keep] - target) ** 2).mean())
             ax.set_title(f"{cond}\nMSE {mse:.3f} (plotted {args.dur:g} s)", fontsize=9)
             for row, key in enumerate(("r", "b", "sfa", "x"), start=1):
@@ -141,9 +143,9 @@ def main() -> None:
                            "frac_r_saturated": float((r > 0.99).mean()),
                            "frac_r_silent": float((r < 0.01).mean())}
             axes[0].hist(np.clip(br, 1e-4, 1), bins=bins, histtype="step", density=True,
-                         color=COLORS.get(cond, "C0"), label=cond)
+                         color=colors[cond], label=cond)
             axes[1].hist(r, bins=50, range=(0, 1), histtype="step", density=True,
-                         color=COLORS.get(cond, "C0"), label=cond)
+                         color=colors[cond], label=cond)
         axes[0].set_xscale("log")
         axes[0].set_xlabel("synaptic output r·Πb")
         axes[1].set_xlabel("rate r")
