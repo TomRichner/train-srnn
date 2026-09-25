@@ -9,6 +9,8 @@ shape, solver, observation step, and internal substep count.
 |---|---|
 | `sfa1-std1` | One SFA and one STD timescale on both E and I |
 | `sfa3-std2` | Three SFA and two STD timescales on both E and I |
+| `sfa3-std1` | Three SFA and one STD timescale (factorial control) |
+| `sfa1-std2` | One SFA and two STD timescales (factorial control) |
 | `no-adapt` | No SFA or STD on either population |
 | `sfa-only` | STD off on both populations |
 | `std-only` | SFA off on both populations |
@@ -20,8 +22,9 @@ shape, solver, observation step, and internal substep count.
 
 `sfa-e-only` and `std-e-only` are aliases for `sfa-only-e-only` and
 `std-only-e-only`. Explicit condition tokens are mutually exclusive;
-combining `sfa1-std1` or `sfa3-std2` with adaptation-removal modifiers is
-rejected. Options such as `skip`, `no-dales`, and `per-neuron` can accompany
+combining any of `sfa1-std1`, `sfa3-std2`, `sfa3-std1` or `sfa1-std2` with
+adaptation-removal modifiers is rejected. The two factorial tokens separate
+the SFA-count and STD-count effects of `sfa1-std1` versus `sfa3-std2`. Options such as `skip`, `no-dales`, and `per-neuron` can accompany
 a condition.
 
 Bare `srnn` uses the shared configuration, defaulting to three SFA and two
