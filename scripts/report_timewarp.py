@@ -39,9 +39,30 @@ RATE_TICKS = ([0.4, 0.5, 0.71, 1, 1.41, 2, 2.5], ["0.4", "0.5", "0.71", "1", "1.
 
 # -- data ---------------------------------------------------------------------
 
+RUN_WIDE = ("-no-dales", "-skip")   # tokens shared by a whole run; stripped from condition names
+
+
 def parse(variant: str) -> tuple[str, int]:
     m = VARIANT.match(variant)
-    return m.group(1), int(m.group(2))
+    cond = m.group(1)
+    for tok in RUN_WIDE:
+        cond = cond.replace(tok, "")
+    return cond, int(m.group(2))
+
+
+def register_conditions(finals: dict) -> None:
+    """Extend CONDITIONS, LABELS and COLORS with any condition found in the runs."""
+    palette = plt.get_cmap("tab10")
+    for fin in finals.values():
+        for cond in fin:
+            if cond not in CONDITIONS:
+                CONDITIONS.append(cond)
+            if cond not in LABELS:
+                base = next((b for b in ("sfa3-std2", "sfa1-std2", "sfa1-std1", "no-adapt")
+                             if cond.startswith(b)), None)
+                LABELS[cond] = (LABELS[base] + " " + cond[len(base):].strip("-")) if base else cond
+            if cond not in COLORS:
+                COLORS[cond] = matplotlib.colors.to_hex(palette(len(COLORS) % 10))
 
 
 def read_csv(path: Path) -> list[dict]:
@@ -364,6 +385,7 @@ def main() -> None:
     curves = {k: test_curves(v) for k, v in runs.items()}
     finals = {k: final_test(v) for k, v in runs.items()}
     speeds = {k: load_speed(v) for k, v in runs.items()}
+    register_conditions(finals)
     meta = {k: json.loads((v / "run_metadata.json").read_text()) for k, v in runs.items()
             if (v / "run_metadata.json").exists()}
 
@@ -417,8 +439,13 @@ def main() -> None:
               "the second condition has lower MSE; p = exact two-sided paired sign-flip test on log "
               "ratios, uncorrected.", "",
               "| Dataset | Comparison | Ratio | Wins | p |", "|---|---|---:|---:|---:|"]
+    pairs = [("sfa1-std1", "sfa3-std2"), ("no-adapt", "sfa1-std1"), ("no-adapt", "sfa3-std2"),
+             ("sfa1-std1", "sfa3-std2-std-geo"), ("sfa1-std1", "sfa3-std2-std-usage"),
+             ("sfa1-std1", "sfa3-std2-std-scale"), ("sfa3-std2", "sfa3-std2-std-geo"),
+             ("sfa3-std2", "sfa1-std1-std-strong"), ("sfa1-std1", "sfa1-std2-std-geo"),
+             ("no-adapt", "no-adapt-w-matched")]
     for label, fin in finals.items():
-        for a, b in (("sfa1-std1", "sfa3-std2"), ("no-adapt", "sfa1-std1"), ("no-adapt", "sfa3-std2")):
+        for a, b in pairs:
             if a in fin and b in fin:
                 r = paired(fin[a], fin[b])
                 summary["paired"].setdefault(label, {})[f"{b}_vs_{a}"] = r
