@@ -195,6 +195,14 @@ Up to `checkpoint_interval` epochs are recomputed. Pass the same arguments as th
 original launch; the run keeps its directory, histories and `run_metadata.json`
 is rewritten at the end.
 
+Checked on an L4 (2026-09-25): a 6-epoch `cheetah100` run stopped with
+`modal app stop` after its epoch-2 checkpoint and relaunched with `--resume`
+continued at epoch 3 in a new container. Against an uninterrupted twin, its
+histories were identical at the CSVs' six decimals, each epoch appeared once, and
+its weights differed by at most 1.2e-7 (relative L2 4.5e-10), the float32 noise
+already present between the two runs at epoch 0. The twin's launcher was killed
+right after spawning, and the run still completed.
+
 ## Running analysis scripts on a GPU
 
 `cloud/modal_analyze.py` runs any repository script next to the Volumes on an L4,
