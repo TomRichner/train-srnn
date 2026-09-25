@@ -113,6 +113,9 @@ class ContinuousTrainer(Trainer):
             raise ValueError(f"task {cfg.task.name} provides no train_trace; use the windowed trainer")
         self.trace = torch.tensor(self.data.train_trace, dtype=torch.float32, device=self.device)
         self.T, self.C = self.trace.shape
+        self.target = (None if self.data.train_target is None else
+                       torch.tensor(self.data.train_target, dtype=torch.float32, device=self.device))
+        self.target_shift = int(self.data.target_shift)
         self.B = int(cfg.task.batch_size)
         self.chunk_len = int(cfg.task.bptt_chunk_len or 250)
         self.positions = (torch.arange(self.B, device=self.device) * (self.T // self.B)) % self.T
@@ -165,6 +168,9 @@ class ContinuousTrainer(Trainer):
         """``(x, y)`` chunks of shape ``(B, chunk_len, C)``; ``y`` is ``x`` one sample ahead, mod T."""
         offsets = torch.arange(self.chunk_len, device=self.device)
         idx_x = (self.positions[:, None] + offsets[None, :]) % self.T
+        if self.target is not None:
+            y = self.target[(idx_x + self.target_shift) % self.T]
+            return self.trace[idx_x], (y[..., 0] if y.shape[-1] == 1 else y)
         return self.trace[idx_x], self.trace[(idx_x + 1) % self.T]
 
     def _start_state(self) -> None:

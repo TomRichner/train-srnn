@@ -34,6 +34,10 @@ class Dataset:
     input_size: int
     output_size: int
     train_trace: Optional[np.ndarray] = None   # (T, C), only for trace tasks
+    # Input-output trace tasks: the target trace (T, O) aligned with train_trace; the
+    # target of input sample t is train_target[t + target_shift]. None = next-step.
+    train_target: Optional[np.ndarray] = None
+    target_shift: int = 1
 
 
 @dataclass
@@ -136,10 +140,29 @@ class TraceTask(Task):
         n_chan = train.shape[1]
         log.info("%s: %d channels, train/valid/test = %d/%d/%d samples, normalize=%s",
                  self.name, n_chan, len(train), len(valid), len(test), c.normalize)
+        if c.target_channels is not None:
+            return self._io_dataset(train, valid, test)
         return Dataset(
             train=self._windows(train), valid=self._windows(valid), test=self._windows(test),
             input_size=n_chan, output_size=n_chan, train_trace=train,
         )
+
+    def _io_dataset(self, train, valid, test) -> Dataset:
+        """Map ``input_channels`` at t to ``target_channels`` at ``t + target_shift``."""
+        c = self.cfg
+        ins, outs, shift = list(c.input_channels), list(c.target_channels), int(c.target_shift)
+        log.info("%s: input channels %s -> target channels %s, shift %d", self.name, ins, outs, shift)
+
+        def windows(trace):
+            seq_len, stride = c.seq_len, c.stride
+            x_all, y_all = trace[:len(trace) - shift, ins], trace[shift:, outs]
+            xw = sliding_window_view(x_all, (seq_len, len(ins)))[:, 0][::stride]
+            yw = sliding_window_view(y_all, (seq_len, len(outs)))[:, 0][::stride]
+            return xw, (yw[..., 0] if len(outs) == 1 else yw)   # single output: (N, T), like Task.loss
+
+        return Dataset(train=windows(train), valid=windows(valid), test=windows(test),
+                       input_size=len(ins), output_size=len(outs), train_trace=train[:, ins],
+                       train_target=train[:, outs], target_shift=shift)
 
     def _windows(self, trace: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         seq_len, stride, n_chan = self.cfg.seq_len, self.cfg.stride, trace.shape[1]

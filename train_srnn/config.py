@@ -141,6 +141,11 @@ class TraceTaskConfig(TaskConfig):
     loss_over_bptt: bool = True
     stretch_lo: float = 1.0
     stretch_hi: float = 1.0
+    # Input-output mapping instead of next-step prediction: inputs are these channels at
+    # t, targets those channels at t + target_shift (set input_size/output_size to match).
+    input_channels: Optional[list[int]] = None
+    target_channels: Optional[list[int]] = None
+    target_shift: int = 1
 
 
 @dataclass
