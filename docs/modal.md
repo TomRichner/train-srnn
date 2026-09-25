@@ -48,10 +48,17 @@ uv run modal run --detach cloud/modal_app.py --run-name myrun --task cheetah100 
 | `--commit` | worktree | Ship `git archive` of this full 40-character SHA. |
 | `--allow-dirty` | off | Ship a working tree with uncommitted tracked changes. |
 | `--overwrite` | off | Replace an existing result directory. |
+| `--resume` | off | Continue an existing result directory (see Resuming). |
+| `--dataset` | the task name | Train on `srnn-data:/<dataset>` (adds `task.dataset=`). |
+| `--wait` | off | Wait for the run and print its exit status. |
 
-Always pass `--detach`. The launcher waits for the run and streams its log, but
-with `--detach` a closed laptop, lost connection or Ctrl-C leaves the run going.
-Without it, the run stops when the local process does.
+Always pass `--detach`. The launcher *spawns* the training call and returns at
+once, printing the call ID; the run then continues on Modal whatever happens to
+the laptop. Follow it with `modal app logs` or the Volume. `--wait` also waits for
+the result; killing a waiting launcher does not cancel the run. (An awaited
+`.remote()` call would be cancelled when the launcher process dies, even under
+`--detach`, which is why the launcher spawns.) Without `--detach`, the app stops
+when the launcher returns.
 
 Arguments are merged exactly as `submit.sh` merges them: `ARGS` from
 `cloud/experiments/<task>.env` in the shipped code comes first, then `--args`
@@ -156,17 +163,49 @@ memory use.
 - **Collision:** the launcher refuses an existing result directory unless
   `--overwrite` is passed, and `--overwrite` deletes that directory before
   training. GCE silently overwrote in place.
-- **Preemption:** GPU functions can be preempted, and Modal cannot exempt them.
-  The docs call it rare. A preempted input may be delivered again even with
-  `retries=0`. The runner then finds a populated result directory, writes
-  `redelivery_<time>.json` beside it, and stops without touching the existing
-  files. The run has to be relaunched under a new name. Runs are not yet
-  resumable (see [known_issues.md](known_issues.md)); making them resumable
-  would let Modal retry and continue instead.
+- **Preemption and crashes:** GPU functions can be preempted, and Modal cannot
+  exempt them; the docs call it rare. A preempted input is delivered again, and
+  a crashed container is retried up to twice (`modal.Retries`, 30 s apart). The
+  runner always passes `resume=true` when the shipped code supports it, so a
+  second attempt continues from the newest checkpoint (see Resuming). Each
+  attempt is appended to `attempts.jsonl`; later attempts write
+  `runtime_provenance_attempt<N>.json` and append to the GPU sample CSV. Code
+  older than `resume=true` (for example `--commit=5e92be7…`) cannot resume: a
+  second delivery then writes `redelivery_<time>.json` and stops without touching
+  the existing files.
 - **Timeout:** 24 hours, Modal's maximum. The 15-seed manuscript run took about
-  4 hours. A run killed at the timeout may skip `run_metadata.json`.
+  4 hours. A run killed at the timeout may skip `run_metadata.json`; continue it
+  with `--resume`.
 - **Concurrency:** the Starter plan allows 10 GPUs at once. Separate launches
   run in parallel.
+
+## Resuming
+
+`resume=true` (see [architecture.md](architecture.md), "Run directory") continues
+a run directory from its newest checkpoint with the same epoch counter, carried
+state and RNG streams; on CPU the result is bitwise identical to an uninterrupted
+run. To continue a run that was stopped, timed out or failed:
+
+```bash
+uv run modal run --detach cloud/modal_app.py --run-name myrun --task cheetah100 \
+    --args "<the same args>" --resume
+```
+
+Up to `checkpoint_interval` epochs are recomputed. Pass the same arguments as the
+original launch; the run keeps its directory, histories and `run_metadata.json`
+is rewritten at the end.
+
+## Running analysis scripts on a GPU
+
+`cloud/modal_analyze.py` runs any repository script next to the Volumes on an L4,
+with the `default` image. `{results}` and `{data}` in `--args` become the mount
+points, and the log goes to `srnn-results:/analysis_logs/<time>_<script>.log`:
+
+```bash
+uv run modal run --detach cloud/modal_analyze.py --script scripts/eval_speed.py \
+    --args "{results}/results-pytorch/myrun/srnn/cheetah100/seed1 --data-root {data} \
+            --tests cheetah100_fixed_speeds/test_r*.npz"
+```
 
 ## Debugging on a GPU
 
@@ -193,9 +232,10 @@ memory charges. The Starter plan includes $30 of compute per month. The
 
 - `cloud/modal_app.py`: Modal definitions only. Two images, the Volumes,
   `train` and `train_reference` (one body, one per image; `gpu="L4"`,
-  `timeout=24h`, `retries=0`), and the local entrypoint.
+  `timeout=24h`, two retries), and the local entrypoint.
 - `cloud/modal_run.py`: plain Python, unit-tested in `tests/test_modal_run.py`.
   Launch side: git checks, the code tarball, argument merging. Container side:
-  `run_training()`, the counterpart of `startup_gpu.sh`.
+  `run_training()`, the counterpart of `startup_gpu.sh`, and `run_script()`.
+- `cloud/modal_analyze.py`: the analysis app (`analyze` function and launcher).
 - `cloud/run_telemetry.py`: shared with GCE. Provenance, GPU sampling and
   summary, and `run_metadata.json`.

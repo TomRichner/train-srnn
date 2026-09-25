@@ -124,6 +124,17 @@ def source_args(env_text: str | None) -> str:
         os.unlink(f.name)
 
 
+def supports_resume(repo: Path, commit: str | None) -> bool:
+    """Whether the shipped code has ``resume=true`` (train_srnn/config.py ``resume: bool``)."""
+    rel = "train_srnn/config.py"
+    if commit is None:
+        text = (repo / rel).read_text()
+    else:
+        text = subprocess.run(["git", "-C", str(repo), "show", f"{commit}:{rel}"],
+                              check=True, capture_output=True, text=True).stdout
+    return re.search(r"^\s+resume: bool", text, re.MULTILINE) is not None
+
+
 def merge_args(experiment_args: str, user_args: str) -> list[str]:
     """Experiment ARGS then the caller's args, split like ``startup_gpu.sh``.
 
@@ -162,6 +173,51 @@ def build_code(repo: Path, commit: str | None = None, allow_dirty: bool = False)
 # Container side
 # =============================================================================
 
+def expand_placeholders(args: list[str], results_root: str = RESULTS_MOUNT,
+                        data_root: str = DATA_MOUNT) -> list[str]:
+    """``{results}`` and ``{data}`` in script arguments become the Volume mount points."""
+    return [a.replace("{results}", results_root).replace("{data}", data_root) for a in args]
+
+
+def extract_code(code_tgz: bytes, code_dir: str) -> None:
+    shutil.rmtree(code_dir, ignore_errors=True)
+    Path(code_dir).mkdir(parents=True)
+    with tarfile.open(fileobj=io.BytesIO(code_tgz), mode="r:gz") as tar:
+        if hasattr(tarfile, "data_filter"):
+            tar.extractall(code_dir, filter="data")
+        else:
+            tar.extractall(code_dir)
+
+
+def run_script(spec: dict, code_tgz: bytes, *, commit_volume, results_root: str = RESULTS_MOUNT,
+               data_root: str = DATA_MOUNT, code_dir: str = CODE_DIR) -> dict:
+    """Run one repository script (analysis, evaluation) next to the Volumes.
+
+    ``spec["script"]`` is a path inside the repository and ``spec["args"]`` its
+    arguments, with ``{results}``/``{data}`` placeholders. Output goes to the log file
+    ``spec["log"]`` (relative to the results Volume) and to stdout.
+    """
+    extract_code(code_tgz, code_dir)
+    log_path = Path(results_root) / spec["log"]
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [sys.executable, spec["script"], *expand_placeholders(spec["args"], results_root, data_root)]
+    env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONPATH=code_dir, SRNN_DATA_DIR=data_root,
+               SRNN_HOME=os.environ.get("SRNN_HOME", "/tmp/srnn"))
+    start = time.time()
+    try:
+        with log_path.open("a", buffering=1) as log:
+            log.write(f"+ {' '.join(cmd)}\n# code {spec.get('code_source')} {spec.get('commit')}"
+                      f" sha256 {spec.get('code_sha256')}\n")
+        print("+ " + " ".join(cmd), flush=True)
+        proc = subprocess.Popen(cmd, cwd=code_dir, env=env, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, bufsize=1)
+        _stream(proc, log_path)
+        exit_code = proc.wait()
+    finally:
+        commit_volume()
+    return {"exit_code": exit_code, "duration_seconds": round(time.time() - start), "log": spec["log"]}
+
+
 class Terminated(Exception):
     """SIGTERM reached the runner (e.g. ``modal app stop``)."""
 
@@ -172,22 +228,44 @@ def train_command(python: str, *, model: str, task: str, seed: int, train_args: 
             *train_args, f"run_name={run_name}_seed{seed}", f"output_dir={output_dir}"]
 
 
-def redelivery_guard(out: Path, overwrite: bool) -> Path | None:
-    """Stop a second delivery of the same input from appending to a finished run.
+def redelivery_guard(out: Path, overwrite: bool, resumable: bool = False) -> Path | None:
+    """Decide what a populated output directory means for this attempt.
 
-    Modal can re-run an input after a worker preemption even with ``retries=0``. If the
-    output directory already holds files, record the attempt beside them and return its
-    path; the caller must then leave the directory alone. ``overwrite`` clears it instead.
+    Modal re-runs an input after a worker preemption (even with ``retries=0``) or a
+    container crash. Code with ``resume=true`` simply continues the run, so the
+    directory is kept (return None). For older code, record the attempt beside the
+    files and return that note's path; the caller must then leave the directory alone,
+    since a rerun would append to its histories. ``overwrite`` clears the directory
+    (only on the first attempt; see ``run_training``).
     """
     if not out.is_dir() or not any(out.iterdir()):
         return None
     if overwrite:
         shutil.rmtree(out)
         return None
+    if resumable:
+        return None
     note = out / f"redelivery_{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.json"
     note.write_text(json.dumps({"reason": "output directory already populated; not rerun",
                                 "time": time.time()}, indent=2) + "\n")
     return note
+
+
+ATTEMPTS = "attempts.jsonl"
+
+
+def previous_attempts(out: Path) -> int:
+    path = out / ATTEMPTS
+    return len(path.read_text().splitlines()) if path.is_file() else 0
+
+
+def record_attempt(out: Path, call_id: str) -> int:
+    """Append this container start to ``attempts.jsonl``; returns the attempt number."""
+    number = previous_attempts(out) + 1
+    with (out / ATTEMPTS).open("a") as f:
+        f.write(json.dumps({"attempt": number, "time": time.time(), "function_call_id": call_id,
+                            "container_id": os.environ.get("MODAL_TASK_ID", "")}) + "\n")
+    return number
 
 
 def installed_packages() -> dict[str, str]:
@@ -216,11 +294,16 @@ def run_training(spec: dict, code_tgz: bytes, *, commit_volume, call_id: str,
     start, start_iso = time.time(), run_telemetry.utc_now()
     out = Path(results_root) / result_rel_dir(spec["run_name"], spec["model"], spec["task"],
                                               spec["seed"])
-    note = redelivery_guard(out, spec.get("overwrite", False))
+    resumable = bool(spec.get("supports_resume", False))
+    attempt = previous_attempts(out) + 1
+    # --overwrite clears the directory once; a retried attempt must keep what it wrote.
+    overwrite = spec.get("overwrite", False) and attempt == 1
+    note = redelivery_guard(out, overwrite, resumable)
     if note is not None:
         commit_volume()
         raise RuntimeError(f"{out} already holds a run; recorded {note.name} and stopped")
     out.mkdir(parents=True, exist_ok=True)
+    attempt = record_attempt(out, call_id)
 
     exit_code, sampler, proc, error = 1, None, None, None
     previous = None
@@ -238,29 +321,27 @@ def run_training(spec: dict, code_tgz: bytes, *, commit_volume, call_id: str,
     try:
         (out / "code.tar.gz").write_bytes(code_tgz)
         (out / "code.sha256").write_text(f"{sha256_bytes(code_tgz)}  code.tar.gz\n")
-        shutil.rmtree(code_dir, ignore_errors=True)
-        Path(code_dir).mkdir(parents=True)
-        with tarfile.open(fileobj=io.BytesIO(code_tgz), mode="r:gz") as tar:
-            if hasattr(tarfile, "data_filter"):
-                tar.extractall(code_dir, filter="data")
-            else:
-                tar.extractall(code_dir)
+        extract_code(code_tgz, code_dir)
 
         import torch
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is not available in the container")
-        data_dir = Path(data_root) / spec["task"]
+        data_dir = Path(data_root) / spec.get("dataset", spec["task"])
         hash_dir = data_dir if data_dir.is_dir() else Path(tempfile.mkdtemp())
         extra = {key: spec[key] for key in ("image", "gpu", "code_source", "dirty",
                                             "dirty_paths", "code_sha256")}
+        train_args = list(spec["train_args"]) + (["resume=true"] if resumable else [])
         cmd = train_command(sys.executable, model=spec["model"], task=spec["task"],
-                            seed=spec["seed"], train_args=spec["train_args"],
+                            seed=spec["seed"], train_args=train_args,
                             run_name=spec["run_name"], output_dir=str(out))
         extra.update(launcher="modal", function_call_id=call_id,
                      container_id=os.environ.get("MODAL_TASK_ID", ""),
                      image_id=os.environ.get("MODAL_IMAGE_ID", ""),
                      train_argv=cmd[1:], packages=installed_packages())
-        run_telemetry.provenance(out, hash_dir, spec["commit"], extra)
+        extra["attempt"] = attempt
+        name = ("runtime_provenance.json" if attempt == 1
+                else f"runtime_provenance_attempt{attempt}.json")
+        run_telemetry.provenance(out, hash_dir, spec["commit"], extra, name=name)
 
         sampler = subprocess.Popen([sys.executable, str(TELEMETRY), "sample", "--output", str(out)])
         env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONPATH=code_dir,
@@ -293,7 +374,8 @@ def run_training(spec: dict, code_tgz: bytes, *, commit_volume, call_id: str,
             except (OSError, KeyError, ValueError) as exc:
                 print(f"GPU summary failed: {exc}", flush=True)
         extra = {"launcher": "modal", "image": spec["image"], "code_source": spec["code_source"],
-                 "dirty": spec["dirty"], "code_sha256": spec["code_sha256"]}
+                 "dirty": spec["dirty"], "code_sha256": spec["code_sha256"],
+                 "attempts": previous_attempts(out)}
         if error:
             extra["error_message"] = error
         meta = run_telemetry.write_run_metadata(

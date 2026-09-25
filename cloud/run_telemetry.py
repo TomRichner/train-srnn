@@ -49,9 +49,12 @@ def sample(output: Path) -> None:
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    with (output / "gpu_memory_samples.csv").open("w", buffering=1) as stream:
+    path = output / "gpu_memory_samples.csv"
+    resuming = path.is_file() and path.stat().st_size > 0  # a resumed run keeps earlier samples
+    with path.open("a", buffering=1) as stream:
         writer = csv.writer(stream)
-        writer.writerow(FIELDS)
+        if not resuming:
+            writer.writerow(FIELDS)
         while running:
             started = time.monotonic()
             try:
@@ -71,8 +74,9 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def provenance(output: Path, data_dir: Path, commit: str, extra: dict | None = None) -> dict:
-    """Write ``runtime_provenance.json``; ``extra`` adds launcher-specific keys (e.g. Modal)."""
+def provenance(output: Path, data_dir: Path, commit: str, extra: dict | None = None,
+               name: str = "runtime_provenance.json") -> dict:
+    """Write ``runtime_provenance.json`` (or ``name``); ``extra`` adds launcher-specific keys."""
     import torch
 
     hashes = {}
@@ -89,7 +93,7 @@ def provenance(output: Path, data_dir: Path, commit: str, extra: dict | None = N
         "nvidia_smi": query_gpu("index,uuid,name,driver_version,memory.total").strip(),
     }
     report.update(extra or {})
-    (output / "runtime_provenance.json").write_text(json.dumps(report, indent=2) + "\n")
+    (output / name).write_text(json.dumps(report, indent=2) + "\n")
     return report
 
 

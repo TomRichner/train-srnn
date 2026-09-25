@@ -99,3 +99,30 @@ def test_run_metadata_matches_gce_fields_and_marks_failure(tmp_path):
     assert "error" not in ok and "failed_at" not in ok
     failed = telemetry.write_run_metadata(tmp_path, exit_code=3, **common)
     assert failed["error"] is True and failed["failed_at"] == failed["completed"]
+
+
+def test_sampler_appends_to_an_existing_csv(tmp_path, monkeypatch):
+    import signal as signal_module
+
+    (tmp_path / "gpu_memory_samples.csv").write_text(
+        "time_unix,index,memory_used_mib,memory_total_mib,utilization_pct\n1,0,100,1000,5\n")
+    calls = []
+
+    def fake_query(fields):
+        calls.append(fields)
+        if len(calls) > 1:
+            signal_module.raise_signal(signal_module.SIGTERM)
+        return "0, 200, 1000, 50\n"
+
+    monkeypatch.setattr(telemetry, "query_gpu", fake_query)
+    monkeypatch.setattr(telemetry.time, "sleep", lambda _s: None)
+    handlers = {sig: signal_module.getsignal(sig) for sig in (signal_module.SIGTERM,
+                                                              signal_module.SIGINT)}
+    try:
+        telemetry.sample(tmp_path)
+    finally:
+        for sig, handler in handlers.items():
+            signal_module.signal(sig, handler)
+    rows = (tmp_path / "gpu_memory_samples.csv").read_text().splitlines()
+    assert rows[0].startswith("time_unix") and rows.count(rows[0]) == 1
+    assert rows[1].endswith(",0,100,1000,5") and len(rows) == 4

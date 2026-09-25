@@ -1,6 +1,7 @@
 """Modal launcher helpers: code packing, argument merging, guards and metadata."""
 import ast
 import io
+import json
 import os
 import subprocess
 import sys
@@ -158,7 +159,7 @@ def test_modal_app_function_settings():
     import modal_app
 
     assert modal_app.FUNCTION_OPTIONS["timeout"] == 24 * 3600
-    assert modal_app.FUNCTION_OPTIONS["retries"] == 0
+    assert modal_app.FUNCTION_OPTIONS["retries"].max_retries == 2
     assert modal_app.FUNCTION_OPTIONS["gpu"] == "L4"
     assert set(modal_app.FUNCTION_OPTIONS["volumes"]) == {modal_run.RESULTS_MOUNT,
                                                            modal_run.DATA_MOUNT}
@@ -199,3 +200,28 @@ def test_download_from_volume_keeps_subdirs_and_skips_cached(tmp_path):
     assert download_from_volume(vol, prefix, tmp_path) == (0, 2)
     with pytest.raises(FileNotFoundError):
         download_from_volume(vol, "results-pytorch/missing", tmp_path)
+
+
+def test_supports_resume_reads_the_shipped_config(repo):
+    config = repo / "train_srnn" / "config.py"
+    config.parent.mkdir()
+    config.write_text("class TrainConfig:\n    init_ckpt: str = None\n")
+    _git(repo, "add", ".")
+    _git(repo, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "old")
+    old = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                         capture_output=True, text=True).stdout.strip()
+    config.write_text("class TrainConfig:\n    resume: bool = False\n")
+    assert modal_run.supports_resume(repo, None)
+    assert not modal_run.supports_resume(repo, old)
+
+
+def test_resumable_redelivery_keeps_the_run_and_counts_attempts(tmp_path):
+    out = tmp_path / "seed1"
+    out.mkdir()
+    (out / "epoch_004.pt").write_bytes(b"x")
+    assert modal_run.redelivery_guard(out, overwrite=False, resumable=True) is None
+    assert (out / "epoch_004.pt").exists()
+    assert modal_run.previous_attempts(out) == 0
+    assert modal_run.record_attempt(out, "fc-1") == 1
+    assert modal_run.record_attempt(out, "fc-1") == 2
+    assert [json.loads(l)["attempt"] for l in (out / "attempts.jsonl").read_text().splitlines()] == [1, 2]
