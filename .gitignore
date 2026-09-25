@@ -10,6 +10,7 @@ __pycache__/
 # Anything a run or an analysis script writes; all of it lives under $SRNN_HOME
 outputs/
 results/
+!docs/results/
 tmp/
 *.pt
 !tests/golden/*.pt
